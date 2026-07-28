@@ -15,6 +15,7 @@ const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
 const errorMessages = {
+  API_UNAVAILABLE: "서버 API가 연결되지 않았습니다. Render 서비스를 Static Site가 아니라 Web Service로 배포해야 합니다.",
   CANNOT_DELETE_SELF: "현재 로그인한 계정은 삭제할 수 없습니다.",
   DISPLAY_NAME_REQUIRED: "이름을 입력하세요.",
   FORBIDDEN: "admin 권한이 필요합니다.",
@@ -183,14 +184,25 @@ async function apiFetch(path, options = {}) {
     throw error;
   }
 
+  const contentType = response.headers.get("content-type") || "";
   const text = await response.text();
   let data = {};
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = {};
+      const error = new Error(errorMessages.API_UNAVAILABLE);
+      error.code = "API_UNAVAILABLE";
+      error.status = response.status;
+      throw error;
     }
+  }
+
+  if (!contentType.includes("application/json")) {
+    const error = new Error(errorMessages.API_UNAVAILABLE);
+    error.code = "API_UNAVAILABLE";
+    error.status = response.status;
+    throw error;
   }
 
   if (!response.ok) {
