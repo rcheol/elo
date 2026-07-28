@@ -499,7 +499,14 @@ function playerDisplayName(player) {
     return "알 수 없음";
   }
   const accountId = playerAccountId(player);
-  return accountId ? `${player.name} (${accountId})` : player.name;
+  if (!accountId) {
+    return player.name;
+  }
+
+  const accountSuffix = `(${accountId})`;
+  return player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
+    ? player.name
+    : `${player.name} ${accountSuffix}`;
 }
 
 function playerName(id) {
