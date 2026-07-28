@@ -603,6 +603,21 @@ select:focus {
   flex: 0 0 auto;
 }
 
+.roster-actions {
+  justify-content: flex-end;
+}
+
+.inline-rating-input {
+  width: 96px;
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 0.85rem;
+}
+
+.pending-player-row {
+  background: #fffdf4;
+}
+
 .settings {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

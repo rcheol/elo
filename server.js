@@ -63,9 +63,10 @@ function initDb() {
 
     CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY,
+      user_id TEXT,
       name TEXT NOT NULL,
       normalized_name TEXT NOT NULL UNIQUE,
-      seed_rating REAL NOT NULL,
+      seed_rating REAL,
       created_at TEXT NOT NULL
     );
 
@@ -97,11 +98,46 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_matches_sequence ON matches(sequence);
   `);
 
+  migratePlayersTable();
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
+
   const insertSetting = db.prepare("INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)");
   insertSetting.run("baseRating", String(defaultSettings.baseRating));
   insertSetting.run("kFactor", String(defaultSettings.kFactor));
   insertSetting.run("marginBonus", defaultSettings.marginBonus ? "true" : "false");
   db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
+  ensurePendingPlayersForUsers();
+}
+
+function migratePlayersTable() {
+  const columns = db.prepare("PRAGMA table_info(players)").all();
+  const hasUserId = columns.some((column) => column.name === "user_id");
+  const seedRatingColumn = columns.find((column) => column.name === "seed_rating");
+  const seedRatingIsNotNull = Number(seedRatingColumn?.notnull || 0) === 1;
+
+  if (hasUserId && !seedRatingIsNotNull) {
+    return;
+  }
+
+  db.exec("ALTER TABLE players RENAME TO players_legacy");
+  db.exec(`
+    CREATE TABLE players (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL UNIQUE,
+      seed_rating REAL,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  db.prepare(`
+    INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
+    SELECT id, ${hasUserId ? "user_id" : "NULL"}, name, normalized_name, seed_rating, created_at
+    FROM players_legacy
+  `).run();
+  db.exec("DROP TABLE players_legacy");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
 }
 
 function clampNumber(value, min, max) {
@@ -206,18 +242,37 @@ function userFromRow(row) {
   if (!row) {
     return null;
   }
-  return {
+  const user = {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
     role: row.role,
     createdAt: row.created_at,
   };
+
+  if (Object.prototype.hasOwnProperty.call(row, "player_id")) {
+    user.playerId = row.player_id || null;
+    user.playerSeedRating = row.player_seed_rating == null ? null : Number(row.player_seed_rating);
+    user.playerStatus = row.player_id ? row.player_seed_rating == null ? "pending" : "active" : "none";
+  }
+
+  return user;
 }
 
 function getUsersSafe() {
   return db
-    .prepare("SELECT id, username, display_name, role, created_at FROM users ORDER BY created_at ASC")
+    .prepare(`
+      SELECT users.id,
+             users.username,
+             users.display_name,
+             users.role,
+             users.created_at,
+             players.id AS player_id,
+             players.seed_rating AS player_seed_rating
+      FROM users
+      LEFT JOIN players ON players.user_id = users.id
+      ORDER BY users.created_at ASC
+    `)
     .all()
     .map(userFromRow);
 }
@@ -225,15 +280,23 @@ function getUsersSafe() {
 function playerFromRow(row) {
   return {
     id: row.id,
+    userId: row.user_id || null,
     name: row.name,
-    seedRating: Number(row.seed_rating),
+    seedRating: row.seed_rating == null ? null : Number(row.seed_rating),
+    status: row.seed_rating == null ? "pending" : "active",
     createdAt: row.created_at,
   };
 }
 
-function getPlayers() {
+function getPlayers(options = {}) {
+  const includePending = Boolean(options.includePending);
   return db
-    .prepare("SELECT id, name, seed_rating, created_at FROM players ORDER BY created_at ASC, name ASC")
+    .prepare(`
+      SELECT id, user_id, name, seed_rating, created_at
+      FROM players
+      ${includePending ? "" : "WHERE seed_rating IS NOT NULL"}
+      ORDER BY created_at ASC, name ASC
+    `)
     .all()
     .map(playerFromRow);
 }
@@ -272,8 +335,9 @@ function getMatches() {
 }
 
 function getStatePayload(currentUser) {
+  const includePendingPlayers = currentUser?.role === "admin";
   return {
-    players: getPlayers(),
+    players: getPlayers({ includePending: includePendingPlayers }),
     matches: getMatches(),
     settings: getSettings(),
     users: currentUser?.role === "admin" ? getUsersSafe() : [],
@@ -492,8 +556,8 @@ function insertPlayer(input) {
   const seedRating = clampNumber(Number(input?.seedRating ?? input?.rating ?? getSettings().baseRating), 800, 2400);
   try {
     db.prepare(`
-      INSERT INTO players (id, name, normalized_name, seed_rating, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
+      VALUES (?, NULL, ?, ?, ?, ?)
     `).run(uid(), name, normalizeNameKey(name), seedRating, nowIso());
   } catch (error) {
     if (String(error.message).includes("UNIQUE")) {
@@ -503,17 +567,89 @@ function insertPlayer(input) {
   }
 }
 
+function countPlayerGames(playerId) {
+  return Number(
+    db
+      .prepare("SELECT COUNT(*) AS count FROM matches WHERE team_a LIKE ? OR team_b LIKE ?")
+      .get(`%"${playerId}"%`, `%"${playerId}"%`).count,
+  );
+}
+
+function updatePlayerSeedRating(playerId, input) {
+  const player = db.prepare("SELECT * FROM players WHERE id = ?").get(playerId);
+  if (!player) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+
+  if (countPlayerGames(playerId) > 0) {
+    throw new HttpError(409, "PLAYER_HAS_MATCHES");
+  }
+
+  const seedRating = Number(input?.seedRating ?? input?.rating);
+  if (!Number.isFinite(seedRating)) {
+    throw new HttpError(400, "PLAYER_RATING_REQUIRED");
+  }
+
+  db.prepare("UPDATE players SET seed_rating = ? WHERE id = ?").run(clampNumber(seedRating, 800, 2400), playerId);
+}
+
 function deletePlayer(playerId) {
-  const match = db
-    .prepare("SELECT id FROM matches WHERE team_a LIKE ? OR team_b LIKE ? LIMIT 1")
-    .get(`%"${playerId}"%`, `%"${playerId}"%`);
-  if (match) {
+  if (countPlayerGames(playerId) > 0) {
     throw new HttpError(409, "PLAYER_HAS_MATCHES");
   }
   const result = db.prepare("DELETE FROM players WHERE id = ?").run(playerId);
   if (result.changes === 0) {
     throw new HttpError(404, "PLAYER_NOT_FOUND");
   }
+}
+
+function uniquePlayerNameForAccount(displayName, username) {
+  const candidates = [
+    normalizePlayerName(displayName),
+    normalizePlayerName(`${displayName} (${username})`),
+    normalizePlayerName(`${displayName} ${username}`),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const exists = db.prepare("SELECT id FROM players WHERE normalized_name = ?").get(normalizeNameKey(candidate));
+    if (!exists) {
+      return candidate;
+    }
+  }
+
+  return normalizePlayerName(`${displayName} ${username} ${uid().slice(0, 8)}`);
+}
+
+function createPendingPlayerForUser(user) {
+  const existing = db.prepare("SELECT id FROM players WHERE user_id = ?").get(user.id);
+  if (existing) {
+    return;
+  }
+
+  const name = uniquePlayerNameForAccount(user.displayName, user.username);
+  db.prepare(`
+    INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
+    VALUES (?, ?, ?, ?, NULL, ?)
+  `).run(uid(), user.id, name, normalizeNameKey(name), nowIso());
+}
+
+function ensurePendingPlayersForUsers() {
+  db
+    .prepare("SELECT id, username, display_name, role, created_at FROM users ORDER BY created_at ASC")
+    .all()
+    .map(userFromRow)
+    .forEach((user) => createPendingPlayerForUser(user));
+}
+
+function deleteMatch(matchId) {
+  const existing = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId);
+  if (!existing) {
+    throw new HttpError(404, "MATCH_NOT_FOUND");
+  }
+
+  const match = matchFromRow(existing);
+  db.prepare("DELETE FROM matches WHERE id = ?").run(match.id);
+  recalculateMatchesFromSequence(match.sequence);
 }
 
 function runInTransaction(callback) {
@@ -737,6 +873,15 @@ function deleteUser(targetUserId, currentUser) {
     throw new HttpError(409, "LAST_ADMIN");
   }
 
+  const linkedPlayer = db.prepare("SELECT id, seed_rating FROM players WHERE user_id = ?").get(targetUserId);
+  if (linkedPlayer) {
+    if (countPlayerGames(linkedPlayer.id) === 0) {
+      db.prepare("DELETE FROM players WHERE id = ?").run(linkedPlayer.id);
+    } else {
+      db.prepare("UPDATE players SET user_id = NULL WHERE id = ?").run(linkedPlayer.id);
+    }
+  }
+
   db.prepare("DELETE FROM users WHERE id = ?").run(targetUserId);
 }
 
@@ -764,9 +909,13 @@ function normalizeImportedPlayers(inputPlayers) {
 
     return {
       id,
+      userId: player?.userId ? String(player.userId) : null,
       name,
       normalizedName: key,
-      seedRating: clampNumber(Number(player?.seedRating ?? player?.rating ?? defaultSettings.baseRating), 800, 2400),
+      seedRating:
+        player?.seedRating == null && player?.rating == null
+          ? null
+          : clampNumber(Number(player?.seedRating ?? player?.rating), 800, 2400),
       createdAt: player?.createdAt || nowIso(),
     };
   });
@@ -778,6 +927,7 @@ function normalizeImportedMatches(inputMatches, players, currentUser) {
   }
 
   const playerIds = new Set(players.map((player) => player.id));
+  const activePlayerIds = new Set(players.filter((player) => player.seedRating != null).map((player) => player.id));
   const matchIds = new Set();
 
   return inputMatches.map((match, index) => {
@@ -792,7 +942,7 @@ function normalizeImportedMatches(inputMatches, players, currentUser) {
 
     if (
       ids.length !== 4 ||
-      ids.some((playerId) => !playerIds.has(playerId)) ||
+      ids.some((playerId) => !playerIds.has(playerId) || !activePlayerIds.has(playerId)) ||
       new Set(ids).size !== 4 ||
       !Number.isInteger(scoreA) ||
       !Number.isInteger(scoreB) ||
@@ -839,11 +989,11 @@ function replaceData(input, currentUser) {
   saveSettings(settings);
 
   const insertPlayerStatement = db.prepare(`
-    INSERT INTO players (id, name, normalized_name, seed_rating, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
   players.forEach((player) => {
-    insertPlayerStatement.run(player.id, player.name, player.normalizedName, player.seedRating, player.createdAt);
+    insertPlayerStatement.run(player.id, player.userId, player.name, player.normalizedName, player.seedRating, player.createdAt);
   });
 
   const insertMatchStatement = db.prepare(`
@@ -887,12 +1037,15 @@ function replaceData(input, currentUser) {
     );
     applyRatingChanges(ratings, fullMatch);
   });
+
+  ensurePendingPlayersForUsers();
 }
 
 function resetData() {
   db.prepare("DELETE FROM matches").run();
   db.prepare("DELETE FROM players").run();
   saveSettings(defaultSettings);
+  ensurePendingPlayersForUsers();
 }
 
 async function handleApi(req, res, url) {
@@ -911,6 +1064,7 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const result = runInTransaction(() => {
       const user = createAccount(body);
+      createPendingPlayerForUser(user);
       const sid = createSession(user.id);
       return { user, sid };
     });
@@ -943,6 +1097,13 @@ async function handleApi(req, res, url) {
   }
 
   const playerMatch = pathname.match(/^\/api\/players\/([^/]+)$/);
+  if (method === "PATCH" && playerMatch) {
+    const currentUser = requireAdmin(req);
+    const body = await readJsonBody(req);
+    runInTransaction(() => updatePlayerSeedRating(decodeURIComponent(playerMatch[1]), body));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
+  }
+
   if (method === "DELETE" && playerMatch) {
     const currentUser = requireAdmin(req);
     runInTransaction(() => deletePlayer(decodeURIComponent(playerMatch[1])));
@@ -961,6 +1122,12 @@ async function handleApi(req, res, url) {
     const currentUser = requireAdmin(req);
     const body = await readJsonBody(req);
     runInTransaction(() => updateMatch(decodeURIComponent(matchMatch[1]), body, currentUser));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
+  }
+
+  if (method === "DELETE" && matchMatch) {
+    const currentUser = requireAdmin(req);
+    runInTransaction(() => deleteMatch(decodeURIComponent(matchMatch[1])));
     return sendJson(req, res, 200, getStatePayload(currentUser));
   }
 

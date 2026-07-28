@@ -36,6 +36,7 @@ const errorMessages = {
   PLAYER_NAME_REQUIRED: "선수 이름을 입력하세요.",
   PLAYER_NAME_TAKEN: "이미 등록된 선수 이름입니다.",
   PLAYER_NOT_FOUND: "선수를 찾을 수 없습니다.",
+  PLAYER_RATING_REQUIRED: "초기 ELO를 입력하세요.",
   REQUEST_TOO_LARGE: "파일이 너무 큽니다.",
   SERVER_ERROR: "서버 처리 중 문제가 생겼습니다.",
   UNAUTHORIZED: "로그인이 필요합니다.",
@@ -94,6 +95,9 @@ function normalizeUser(user) {
     username: normalizeUsername(user.username),
     displayName: String(user.displayName || user.username).trim(),
     role: user.role === "admin" ? "admin" : "member",
+    playerId: user.playerId ? String(user.playerId) : null,
+    playerSeedRating: user.playerSeedRating == null ? null : Number(user.playerSeedRating),
+    playerStatus: user.playerStatus || "none",
     createdAt: user.createdAt || new Date().toISOString(),
   };
 }
@@ -105,18 +109,23 @@ function normalizeState(input) {
         .filter((player) => player && player.id && player.name)
         .map((player) => ({
           id: String(player.id),
+          userId: player.userId ? String(player.userId) : null,
           name: String(player.name).trim(),
-          seedRating: clampNumber(Number(player.seedRating ?? player.rating ?? defaultSettings.baseRating), 800, 2400),
+          seedRating:
+            player.seedRating == null && player.rating == null
+              ? null
+              : clampNumber(Number(player.seedRating ?? player.rating), 800, 2400),
+          status: player.status === "pending" || player.seedRating == null ? "pending" : "active",
           createdAt: player.createdAt || new Date().toISOString(),
         }))
     : [];
 
-  const playerIds = new Set(players.map((player) => player.id));
+  const activePlayerIds = new Set(players.filter((player) => player.seedRating != null).map((player) => player.id));
   const matches = Array.isArray(input?.matches)
     ? input.matches
         .filter((match) => {
           const ids = [...(match.teamA || []), ...(match.teamB || [])];
-          return ids.length === 4 && ids.every((id) => playerIds.has(String(id)));
+          return ids.length === 4 && ids.every((id) => activePlayerIds.has(String(id)));
         })
         .map((match) => ({
           id: String(match.id || uid()),
@@ -254,6 +263,10 @@ function isAdmin() {
   return getCurrentUser()?.role === "admin";
 }
 
+function getActivePlayers(sourceState = state) {
+  return sourceState.players.filter((player) => player.seedRating != null && player.status !== "pending");
+}
+
 function requireLogin() {
   if (!getCurrentUser()) {
     showToast("로그인이 필요합니다.");
@@ -356,7 +369,7 @@ async function deleteUser(userId) {
 
 function getStandings(sourceState = state) {
   const table = new Map(
-    sourceState.players.map((player) => [
+    getActivePlayers(sourceState).map((player) => [
       player.id,
       {
         ...player,
@@ -462,6 +475,45 @@ async function deletePlayer(playerId) {
   }
 }
 
+async function updatePlayerSeedRating(playerId) {
+  if (!requireAdmin()) return;
+
+  const input = $(`[data-player-rating="${CSS.escape(playerId)}"]`);
+  const seedRating = Number(input?.value);
+  if (!Number.isFinite(seedRating)) {
+    showToast("초기 ELO를 입력하세요.");
+    return;
+  }
+
+  try {
+    applyServerState(
+      await apiFetch(`/api/players/${encodeURIComponent(playerId)}`, {
+        method: "PATCH",
+        body: { seedRating },
+      }),
+    );
+    showToast("초기 ELO를 저장했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
+async function deleteMatch(matchId) {
+  if (!requireAdmin()) return;
+  const match = state.matches.find((entry) => entry.id === matchId);
+  if (!match) return;
+  if (!window.confirm("이 경기 기록을 삭제할까요? 삭제 후 이후 ELO가 다시 계산됩니다.")) {
+    return;
+  }
+
+  try {
+    applyServerState(await apiFetch(`/api/matches/${encodeURIComponent(matchId)}`, { method: "DELETE" }));
+    showToast("경기 기록을 삭제하고 이후 ELO를 다시 계산했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
 function getMarginFactor(scoreA, scoreB) {
   const maxScore = Math.max(scoreA, scoreB, 21);
   const gap = Math.abs(scoreA - scoreB);
@@ -474,7 +526,7 @@ function average(values) {
 
 function validateMatch(teamA, teamB, scoreA, scoreB) {
   const ids = [...teamA, ...teamB];
-  if (state.players.length < 4) {
+  if (getActivePlayers().length < 4) {
     return "선수 4명 이상이 필요합니다.";
   }
   if (ids.some((id) => !id)) {
@@ -600,11 +652,16 @@ function renderAuth() {
       const canDelete = isAdmin() && !isCurrent;
       const adminCount = state.users.filter((candidate) => candidate.role === "admin").length;
       const canToggle = isAdmin() && !(entry.role === "admin" && adminCount <= 1);
+      const playerInfo = entry.playerStatus === "active"
+        ? `선수 ELO ${Math.round(entry.playerSeedRating)}`
+        : entry.playerStatus === "pending"
+          ? "선수 승인 대기"
+          : "선수 없음";
       return `
         <li class="user-row">
           <div>
             <strong>${escapeHtml(entry.displayName)}</strong>
-            <span>${escapeHtml(entry.username)} · ${entry.role === "admin" ? "admin" : "member"}${isCurrent ? " · 현재" : ""}</span>
+            <span>${escapeHtml(entry.username)} · ${entry.role === "admin" ? "admin" : "member"} · ${playerInfo}${isCurrent ? " · 현재" : ""}</span>
           </div>
           <div class="row-actions">
             <button class="icon-text-button" type="button" data-toggle-admin="${escapeHtml(entry.id)}" ${canToggle ? "" : "disabled"}>
@@ -623,7 +680,7 @@ function renderAuth() {
 }
 
 function renderSummary(standings) {
-  $("#playerCount").textContent = state.players.length;
+  $("#playerCount").textContent = getActivePlayers().length;
   $("#matchCount").textContent = state.matches.length;
   $("#averageRating").textContent = standings.length ? Math.round(average(standings.map((player) => player.rating))) : 0;
 }
@@ -678,7 +735,8 @@ function renderAccess() {
   const user = getCurrentUser();
   const loggedIn = Boolean(user);
   const admin = isAdmin();
-  const canRecordMatch = loggedIn && state.players.length >= 4;
+  const activePlayerCount = getActivePlayers().length;
+  const canRecordMatch = loggedIn && activePlayerCount >= 4;
 
   $("#matchAuthNote").textContent = loggedIn ? `${user.displayName}님으로 경기 입력 중` : "로그인하면 경기 결과를 입력할 수 있습니다.";
   $("#rosterAuthNote").textContent = admin ? "admin 권한으로 선수와 설정을 관리 중" : "선수 등록과 설정 변경은 admin만 가능합니다.";
@@ -689,7 +747,7 @@ function renderAccess() {
   $("#scoreA").disabled = !loggedIn;
   $("#scoreB").disabled = !loggedIn;
   $("#matchSubmitBtn").disabled = !canRecordMatch;
-  $("#shuffleBtn").hidden = state.players.length < 4;
+  $("#shuffleBtn").hidden = activePlayerCount < 4;
   $("#shuffleBtn").disabled = !canRecordMatch;
 
   $$("#playerForm input, #playerForm button, #baseRating, #kFactor, #marginBonus").forEach((element) => {
@@ -704,8 +762,7 @@ function renderAccess() {
 function renderRankings(standings) {
   const body = $("#rankingBody");
   const empty = $("#rankingEmpty");
-  body.innerHTML = standings
-    .map((player, index) => {
+  const activeRows = standings.map((player, index) => {
       const rank = index + 1;
       const rankClass = rank <= 3 ? "rank-pill rank-pill--podium" : "rank-pill";
       const ratingClass = player.ratingDelta < 0 ? "delta delta--down" : "delta";
@@ -713,8 +770,14 @@ function renderRankings(standings) {
       const pointDiff = player.pointDiff > 0 ? `+${player.pointDiff}` : String(player.pointDiff);
       const streak = formatStreak(player.streak);
       const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
-      const deleteButton = isAdmin() && player.games === 0
-        ? `<button class="icon-button" type="button" data-delete-player="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.name)} 삭제" title="삭제"><i data-lucide="x"></i><span class="visually-hidden">삭제</span></button>`
+      const actions = isAdmin() && player.games === 0
+        ? `
+          <div class="row-actions roster-actions">
+            <input class="inline-rating-input" data-player-rating="${escapeHtml(player.id)}" inputmode="numeric" min="800" max="2400" type="number" value="${Math.round(player.seedRating)}" aria-label="${escapeHtml(player.name)} 초기 ELO">
+            <button class="icon-button" type="button" data-update-rating="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.name)} 초기 ELO 저장" title="초기 ELO 저장"><i data-lucide="save"></i><span class="visually-hidden">저장</span></button>
+            <button class="icon-button" type="button" data-delete-player="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.name)} 삭제" title="삭제"><i data-lucide="x"></i><span class="visually-hidden">삭제</span></button>
+          </div>
+        `
         : `<span class="muted">-</span>`;
 
       return `
@@ -734,13 +797,45 @@ function renderRankings(standings) {
           <td class="win-rate">${winRate}</td>
           <td class="point-diff">${pointDiff}</td>
           <td>${streak}</td>
-          <td>${deleteButton}</td>
+          <td>${actions}</td>
         </tr>
       `;
-    })
-    .join("");
+    });
 
-  empty.classList.toggle("is-visible", standings.length === 0);
+  const pendingRows = isAdmin()
+    ? state.players
+        .filter((player) => player.seedRating == null || player.status === "pending")
+        .map((player) => `
+          <tr class="pending-player-row">
+            <td><span class="rank-pill">-</span></td>
+            <td>
+              <div class="player-cell">
+                <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
+                <div class="player-meta">
+                  <span class="player-name">${escapeHtml(player.name)}</span>
+                  <span class="player-sub">승인 대기</span>
+                </div>
+              </div>
+            </td>
+            <td><span class="muted">초기 ELO 필요</span></td>
+            <td class="record">-</td>
+            <td class="win-rate">-</td>
+            <td class="point-diff">-</td>
+            <td><span class="muted">-</span></td>
+            <td>
+              <div class="row-actions roster-actions">
+                <input class="inline-rating-input" data-player-rating="${escapeHtml(player.id)}" inputmode="numeric" min="800" max="2400" placeholder="${state.settings.baseRating}" type="number" aria-label="${escapeHtml(player.name)} 초기 ELO">
+                <button class="icon-button" type="button" data-update-rating="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.name)} 초기 ELO 저장" title="초기 ELO 저장"><i data-lucide="save"></i><span class="visually-hidden">저장</span></button>
+                <button class="icon-button" type="button" data-delete-player="${escapeHtml(player.id)}" aria-label="${escapeHtml(player.name)} 삭제" title="삭제"><i data-lucide="x"></i><span class="visually-hidden">삭제</span></button>
+              </div>
+            </td>
+          </tr>
+        `)
+    : [];
+
+  body.innerHTML = [...activeRows, ...pendingRows].join("");
+
+  empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
 }
 
 function formatStreak(streak) {
@@ -780,7 +875,12 @@ function renderHistory() {
           </div>
           ${
             isAdmin()
-              ? `<button class="icon-button" type="button" data-edit-match="${escapeHtml(match.id)}" aria-label="경기 수정" title="경기 수정"><i data-lucide="pencil"></i><span class="visually-hidden">수정</span></button>`
+              ? `
+                <div class="row-actions">
+                  <button class="icon-button" type="button" data-edit-match="${escapeHtml(match.id)}" aria-label="경기 수정" title="경기 수정"><i data-lucide="pencil"></i><span class="visually-hidden">수정</span></button>
+                  <button class="icon-button" type="button" data-delete-match="${escapeHtml(match.id)}" aria-label="경기 삭제" title="경기 삭제"><i data-lucide="trash-2"></i><span class="visually-hidden">삭제</span></button>
+                </div>
+              `
               : `<span class="muted">-</span>`
           }
         </li>
@@ -802,7 +902,7 @@ function renderPreview() {
     return;
   }
 
-  if (state.players.length < 4) {
+  if (getActivePlayers().length < 4) {
     preview.textContent = "선수 4명 이상이 필요합니다.";
     return;
   }
@@ -822,7 +922,7 @@ function renderPreview() {
 
 function shuffleTeams() {
   if (!requireLogin()) return;
-  if (state.players.length < 4) {
+  if (getActivePlayers().length < 4) {
     showToast("선수 4명 이상이 필요합니다.");
     return;
   }
@@ -1067,9 +1167,21 @@ function bindEvents() {
       return;
     }
 
+    const updateRatingButton = target.closest("[data-update-rating]");
+    if (updateRatingButton) {
+      updatePlayerSeedRating(updateRatingButton.dataset.updateRating);
+      return;
+    }
+
     const editButton = target.closest("[data-edit-match]");
     if (editButton) {
       openEditMatch(editButton.dataset.editMatch);
+      return;
+    }
+
+    const deleteMatchButton = target.closest("[data-delete-match]");
+    if (deleteMatchButton) {
+      deleteMatch(deleteMatchButton.dataset.deleteMatch);
       return;
     }
 
