@@ -2015,6 +2015,14 @@ function contentTypeFor(filePath) {
   );
 }
 
+function cacheControlFor(filePath) {
+  const fileName = path.basename(filePath);
+  if (["index.html", "app.js", "styles.css"].includes(fileName)) {
+    return "no-store";
+  }
+  return "public, max-age=3600";
+}
+
 function serveStatic(req, res, url) {
   let requestedPath = decodeURIComponent(url.pathname);
   if (requestedPath === "/") {
@@ -2038,7 +2046,7 @@ function serveStatic(req, res, url) {
 
     res.writeHead(200, {
       "Content-Type": contentTypeFor(filePath),
-      "Cache-Control": path.basename(filePath) === "index.html" ? "no-store" : "public, max-age=3600",
+      "Cache-Control": cacheControlFor(filePath),
     });
     fs.createReadStream(filePath).pipe(res);
   });
