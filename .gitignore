@@ -40,6 +40,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/data/
 
 # local standalone preview files are kept outside the deploy source
 /index.html

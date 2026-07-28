@@ -1,10 +1,3 @@
-const STORAGE_KEY = "badminton-doubles-elo:v2";
-const LEGACY_STORAGE_KEY = "badminton-doubles-elo:v1";
-const DB_NAME = "badminton-doubles-elo-db";
-const DB_VERSION = 1;
-const DB_STORE = "records";
-const DB_STATE_KEY = "state";
-
 const defaultSettings = {
   baseRating: 1500,
   kFactor: 32,
@@ -13,21 +6,49 @@ const defaultSettings = {
 
 const selectIds = ["teamA1", "teamA2", "teamB1", "teamB2"];
 const editSelectIds = ["editTeamA1", "editTeamA2", "editTeamB1", "editTeamB2"];
+
 let state = createDefaultState();
 let toastTimer = null;
 let editingMatchId = null;
-let dbWriteQueue = Promise.resolve();
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
+const errorMessages = {
+  CANNOT_DELETE_SELF: "현재 로그인한 계정은 삭제할 수 없습니다.",
+  DISPLAY_NAME_REQUIRED: "이름을 입력하세요.",
+  FORBIDDEN: "admin 권한이 필요합니다.",
+  IMPORT_INVALID_MATCH: "가져올 경기 기록 중 잘못된 항목이 있습니다.",
+  IMPORT_NEEDS_PLAYERS: "가져올 선수 데이터가 없습니다.",
+  INVALID_CREDENTIALS: "아이디 또는 비밀번호를 확인하세요.",
+  INVALID_JSON: "JSON 파일을 확인하세요.",
+  LAST_ADMIN: "admin 계정은 최소 1개가 필요합니다.",
+  MATCH_DUPLICATE_PLAYER: "한 선수는 한 경기에서 한 번만 선택할 수 있습니다.",
+  MATCH_INVALID_SCORE: "점수를 확인하세요.",
+  MATCH_NEEDS_PLAYERS: "선수 4명을 선택하세요.",
+  MATCH_NOT_FOUND: "경기 기록을 찾을 수 없습니다.",
+  MATCH_TIE_SCORE: "동점 경기는 ELO에 반영할 수 없습니다.",
+  MATCH_UNKNOWN_PLAYER: "등록되지 않은 선수가 포함되어 있습니다.",
+  NOT_FOUND: "요청한 데이터를 찾을 수 없습니다.",
+  PASSWORD_TOO_SHORT: "비밀번호는 4자 이상 입력하세요.",
+  PLAYER_HAS_MATCHES: "경기 기록이 있는 선수는 삭제할 수 없습니다.",
+  PLAYER_NAME_REQUIRED: "선수 이름을 입력하세요.",
+  PLAYER_NAME_TAKEN: "이미 등록된 선수 이름입니다.",
+  PLAYER_NOT_FOUND: "선수를 찾을 수 없습니다.",
+  REQUEST_TOO_LARGE: "파일이 너무 큽니다.",
+  SERVER_ERROR: "서버 처리 중 문제가 생겼습니다.",
+  UNAUTHORIZED: "로그인이 필요합니다.",
+  USER_NOT_FOUND: "계정을 찾을 수 없습니다.",
+  USERNAME_TAKEN: "이미 등록된 아이디입니다.",
+  USERNAME_TOO_SHORT: "아이디는 3자 이상 입력하세요.",
+};
+
 function createDefaultState() {
   return {
-    schemaVersion: 2,
     players: [],
     matches: [],
     users: [],
-    session: { userId: null },
+    currentUser: null,
     settings: { ...defaultSettings },
   };
 }
@@ -39,74 +60,41 @@ function uid() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function openLocalDb() {
-  return new Promise((resolve, reject) => {
-    if (!("indexedDB" in window)) {
-      reject(new Error("IndexedDB is not available"));
-      return;
-    }
-
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(DB_STORE)) {
-        db.createObjectStore(DB_STORE);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function readLocalDbState() {
-  const db = await openLocalDb();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(DB_STORE, "readonly");
-    const request = transaction.objectStore(DB_STORE).get(DB_STATE_KEY);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => db.close();
-  });
-}
-
-async function writeLocalDbState(nextState) {
-  const db = await openLocalDb();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(DB_STORE, "readwrite");
-    transaction.objectStore(DB_STORE).put(nextState, DB_STATE_KEY);
-    transaction.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      db.close();
-      reject(transaction.error);
-    };
-  });
-}
-
-async function loadState() {
-  try {
-    const saved = await readLocalDbState();
-    if (saved) {
-      return normalizeState(saved);
-    }
-  } catch (error) {
-    console.warn("Failed to read IndexedDB state", error);
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return min;
   }
+  return Math.min(max, Math.max(min, value));
+}
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (!raw) {
-      return createDefaultState();
-    }
-    const nextState = normalizeState(JSON.parse(raw));
-    saveState(nextState);
-    return nextState;
-  } catch (error) {
-    console.warn("Failed to load saved rankings", error);
-    return createDefaultState();
+function round1(value) {
+  return Math.round(value * 10) / 10;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normalizeUsername(value) {
+  return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, "");
+}
+
+function normalizeUser(user) {
+  if (!user || !user.id || !user.username) {
+    return null;
   }
+  return {
+    id: String(user.id),
+    username: normalizeUsername(user.username),
+    displayName: String(user.displayName || user.username).trim(),
+    role: user.role === "admin" ? "admin" : "member",
+    createdAt: user.createdAt || new Date().toISOString(),
+  };
 }
 
 function normalizeState(input) {
@@ -131,6 +119,7 @@ function normalizeState(input) {
         })
         .map((match) => ({
           id: String(match.id || uid()),
+          sequence: Number(match.sequence || 0),
           teamA: match.teamA.map(String),
           teamB: match.teamB.map(String),
           scoreA: Number(match.scoreA),
@@ -141,9 +130,11 @@ function normalizeState(input) {
           teamRatingA: Number(match.teamRatingA ?? defaultSettings.baseRating),
           teamRatingB: Number(match.teamRatingB ?? defaultSettings.baseRating),
           kFactor: clampNumber(Number(match.kFactor ?? defaultSettings.kFactor), 8, 64),
-          marginBonus: match.marginBonus ?? Number(match.marginFactor ?? 1) !== 1,
+          marginBonus: match.marginBonus !== false,
           marginFactor: Number(match.marginFactor ?? 1),
-          changes: Array.isArray(match.changes) ? match.changes.map((change) => ({ id: String(change.id), delta: Number(change.delta || 0) })) : [],
+          changes: Array.isArray(match.changes)
+            ? match.changes.map((change) => ({ id: String(change.id), delta: Number(change.delta || 0) }))
+            : [],
           createdBy: match.createdBy ? String(match.createdBy) : null,
           createdByName: match.createdByName ? String(match.createdByName) : "알 수 없음",
           updatedBy: match.updatedBy ? String(match.updatedBy) : null,
@@ -153,91 +144,76 @@ function normalizeState(input) {
         }))
     : [];
 
-  const users = Array.isArray(input?.users)
-    ? input.users
-        .filter((user) => user && user.id && user.username && user.passwordHash)
-        .map((user) => ({
-          id: String(user.id),
-          username: normalizeUsername(user.username),
-          displayName: String(user.displayName || user.username).trim(),
-          passwordHash: String(user.passwordHash),
-          role: user.role === "admin" ? "admin" : "member",
-          createdAt: user.createdAt || new Date().toISOString(),
-        }))
-    : [];
-
-  const userIds = new Set(users.map((user) => user.id));
-  const sessionUserId = input?.session?.userId && userIds.has(String(input.session.userId))
-    ? String(input.session.userId)
-    : null;
-
-  const nextState = {
-    schemaVersion: 2,
+  return {
     players,
     matches,
-    users,
-    session: { userId: sessionUserId },
+    users: Array.isArray(input?.users) ? input.users.map(normalizeUser).filter(Boolean) : [],
+    currentUser: normalizeUser(input?.currentUser),
     settings: {
-      baseRating: clampNumber(Number(input?.settings?.baseRating ?? defaultSettings.baseRating), 800, 2400),
-      kFactor: clampNumber(Number(input?.settings?.kFactor ?? defaultSettings.kFactor), 8, 64),
+      baseRating: clampNumber(Number(input?.settings?.baseRating ?? fallback.settings.baseRating), 800, 2400),
+      kFactor: clampNumber(Number(input?.settings?.kFactor ?? fallback.settings.kFactor), 8, 64),
       marginBonus: input?.settings?.marginBonus !== false,
     },
   };
+}
 
-  if (!nextState.settings) {
-    nextState.settings = fallback.settings;
+function apiMessage(error) {
+  return errorMessages[error?.code] || error?.message || "요청 처리 중 문제가 생겼습니다.";
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = { Accept: "application/json" };
+  const fetchOptions = {
+    method: options.method || "GET",
+    credentials: "same-origin",
+    headers,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(options, "body")) {
+    headers["Content-Type"] = "application/json";
+    fetchOptions.body = JSON.stringify(options.body);
   }
 
-  recalculateMatchesFrom(0, nextState);
-  return nextState;
-}
-
-function saveState(nextState = state) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
-  const snapshot = JSON.parse(JSON.stringify(nextState));
-  dbWriteQueue = dbWriteQueue
-    .then(() => writeLocalDbState(snapshot))
-    .catch((error) => {
-      console.warn("Failed to write IndexedDB state", error);
-    });
-}
-
-function clampNumber(value, min, max) {
-  if (!Number.isFinite(value)) {
-    return min;
+  let response;
+  try {
+    response = await fetch(path, fetchOptions);
+  } catch {
+    const error = new Error("서버에 연결할 수 없습니다.");
+    error.code = "NETWORK_ERROR";
+    throw error;
   }
-  return Math.min(max, Math.max(min, value));
-}
 
-function round1(value) {
-  return Math.round(value * 10) / 10;
-}
-
-function round3(value) {
-  return Math.round(value * 1000) / 1000;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function normalizeUsername(value) {
-  return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, "");
-}
-
-async function hashPassword(username, password) {
-  const payload = `${normalizeUsername(username)}:${password}`;
-  if (window.crypto?.subtle) {
-    const data = new TextEncoder().encode(payload);
-    const digest = await window.crypto.subtle.digest("SHA-256", data);
-    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = {};
+    }
   }
-  return btoa(unescape(encodeURIComponent(payload)));
+
+  if (!response.ok) {
+    const error = new Error(errorMessages[data.code] || "요청 처리 중 문제가 생겼습니다.");
+    error.code = data.code || data.error || "REQUEST_FAILED";
+    throw error;
+  }
+
+  return data;
+}
+
+function applyServerState(payload) {
+  state = normalizeState(payload);
+  render();
+}
+
+async function refreshState() {
+  applyServerState(await apiFetch("/api/state"));
+}
+
+function showApiError(error) {
+  console.error(error);
+  showToast(apiMessage(error));
 }
 
 function formatSigned(value, digits = 1) {
@@ -246,16 +222,20 @@ function formatSigned(value, digits = 1) {
 }
 
 function formatDate(isoDate) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
   return new Intl.DateTimeFormat("ko-KR", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(isoDate));
+  }).format(date);
 }
 
 function getCurrentUser() {
-  return state.users.find((user) => user.id === state.session.userId) || null;
+  return state.currentUser;
 }
 
 function isAdmin() {
@@ -264,7 +244,7 @@ function isAdmin() {
 
 function requireLogin() {
   if (!getCurrentUser()) {
-    showToast("로그인 후 사용할 수 있습니다.");
+    showToast("로그인이 필요합니다.");
     return false;
   }
   return true;
@@ -293,72 +273,56 @@ async function createAccount(username, displayName, password) {
     showToast("비밀번호는 4자 이상 입력하세요.");
     return false;
   }
-  if (state.users.some((user) => user.username === normalizedUsername)) {
-    showToast("이미 등록된 아이디입니다.");
+
+  try {
+    const payload = await apiFetch("/api/signup", {
+      method: "POST",
+      body: { username: normalizedUsername, displayName: cleanDisplayName, password },
+    });
+    applyServerState(payload);
+    showToast(payload.currentUser?.role === "admin" ? "admin 계정을 만들고 로그인했습니다." : "계정을 만들고 로그인했습니다.");
+    return true;
+  } catch (error) {
+    showApiError(error);
     return false;
   }
-
-  const user = {
-    id: uid(),
-    username: normalizedUsername,
-    displayName: cleanDisplayName,
-    passwordHash: await hashPassword(normalizedUsername, password),
-    role: state.users.length === 0 ? "admin" : "member",
-    createdAt: new Date().toISOString(),
-  };
-
-  state.users.push(user);
-  state.session.userId = user.id;
-  saveState();
-  render();
-  showToast(user.role === "admin" ? "admin 계정을 만들고 로그인했습니다." : "계정을 만들고 로그인했습니다.");
-  return true;
 }
 
 async function login(username, password) {
-  const normalizedUsername = normalizeUsername(username);
-  const user = state.users.find((entry) => entry.username === normalizedUsername);
-  if (!user) {
-    showToast("계정을 찾을 수 없습니다.");
+  try {
+    const payload = await apiFetch("/api/login", {
+      method: "POST",
+      body: { username: normalizeUsername(username), password },
+    });
+    applyServerState(payload);
+    showToast(`${payload.currentUser?.displayName || "사용자"}님으로 로그인했습니다.`);
+    return true;
+  } catch (error) {
+    showApiError(error);
     return false;
   }
-  const passwordHash = await hashPassword(normalizedUsername, password);
-  if (user.passwordHash !== passwordHash) {
-    showToast("비밀번호를 확인하세요.");
-    return false;
+}
+
+async function logout() {
+  try {
+    applyServerState(await apiFetch("/api/logout", { method: "POST" }));
+    showToast("로그아웃했습니다.");
+  } catch (error) {
+    showApiError(error);
   }
-  state.session.userId = user.id;
-  saveState();
-  render();
-  showToast(`${user.displayName}님으로 로그인했습니다.`);
-  return true;
 }
 
-function logout() {
-  state.session.userId = null;
-  saveState();
-  render();
-  showToast("로그아웃했습니다.");
-}
-
-function toggleUserRole(userId) {
+async function toggleUserRole(userId) {
   if (!requireAdmin()) return;
-  const target = state.users.find((user) => user.id === userId);
-  if (!target) return;
-
-  const adminCount = state.users.filter((user) => user.role === "admin").length;
-  if (target.role === "admin" && adminCount <= 1) {
-    showToast("admin 계정은 최소 1개가 필요합니다.");
-    return;
+  try {
+    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-admin`, { method: "PATCH" }));
+    showToast("계정 권한을 변경했습니다.");
+  } catch (error) {
+    showApiError(error);
   }
-
-  target.role = target.role === "admin" ? "member" : "admin";
-  saveState();
-  render();
-  showToast(`${target.displayName} 권한을 변경했습니다.`);
 }
 
-function deleteUser(userId) {
+async function deleteUser(userId) {
   if (!requireAdmin()) return;
   const target = state.users.find((user) => user.id === userId);
   if (!target) return;
@@ -369,10 +333,13 @@ function deleteUser(userId) {
   if (!window.confirm(`${target.displayName} 계정을 삭제할까요?`)) {
     return;
   }
-  state.users = state.users.filter((user) => user.id !== userId);
-  saveState();
-  render();
-  showToast("계정을 삭제했습니다.");
+
+  try {
+    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" }));
+    showToast("계정을 삭제했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
 }
 
 function getStandings(sourceState = state) {
@@ -441,7 +408,7 @@ function playerName(id) {
   return state.players.find((player) => player.id === id)?.name || "알 수 없음";
 }
 
-function addPlayer(name, rating) {
+async function addPlayer(name, rating) {
   if (!requireAdmin()) return false;
 
   const normalizedName = name.trim().replace(/\s+/g, " ");
@@ -450,25 +417,22 @@ function addPlayer(name, rating) {
     return false;
   }
 
-  const duplicate = state.players.some((player) => player.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase());
-  if (duplicate) {
-    showToast("이미 등록된 이름입니다.");
+  try {
+    applyServerState(
+      await apiFetch("/api/players", {
+        method: "POST",
+        body: { name: normalizedName, seedRating: Number(rating || state.settings.baseRating) },
+      }),
+    );
+    showToast(`${normalizedName} 선수를 추가했습니다.`);
+    return true;
+  } catch (error) {
+    showApiError(error);
     return false;
   }
-
-  state.players.push({
-    id: uid(),
-    name: normalizedName,
-    seedRating: clampNumber(Number(rating || state.settings.baseRating), 800, 2400),
-    createdAt: new Date().toISOString(),
-  });
-  saveState();
-  render();
-  showToast(`${normalizedName} 선수를 추가했습니다.`);
-  return true;
 }
 
-function deletePlayer(playerId) {
+async function deletePlayer(playerId) {
   if (!requireAdmin()) return;
 
   const standings = getStandings();
@@ -478,89 +442,12 @@ function deletePlayer(playerId) {
     return;
   }
 
-  state.players = state.players.filter((entry) => entry.id !== playerId);
-  saveState();
-  render();
-  showToast("선수를 삭제했습니다.");
-}
-
-function getCurrentRatingMap(sourceState = state) {
-  const ratings = new Map(sourceState.players.map((player) => [player.id, player.seedRating]));
-  sourceState.matches.forEach((match) => {
-    applyRatingChanges(ratings, match);
-  });
-  return ratings;
-}
-
-function calculateMatchFields(match, ratingById) {
-  const teamRatingA = average(match.teamA.map((id) => ratingById.get(id) ?? state.settings.baseRating));
-  const teamRatingB = average(match.teamB.map((id) => ratingById.get(id) ?? state.settings.baseRating));
-  const expectedA = 1 / (1 + 10 ** ((teamRatingB - teamRatingA) / 400));
-  const expectedB = 1 - expectedA;
-  const resultA = match.scoreA > match.scoreB ? 1 : 0;
-  const resultB = 1 - resultA;
-  const useMarginBonus = match.marginBonus !== false;
-  const marginFactor = useMarginBonus ? getMarginFactor(match.scoreA, match.scoreB) : 1;
-  const kFactor = clampNumber(Number(match.kFactor ?? state.settings.kFactor), 8, 64);
-  const deltaA = round1(kFactor * marginFactor * (resultA - expectedA));
-  const deltaB = round1(kFactor * marginFactor * (resultB - expectedB));
-
-  return {
-    winner: resultA === 1 ? "A" : "B",
-    expectedA: round3(expectedA),
-    expectedB: round3(expectedB),
-    teamRatingA: round1(teamRatingA),
-    teamRatingB: round1(teamRatingB),
-    kFactor,
-    marginFactor: round3(marginFactor),
-    changes: [
-      ...match.teamA.map((id) => ({ id, delta: deltaA })),
-      ...match.teamB.map((id) => ({ id, delta: deltaB })),
-    ],
-  };
-}
-
-function applyRatingChanges(ratings, match) {
-  match.changes.forEach((change) => {
-    if (ratings.has(change.id)) {
-      ratings.set(change.id, round1(ratings.get(change.id) + Number(change.delta || 0)));
-    }
-  });
-}
-
-function recalculateMatchesFrom(startIndex = 0, sourceState = state) {
-  const ratings = new Map(sourceState.players.map((player) => [player.id, player.seedRating]));
-  const firstIndex = Math.max(0, Number(startIndex) || 0);
-
-  sourceState.matches.forEach((match, index) => {
-    if (index >= firstIndex) {
-      Object.assign(match, calculateMatchFields(match, ratings));
-    }
-    applyRatingChanges(ratings, match);
-  });
-}
-
-function buildMatch(teamA, teamB, scoreA, scoreB) {
-  const user = getCurrentUser();
-  const match = {
-    id: uid(),
-    teamA,
-    teamB,
-    scoreA,
-    scoreB,
-    kFactor: state.settings.kFactor,
-    marginBonus: state.settings.marginBonus,
-    createdBy: user?.id || null,
-    createdByName: user?.displayName || "알 수 없음",
-    updatedBy: null,
-    updatedByName: "",
-    createdAt: new Date().toISOString(),
-    updatedAt: null,
-  };
-  return {
-    ...match,
-    ...calculateMatchFields(match, getCurrentRatingMap()),
-  };
+  try {
+    applyServerState(await apiFetch(`/api/players/${encodeURIComponent(playerId)}`, { method: "DELETE" }));
+    showToast("선수를 삭제했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
 }
 
 function getMarginFactor(scoreA, scoreB) {
@@ -593,7 +480,7 @@ function validateMatch(teamA, teamB, scoreA, scoreB) {
   return "";
 }
 
-function recordMatch() {
+async function recordMatch() {
   if (!requireLogin()) return;
 
   const teamA = [$("#teamA1").value, $("#teamA2").value];
@@ -607,10 +494,17 @@ function recordMatch() {
     return;
   }
 
-  state.matches.push(buildMatch(teamA, teamB, scoreA, scoreB));
-  saveState();
-  render();
-  showToast("경기 결과를 저장했습니다.");
+  try {
+    applyServerState(
+      await apiFetch("/api/matches", {
+        method: "POST",
+        body: { teamA, teamB, scoreA, scoreB },
+      }),
+    );
+    showToast("경기 결과를 저장했습니다.");
+  } catch (apiError) {
+    showApiError(apiError);
+  }
 }
 
 function openEditMatch(matchId) {
@@ -630,10 +524,10 @@ function closeEditMatch() {
   $("#matchEditDialog").close();
 }
 
-function saveEditedMatch() {
+async function saveEditedMatch() {
   if (!requireAdmin()) return;
-  const matchIndex = state.matches.findIndex((entry) => entry.id === editingMatchId);
-  if (matchIndex < 0) return;
+  const match = state.matches.find((entry) => entry.id === editingMatchId);
+  if (!match) return;
 
   const teamA = [$("#editTeamA1").value, $("#editTeamA2").value];
   const teamB = [$("#editTeamB1").value, $("#editTeamB2").value];
@@ -646,21 +540,18 @@ function saveEditedMatch() {
     return;
   }
 
-  const user = getCurrentUser();
-  Object.assign(state.matches[matchIndex], {
-    teamA,
-    teamB,
-    scoreA,
-    scoreB,
-    updatedBy: user.id,
-    updatedByName: user.displayName,
-    updatedAt: new Date().toISOString(),
-  });
-  recalculateMatchesFrom(matchIndex);
-  saveState();
-  closeEditMatch();
-  render();
-  showToast("경기 기록을 수정하고 이후 ELO를 다시 계산했습니다.");
+  try {
+    closeEditMatch();
+    applyServerState(
+      await apiFetch(`/api/matches/${encodeURIComponent(match.id)}`, {
+        method: "PUT",
+        body: { teamA, teamB, scoreA, scoreB },
+      }),
+    );
+    showToast("경기 기록을 수정했고 이후 ELO를 다시 계산했습니다.");
+  } catch (apiError) {
+    showApiError(apiError);
+  }
 }
 
 function render() {
@@ -772,11 +663,12 @@ function renderSettings() {
 }
 
 function renderAccess() {
-  const loggedIn = Boolean(getCurrentUser());
+  const user = getCurrentUser();
+  const loggedIn = Boolean(user);
   const admin = isAdmin();
   const canRecordMatch = loggedIn && state.players.length >= 4;
 
-  $("#matchAuthNote").textContent = loggedIn ? `${getCurrentUser().displayName}님으로 경기 입력 중` : "로그인 후 경기 결과를 입력할 수 있습니다.";
+  $("#matchAuthNote").textContent = loggedIn ? `${user.displayName}님으로 경기 입력 중` : "로그인하면 경기 결과를 입력할 수 있습니다.";
   $("#rosterAuthNote").textContent = admin ? "admin 권한으로 선수와 설정을 관리 중" : "선수 등록과 설정 변경은 admin만 가능합니다.";
 
   selectIds.forEach((id) => {
@@ -894,7 +786,7 @@ function renderPreview() {
   const ids = [...teamA, ...teamB];
 
   if (!getCurrentUser()) {
-    preview.textContent = "로그인 후 경기 결과를 입력할 수 있습니다.";
+    preview.textContent = "로그인하면 경기 결과를 입력할 수 있습니다.";
     return;
   }
 
@@ -913,7 +805,7 @@ function renderPreview() {
   const ratingA = average(teamA.map((id) => ratingById.get(id)));
   const ratingB = average(teamB.map((id) => ratingById.get(id)));
   const expectedA = 1 / (1 + 10 ** ((ratingB - ratingA) / 400));
-  preview.textContent = `팀 평균 ${Math.round(ratingA)} : ${Math.round(ratingB)} · A팀 기대승률 ${Math.round(expectedA * 100)}%`;
+  preview.textContent = `A팀 평균 ${Math.round(ratingA)} : ${Math.round(ratingB)} · A팀 기대승률 ${Math.round(expectedA * 100)}%`;
 }
 
 function shuffleTeams() {
@@ -934,12 +826,29 @@ function shuffleTeams() {
   renderPreview();
 }
 
-function loadDemoData() {
+async function importSnapshot(snapshot, successMessage) {
+  try {
+    applyServerState(
+      await apiFetch("/api/import", {
+        method: "POST",
+        body: snapshot,
+      }),
+    );
+    showToast(successMessage);
+    return true;
+  } catch (error) {
+    showApiError(error);
+    return false;
+  }
+}
+
+async function loadDemoData() {
   if (!requireAdmin()) return;
   if ((state.players.length || state.matches.length) && !window.confirm("현재 데이터를 샘플 데이터로 바꿀까요?")) {
     return;
   }
 
+  const createdAt = new Date().toISOString();
   const players = [
     ["김서준", 1540],
     ["이도윤", 1510],
@@ -951,27 +860,28 @@ function loadDemoData() {
     id: uid(),
     name,
     seedRating,
-    createdAt: new Date().toISOString(),
+    createdAt,
   }));
 
-  state.players = players;
-  state.matches = [];
-  state.settings = { ...defaultSettings };
-
   const byName = Object.fromEntries(players.map((player) => [player.name, player.id]));
-  [
+  const matches = [
     [["김서준", "이도윤"], ["박민재", "최유나"], 21, 17],
     [["정하린", "한지우"], ["김서준", "최유나"], 18, 21],
     [["이도윤", "박민재"], ["정하린", "한지우"], 22, 20],
     [["김서준", "한지우"], ["이도윤", "최유나"], 16, 21],
     [["박민재", "최유나"], ["정하린", "김서준"], 21, 14],
-  ].forEach(([teamA, teamB, scoreA, scoreB]) => {
-    state.matches.push(buildMatch(teamA.map((name) => byName[name]), teamB.map((name) => byName[name]), scoreA, scoreB));
-  });
+  ].map(([teamA, teamB, scoreA, scoreB], index) => ({
+    id: uid(),
+    teamA: teamA.map((name) => byName[name]),
+    teamB: teamB.map((name) => byName[name]),
+    scoreA,
+    scoreB,
+    createdBy: getCurrentUser().id,
+    createdByName: getCurrentUser().displayName,
+    createdAt: new Date(Date.now() - (5 - index) * 3600 * 1000).toISOString(),
+  }));
 
-  saveState();
-  render();
-  showToast("샘플 데이터를 불러왔습니다.");
+  await importSnapshot({ players, matches, settings: defaultSettings }, "샘플 데이터를 불러왔습니다.");
 }
 
 function exportData() {
@@ -999,20 +909,10 @@ function exportData() {
 function importData(file) {
   if (!requireAdmin() || !file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
-      const imported = normalizeState(JSON.parse(reader.result));
-      if (!imported.players.length) {
-        showToast("가져올 선수가 없습니다.");
-        return;
-      }
-      state.players = imported.players;
-      state.matches = imported.matches;
-      state.settings = imported.settings;
-      recalculateMatchesFrom(0);
-      saveState();
-      render();
-      showToast("랭킹 데이터를 가져왔습니다.");
+      const imported = JSON.parse(reader.result);
+      await importSnapshot(imported, "랭킹 데이터를 가져왔습니다.");
     } catch (error) {
       console.error(error);
       showToast("JSON 파일을 확인하세요.");
@@ -1021,7 +921,7 @@ function importData(file) {
   reader.readAsText(file);
 }
 
-function resetData() {
+async function resetData() {
   if (!requireAdmin()) return;
   if (!state.players.length && !state.matches.length) {
     showToast("초기화할 데이터가 없습니다.");
@@ -1030,12 +930,33 @@ function resetData() {
   if (!window.confirm("모든 선수와 경기 기록을 삭제할까요?")) {
     return;
   }
-  state.players = [];
-  state.matches = [];
-  state.settings = { ...defaultSettings };
-  saveState();
-  render();
-  showToast("데이터를 초기화했습니다.");
+
+  try {
+    applyServerState(await apiFetch("/api/reset", { method: "POST" }));
+    showToast("데이터를 초기화했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
+async function updateSettings(patch) {
+  if (!requireAdmin()) {
+    renderSettings();
+    return;
+  }
+
+  try {
+    applyServerState(
+      await apiFetch("/api/settings", {
+        method: "PATCH",
+        body: patch,
+      }),
+    );
+    showToast("설정을 저장했습니다.");
+  } catch (error) {
+    showApiError(error);
+    refreshState().catch(showApiError);
+  }
 }
 
 function showToast(message) {
@@ -1069,11 +990,11 @@ function bindEvents() {
 
   $("#logoutBtn").addEventListener("click", logout);
 
-  $("#playerForm").addEventListener("submit", (event) => {
+  $("#playerForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const nameInput = $("#playerName");
     const ratingInput = $("#playerRating");
-    const added = addPlayer(nameInput.value, ratingInput.value);
+    const added = await addPlayer(nameInput.value, ratingInput.value);
     if (added) {
       nameInput.value = "";
       ratingInput.value = "";
@@ -1091,7 +1012,9 @@ function bindEvents() {
     saveEditedMatch();
   });
 
-  $("[data-close-edit]").addEventListener("click", closeEditMatch);
+  $$("[data-close-edit]").forEach((button) => {
+    button.addEventListener("click", closeEditMatch);
+  });
 
   selectIds.forEach((id) => {
     $(`#${id}`).addEventListener("change", renderPreview);
@@ -1111,55 +1034,40 @@ function bindEvents() {
   $("#resetBtn").addEventListener("click", resetData);
 
   $("#baseRating").addEventListener("change", (event) => {
-    if (!requireAdmin()) {
-      renderSettings();
-      return;
-    }
-    state.settings.baseRating = clampNumber(Number(event.target.value), 800, 2400);
-    saveState();
-    render();
+    updateSettings({ baseRating: clampNumber(Number(event.target.value), 800, 2400) });
   });
 
   $("#kFactor").addEventListener("change", (event) => {
-    if (!requireAdmin()) {
-      renderSettings();
-      return;
-    }
-    state.settings.kFactor = clampNumber(Number(event.target.value), 8, 64);
-    saveState();
-    render();
+    updateSettings({ kFactor: clampNumber(Number(event.target.value), 8, 64) });
   });
 
   $("#marginBonus").addEventListener("change", (event) => {
-    if (!requireAdmin()) {
-      renderSettings();
-      return;
-    }
-    state.settings.marginBonus = event.target.checked;
-    saveState();
-    render();
+    updateSettings({ marginBonus: event.target.checked });
   });
 
   document.addEventListener("click", (event) => {
-    const deleteButton = event.target.closest("[data-delete-player]");
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+
+    const deleteButton = target.closest("[data-delete-player]");
     if (deleteButton) {
       deletePlayer(deleteButton.dataset.deletePlayer);
       return;
     }
 
-    const editButton = event.target.closest("[data-edit-match]");
+    const editButton = target.closest("[data-edit-match]");
     if (editButton) {
       openEditMatch(editButton.dataset.editMatch);
       return;
     }
 
-    const toggleButton = event.target.closest("[data-toggle-admin]");
+    const toggleButton = target.closest("[data-toggle-admin]");
     if (toggleButton) {
       toggleUserRole(toggleButton.dataset.toggleAdmin);
       return;
     }
 
-    const deleteUserButton = event.target.closest("[data-delete-user]");
+    const deleteUserButton = target.closest("[data-delete-user]");
     if (deleteUserButton) {
       deleteUser(deleteUserButton.dataset.deleteUser);
     }
@@ -1167,10 +1075,15 @@ function bindEvents() {
 }
 
 async function init() {
-  state = await loadState();
   bindEvents();
   render();
-  window.badmintonEloAppReady = true;
+  try {
+    await refreshState();
+  } catch (error) {
+    showApiError(error);
+  } finally {
+    window.badmintonEloAppReady = true;
+  }
 }
 
 init();

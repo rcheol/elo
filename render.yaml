@@ -1,8 +1,13 @@
 services:
   - type: web
     name: honeyserve
-    runtime: static
+    runtime: node
     plan: free
-    buildCommand: echo "Static site is ready"
-    staticPublishPath: ./surge-deploy
+    buildCommand: echo "No build required"
+    startCommand: node --experimental-sqlite server.js
     autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: DATABASE_PATH
+        value: ./data/badminton.sqlite
