@@ -8,9 +8,12 @@ import { DatabaseSync } from "node:sqlite";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const staticDir = path.join(__dirname, "surge-deploy");
+const databaseUrl = process.env.DATABASE_URL || "";
+const usePostgres = Boolean(databaseUrl);
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, "data", "badminton.sqlite");
 const sessionMaxAgeMs = 1000 * 60 * 60 * 24 * 30;
 const maxBodyBytes = 2 * 1024 * 1024;
+const healthPaths = new Set(["/api/health", "/healthz", "/health"]);
 
 const defaultSettings = {
   baseRating: 1500,
@@ -18,16 +21,21 @@ const defaultSettings = {
   marginBonus: true,
 };
 
-if (dbPath !== ":memory:") {
+let db = null;
+let pgPool = null;
+
+if (!usePostgres && dbPath !== ":memory:") {
   fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
 }
 
-const db = new DatabaseSync(dbPath);
-db.exec("PRAGMA foreign_keys = ON");
-try {
-  db.exec("PRAGMA journal_mode = WAL");
-} catch {
-  // WAL is not available for every SQLite target, such as in-memory databases.
+if (!usePostgres) {
+  db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA foreign_keys = ON");
+  try {
+    db.exec("PRAGMA journal_mode = WAL");
+  } catch {
+    // WAL is not available for every SQLite target, such as in-memory databases.
+  }
 }
 
 class HttpError extends Error {
@@ -1048,12 +1056,830 @@ function resetData() {
   ensurePendingPlayersForUsers();
 }
 
+const postgresStateKey = "state";
+
+async function createPostgresPool() {
+  const pgModule = await import("pg");
+  const { Pool } = pgModule.default || pgModule;
+  const sslMode = new URL(databaseUrl).searchParams.get("sslmode") || process.env.PGSSLMODE || "";
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    ssl: sslMode === "require" ? { rejectUnauthorized: false } : undefined,
+  });
+
+  pool.on("error", (error) => {
+    console.error("Unexpected PostgreSQL connection error", error);
+  });
+  return pool;
+}
+
+function cloneSettings(settings = defaultSettings) {
+  return {
+    baseRating: clampNumber(Number(settings.baseRating ?? defaultSettings.baseRating), 800, 2400),
+    kFactor: clampNumber(Number(settings.kFactor ?? defaultSettings.kFactor), 8, 64),
+    marginBonus: settings.marginBonus !== false,
+  };
+}
+
+function createDefaultPostgresState() {
+  return {
+    schemaVersion: 1,
+    users: [],
+    sessions: [],
+    players: [],
+    matches: [],
+    settings: cloneSettings(defaultSettings),
+  };
+}
+
+function normalizeStoredUser(user, seenIds, seenUsernames) {
+  const username = normalizeUsername(user?.username);
+  const id = String(user?.id || uid());
+  if (!username || seenIds.has(id) || seenUsernames.has(username)) {
+    return null;
+  }
+
+  seenIds.add(id);
+  seenUsernames.add(username);
+  return {
+    id,
+    username,
+    displayName: normalizeDisplayName(user?.displayName ?? user?.display_name, username),
+    passwordHash: String(user?.passwordHash ?? user?.password_hash ?? ""),
+    role: user?.role === "admin" ? "admin" : "member",
+    createdAt: user?.createdAt ?? user?.created_at ?? nowIso(),
+  };
+}
+
+function normalizeStoredPlayer(player, seenIds, seenNames) {
+  const name = normalizePlayerName(player?.name);
+  const id = String(player?.id || uid());
+  const normalizedName = normalizeNameKey(player?.normalizedName || player?.normalized_name || name);
+  if (!name || !normalizedName || seenIds.has(id) || seenNames.has(normalizedName)) {
+    return null;
+  }
+
+  seenIds.add(id);
+  seenNames.add(normalizedName);
+  return {
+    id,
+    userId: player?.userId ?? player?.user_id ? String(player?.userId ?? player?.user_id) : null,
+    name,
+    normalizedName,
+    seedRating:
+      player?.seedRating == null && player?.seed_rating == null
+        ? null
+        : clampNumber(Number(player?.seedRating ?? player?.seed_rating), 800, 2400),
+    createdAt: player?.createdAt ?? player?.created_at ?? nowIso(),
+  };
+}
+
+function normalizeStoredMatch(match, index, seenIds) {
+  const id = String(match?.id || uid());
+  if (seenIds.has(id)) {
+    return null;
+  }
+
+  seenIds.add(id);
+  const rawMarginBonus = match?.marginBonus ?? match?.margin_bonus ?? defaultSettings.marginBonus;
+  return {
+    id,
+    sequence: Number.isFinite(Number(match?.sequence)) ? Number(match.sequence) : index + 1,
+    teamA: Array.isArray(match?.teamA) ? match.teamA.map(String) : [],
+    teamB: Array.isArray(match?.teamB) ? match.teamB.map(String) : [],
+    scoreA: Number(match?.scoreA ?? match?.score_a ?? 0),
+    scoreB: Number(match?.scoreB ?? match?.score_b ?? 0),
+    winner: match?.winner === "B" ? "B" : "A",
+    expectedA: Number(match?.expectedA ?? match?.expected_a ?? 0),
+    expectedB: Number(match?.expectedB ?? match?.expected_b ?? 0),
+    teamRatingA: Number(match?.teamRatingA ?? match?.team_rating_a ?? defaultSettings.baseRating),
+    teamRatingB: Number(match?.teamRatingB ?? match?.team_rating_b ?? defaultSettings.baseRating),
+    kFactor: clampNumber(Number(match?.kFactor ?? match?.k_factor ?? defaultSettings.kFactor), 8, 64),
+    marginBonus: rawMarginBonus !== false && rawMarginBonus !== 0,
+    marginFactor: Number(match?.marginFactor ?? match?.margin_factor ?? 1),
+    changes: Array.isArray(match?.changes) ? match.changes : [],
+    createdBy: match?.createdBy ?? match?.created_by ?? null,
+    createdByName: normalizeDisplayName(match?.createdByName ?? match?.created_by_name, "Unknown") || "Unknown",
+    updatedBy: match?.updatedBy ?? match?.updated_by ?? null,
+    updatedByName: match?.updatedByName ?? match?.updated_by_name ?? "",
+    createdAt: match?.createdAt ?? match?.created_at ?? nowIso(),
+    updatedAt: match?.updatedAt ?? match?.updated_at ?? null,
+  };
+}
+
+function normalizePostgresState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const state = {
+    schemaVersion: 1,
+    users: [],
+    sessions: [],
+    players: [],
+    matches: [],
+    settings: cloneSettings(source.settings),
+  };
+
+  const userIds = new Set();
+  const usernames = new Set();
+  state.users = (Array.isArray(source.users) ? source.users : [])
+    .map((user) => normalizeStoredUser(user, userIds, usernames))
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+  const playerIds = new Set();
+  const playerNames = new Set();
+  state.players = (Array.isArray(source.players) ? source.players : [])
+    .map((player) => normalizeStoredPlayer(player, playerIds, playerNames))
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.name.localeCompare(b.name));
+
+  const activeUserIds = new Set(state.users.map((user) => user.id));
+  const now = Date.now();
+  state.sessions = (Array.isArray(source.sessions) ? source.sessions : [])
+    .map((session) => ({
+      id: String(session?.id || ""),
+      userId: String(session?.userId ?? session?.user_id ?? ""),
+      expiresAt: Number(session?.expiresAt ?? session?.expires_at ?? 0),
+      createdAt: session?.createdAt ?? session?.created_at ?? nowIso(),
+    }))
+    .filter((session) => session.id && activeUserIds.has(session.userId) && session.expiresAt > now);
+
+  const matchIds = new Set();
+  state.matches = (Array.isArray(source.matches) ? source.matches : [])
+    .map((match, index) => normalizeStoredMatch(match, index, matchIds))
+    .filter(Boolean)
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((match, index) => ({ ...match, sequence: Number.isFinite(match.sequence) ? match.sequence : index + 1 }));
+
+  return state;
+}
+
+async function initPostgresDb() {
+  if (!pgPool) {
+    pgPool = await createPostgresPool();
+  }
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await withPostgresState((state) => {
+    pgEnsurePendingPlayersForUsers(state);
+    pgRecalculateMatchesFromSequence(state, 1);
+  });
+}
+
+async function withPostgresState(callback) {
+  const client = await pgPool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query("SELECT value FROM app_state WHERE key = $1 FOR UPDATE", [postgresStateKey]);
+    const state = normalizePostgresState(result.rows[0]?.value || createDefaultPostgresState());
+    const callbackResult = await callback(state);
+    const normalizedState = normalizePostgresState(state);
+
+    await client.query(
+      `
+        INSERT INTO app_state (key, value, updated_at)
+        VALUES ($1, $2::jsonb, NOW())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+      `,
+      [postgresStateKey, JSON.stringify(normalizedState)],
+    );
+    await client.query("COMMIT");
+    return callbackResult;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function pgUserFromStored(user) {
+  if (!user) {
+    return null;
+  }
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    role: user.role,
+    createdAt: user.createdAt,
+  };
+}
+
+function pgPlayerFromStored(player) {
+  return {
+    id: player.id,
+    userId: player.userId || null,
+    name: player.name,
+    seedRating: player.seedRating == null ? null : Number(player.seedRating),
+    status: player.seedRating == null ? "pending" : "active",
+    createdAt: player.createdAt,
+  };
+}
+
+function pgMatchFromStored(match) {
+  return {
+    id: match.id,
+    sequence: Number(match.sequence),
+    teamA: [...match.teamA],
+    teamB: [...match.teamB],
+    scoreA: Number(match.scoreA),
+    scoreB: Number(match.scoreB),
+    winner: match.winner === "B" ? "B" : "A",
+    expectedA: Number(match.expectedA),
+    expectedB: Number(match.expectedB),
+    teamRatingA: Number(match.teamRatingA),
+    teamRatingB: Number(match.teamRatingB),
+    kFactor: Number(match.kFactor),
+    marginBonus: Boolean(match.marginBonus),
+    marginFactor: Number(match.marginFactor),
+    changes: Array.isArray(match.changes) ? match.changes.map((change) => ({ ...change })) : [],
+    createdBy: match.createdBy || null,
+    createdByName: match.createdByName || "Unknown",
+    updatedBy: match.updatedBy || null,
+    updatedByName: match.updatedByName || "",
+    createdAt: match.createdAt,
+    updatedAt: match.updatedAt || null,
+  };
+}
+
+function pgGetUsersSafe(state) {
+  return state.users.map((user) => {
+    const safeUser = pgUserFromStored(user);
+    const player = state.players.find((candidate) => candidate.userId === user.id);
+    safeUser.playerId = player?.id || null;
+    safeUser.playerSeedRating = player?.seedRating == null ? null : Number(player.seedRating);
+    safeUser.playerStatus = player ? player.seedRating == null ? "pending" : "active" : "none";
+    return safeUser;
+  });
+}
+
+function pgGetPlayers(state, options = {}) {
+  const includePending = Boolean(options.includePending);
+  return state.players
+    .filter((player) => includePending || player.seedRating != null)
+    .map(pgPlayerFromStored);
+}
+
+function pgGetMatches(state) {
+  return state.matches.sort((a, b) => a.sequence - b.sequence).map(pgMatchFromStored);
+}
+
+function pgGetStatePayload(state, currentUser) {
+  const includePendingPlayers = currentUser?.role === "admin";
+  return {
+    players: pgGetPlayers(state, { includePending: includePendingPlayers }),
+    matches: pgGetMatches(state),
+    settings: cloneSettings(state.settings),
+    users: currentUser?.role === "admin" ? pgGetUsersSafe(state) : [],
+    currentUser,
+  };
+}
+
+function pgGetCurrentUser(req, state) {
+  const sid = parseCookies(req.headers.cookie).sid;
+  if (!sid) {
+    return null;
+  }
+
+  const now = Date.now();
+  state.sessions = state.sessions.filter((session) => Number(session.expiresAt) > now);
+  const session = state.sessions.find((candidate) => candidate.id === sid);
+  const user = session ? state.users.find((candidate) => candidate.id === session.userId) : null;
+  if (!user) {
+    state.sessions = state.sessions.filter((candidate) => candidate.id !== sid);
+    return null;
+  }
+
+  return pgUserFromStored(user);
+}
+
+function pgRequireUser(req, state) {
+  const currentUser = pgGetCurrentUser(req, state);
+  if (!currentUser) {
+    throw new HttpError(401, "UNAUTHORIZED");
+  }
+  return currentUser;
+}
+
+function pgRequireAdmin(req, state) {
+  const currentUser = pgRequireUser(req, state);
+  if (currentUser.role !== "admin") {
+    throw new HttpError(403, "FORBIDDEN");
+  }
+  return currentUser;
+}
+
+function pgCreateSession(state, userId) {
+  const sid = uid();
+  state.sessions.push({
+    id: sid,
+    userId,
+    expiresAt: Date.now() + sessionMaxAgeMs,
+    createdAt: nowIso(),
+  });
+  return sid;
+}
+
+function pgGetCurrentRatingMap(state) {
+  const ratings = new Map(
+    state.players.filter((player) => player.seedRating != null).map((player) => [player.id, Number(player.seedRating)]),
+  );
+  state.matches.sort((a, b) => a.sequence - b.sequence).forEach((match) => applyRatingChanges(ratings, match));
+  return ratings;
+}
+
+function pgRecalculateMatchesFromSequence(state, startSequence = 1) {
+  const settings = cloneSettings(state.settings);
+  const ratings = new Map(
+    state.players.filter((player) => player.seedRating != null).map((player) => [player.id, Number(player.seedRating)]),
+  );
+
+  state.matches.sort((a, b) => a.sequence - b.sequence).forEach((match) => {
+    if (match.sequence >= startSequence) {
+      Object.assign(match, calculateMatchFields(match, ratings, settings));
+    }
+    applyRatingChanges(ratings, match);
+  });
+}
+
+function pgValidateMatchInput(state, input) {
+  const teamA = Array.isArray(input?.teamA) ? input.teamA.map(String) : [];
+  const teamB = Array.isArray(input?.teamB) ? input.teamB.map(String) : [];
+  const scoreA = Number(input?.scoreA);
+  const scoreB = Number(input?.scoreB);
+  const ids = [...teamA, ...teamB];
+  const playerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+
+  if (ids.length !== 4 || ids.some((id) => !id)) {
+    throw new HttpError(400, "MATCH_NEEDS_PLAYERS");
+  }
+  if (new Set(ids).size !== 4) {
+    throw new HttpError(400, "MATCH_DUPLICATE_PLAYER");
+  }
+  if (ids.some((id) => !playerIds.has(id))) {
+    throw new HttpError(400, "MATCH_UNKNOWN_PLAYER");
+  }
+  if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB) || scoreA < 0 || scoreB < 0) {
+    throw new HttpError(400, "MATCH_INVALID_SCORE");
+  }
+  if (scoreA === scoreB) {
+    throw new HttpError(400, "MATCH_TIE_SCORE");
+  }
+
+  return { teamA, teamB, scoreA, scoreB };
+}
+
+function pgInsertMatch(state, input, currentUser) {
+  const { teamA, teamB, scoreA, scoreB } = pgValidateMatchInput(state, input);
+  const settings = cloneSettings(state.settings);
+  const baseMatch = {
+    id: uid(),
+    sequence: Math.max(0, ...state.matches.map((match) => Number(match.sequence) || 0)) + 1,
+    teamA,
+    teamB,
+    scoreA,
+    scoreB,
+    kFactor: settings.kFactor,
+    marginBonus: settings.marginBonus,
+    createdBy: currentUser.id,
+    createdByName: currentUser.displayName,
+    updatedBy: null,
+    updatedByName: "",
+    createdAt: nowIso(),
+    updatedAt: null,
+  };
+
+  state.matches.push({
+    ...baseMatch,
+    ...calculateMatchFields(baseMatch, pgGetCurrentRatingMap(state), settings),
+  });
+}
+
+function pgUpdateMatch(state, matchId, input, currentUser) {
+  const match = state.matches.find((candidate) => candidate.id === matchId);
+  if (!match) {
+    throw new HttpError(404, "MATCH_NOT_FOUND");
+  }
+
+  const { teamA, teamB, scoreA, scoreB } = pgValidateMatchInput(state, input);
+  Object.assign(match, {
+    teamA,
+    teamB,
+    scoreA,
+    scoreB,
+    updatedBy: currentUser.id,
+    updatedByName: currentUser.displayName,
+    updatedAt: nowIso(),
+  });
+  pgRecalculateMatchesFromSequence(state, match.sequence);
+}
+
+function pgCountPlayerGames(state, playerId) {
+  return state.matches.filter((match) => [...match.teamA, ...match.teamB].includes(playerId)).length;
+}
+
+function pgInsertPlayer(state, input) {
+  const name = normalizePlayerName(input?.name);
+  if (!name) {
+    throw new HttpError(400, "PLAYER_NAME_REQUIRED");
+  }
+
+  const normalizedName = normalizeNameKey(name);
+  if (state.players.some((player) => player.normalizedName === normalizedName)) {
+    throw new HttpError(409, "PLAYER_NAME_TAKEN");
+  }
+
+  const seedRating = clampNumber(Number(input?.seedRating ?? input?.rating ?? state.settings.baseRating), 800, 2400);
+  state.players.push({
+    id: uid(),
+    userId: null,
+    name,
+    normalizedName,
+    seedRating,
+    createdAt: nowIso(),
+  });
+}
+
+function pgUpdatePlayerSeedRating(state, playerId, input) {
+  const player = state.players.find((candidate) => candidate.id === playerId);
+  if (!player) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+  if (pgCountPlayerGames(state, playerId) > 0) {
+    throw new HttpError(409, "PLAYER_HAS_MATCHES");
+  }
+
+  const seedRating = Number(input?.seedRating ?? input?.rating);
+  if (!Number.isFinite(seedRating)) {
+    throw new HttpError(400, "PLAYER_RATING_REQUIRED");
+  }
+  player.seedRating = clampNumber(seedRating, 800, 2400);
+}
+
+function pgDeletePlayer(state, playerId) {
+  if (pgCountPlayerGames(state, playerId) > 0) {
+    throw new HttpError(409, "PLAYER_HAS_MATCHES");
+  }
+
+  const originalLength = state.players.length;
+  state.players = state.players.filter((player) => player.id !== playerId);
+  if (state.players.length === originalLength) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+}
+
+function pgUniquePlayerNameForAccount(state, displayName, username) {
+  const candidates = [
+    normalizePlayerName(displayName),
+    normalizePlayerName(`${displayName} (${username})`),
+    normalizePlayerName(`${displayName} ${username}`),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (!state.players.some((player) => player.normalizedName === normalizeNameKey(candidate))) {
+      return candidate;
+    }
+  }
+
+  return normalizePlayerName(`${displayName} ${username} ${uid().slice(0, 8)}`);
+}
+
+function pgCreatePendingPlayerForUser(state, user) {
+  if (state.players.some((player) => player.userId === user.id)) {
+    return;
+  }
+
+  const name = pgUniquePlayerNameForAccount(state, user.displayName, user.username);
+  state.players.push({
+    id: uid(),
+    userId: user.id,
+    name,
+    normalizedName: normalizeNameKey(name),
+    seedRating: null,
+    createdAt: nowIso(),
+  });
+}
+
+function pgEnsurePendingPlayersForUsers(state) {
+  state.users.forEach((user) => pgCreatePendingPlayerForUser(state, user));
+}
+
+function pgDeleteMatch(state, matchId) {
+  const match = state.matches.find((candidate) => candidate.id === matchId);
+  if (!match) {
+    throw new HttpError(404, "MATCH_NOT_FOUND");
+  }
+
+  state.matches = state.matches.filter((candidate) => candidate.id !== matchId);
+  pgRecalculateMatchesFromSequence(state, match.sequence);
+}
+
+function pgCreateAccount(state, input) {
+  const username = normalizeUsername(input?.username);
+  const displayName = normalizeDisplayName(input?.displayName, username);
+  const password = String(input?.password || "");
+
+  if (username.length < 3) {
+    throw new HttpError(400, "USERNAME_TOO_SHORT");
+  }
+  if (!displayName) {
+    throw new HttpError(400, "DISPLAY_NAME_REQUIRED");
+  }
+  if (password.length < 4) {
+    throw new HttpError(400, "PASSWORD_TOO_SHORT");
+  }
+  if (state.users.some((user) => user.username === username)) {
+    throw new HttpError(409, "USERNAME_TAKEN");
+  }
+
+  const user = {
+    id: uid(),
+    username,
+    displayName,
+    passwordHash: hashPassword(password),
+    role: state.users.length === 0 ? "admin" : "member",
+    createdAt: nowIso(),
+  };
+  state.users.push(user);
+  return pgUserFromStored(user);
+}
+
+function pgLoginAccount(state, input) {
+  const username = normalizeUsername(input?.username);
+  const password = String(input?.password || "");
+  const user = state.users.find((candidate) => candidate.username === username);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    throw new HttpError(401, "INVALID_CREDENTIALS");
+  }
+  return pgUserFromStored(user);
+}
+
+function pgToggleUserRole(state, targetUserId) {
+  const target = state.users.find((user) => user.id === targetUserId);
+  if (!target) {
+    throw new HttpError(404, "USER_NOT_FOUND");
+  }
+
+  const adminCount = state.users.filter((user) => user.role === "admin").length;
+  if (target.role === "admin" && adminCount <= 1) {
+    throw new HttpError(409, "LAST_ADMIN");
+  }
+
+  target.role = target.role === "admin" ? "member" : "admin";
+}
+
+function pgDeleteUser(state, targetUserId, currentUser) {
+  if (targetUserId === currentUser.id) {
+    throw new HttpError(409, "CANNOT_DELETE_SELF");
+  }
+
+  const target = state.users.find((user) => user.id === targetUserId);
+  if (!target) {
+    throw new HttpError(404, "USER_NOT_FOUND");
+  }
+
+  const adminCount = state.users.filter((user) => user.role === "admin").length;
+  if (target.role === "admin" && adminCount <= 1) {
+    throw new HttpError(409, "LAST_ADMIN");
+  }
+
+  const linkedPlayer = state.players.find((player) => player.userId === targetUserId);
+  if (linkedPlayer) {
+    if (pgCountPlayerGames(state, linkedPlayer.id) === 0) {
+      state.players = state.players.filter((player) => player.id !== linkedPlayer.id);
+    } else {
+      linkedPlayer.userId = null;
+    }
+  }
+
+  state.sessions = state.sessions.filter((session) => session.userId !== targetUserId);
+  state.users = state.users.filter((user) => user.id !== targetUserId);
+}
+
+function pgSaveSettings(state, partialSettings = {}) {
+  const current = cloneSettings(state.settings);
+  state.settings = {
+    baseRating: clampNumber(Number(partialSettings.baseRating ?? current.baseRating), 800, 2400),
+    kFactor: clampNumber(Number(partialSettings.kFactor ?? current.kFactor), 8, 64),
+    marginBonus: partialSettings.marginBonus ?? current.marginBonus,
+  };
+  state.settings.marginBonus = state.settings.marginBonus !== false;
+  return state.settings;
+}
+
+function pgReplaceData(state, input, currentUser) {
+  const players = normalizeImportedPlayers(input?.players);
+  if (!players.length) {
+    throw new HttpError(400, "IMPORT_NEEDS_PLAYERS");
+  }
+
+  const matches = normalizeImportedMatches(input?.matches, players, currentUser);
+  const settings = {
+    baseRating: clampNumber(Number(input?.settings?.baseRating ?? defaultSettings.baseRating), 800, 2400),
+    kFactor: clampNumber(Number(input?.settings?.kFactor ?? defaultSettings.kFactor), 8, 64),
+    marginBonus: input?.settings?.marginBonus !== false,
+  };
+
+  state.players = players.map((player) => ({
+    id: player.id,
+    userId: player.userId,
+    name: player.name,
+    normalizedName: player.normalizedName,
+    seedRating: player.seedRating,
+    createdAt: player.createdAt,
+  }));
+  state.matches = [];
+  state.settings = cloneSettings(settings);
+
+  const ratings = new Map(players.filter((player) => player.seedRating != null).map((player) => [player.id, player.seedRating]));
+  matches.forEach((baseMatch) => {
+    const fullMatch = {
+      ...baseMatch,
+      ...calculateMatchFields(baseMatch, ratings, state.settings),
+    };
+    state.matches.push(fullMatch);
+    applyRatingChanges(ratings, fullMatch);
+  });
+  pgEnsurePendingPlayersForUsers(state);
+}
+
+function pgResetData(state) {
+  state.players = [];
+  state.matches = [];
+  state.settings = cloneSettings(defaultSettings);
+  pgEnsurePendingPlayersForUsers(state);
+}
+
+async function handleApiPostgres(req, res, url) {
+  const { pathname } = url;
+  const method = req.method || "GET";
+
+  if (method === "GET" && healthPaths.has(pathname)) {
+    return sendJson(req, res, 200, { ok: true, storage: "postgres" });
+  }
+
+  if (method === "GET" && pathname === "/api/state") {
+    const payload = await withPostgresState((state) => pgGetStatePayload(state, pgGetCurrentUser(req, state)));
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "POST" && pathname === "/api/signup") {
+    const body = await readJsonBody(req);
+    const result = await withPostgresState((state) => {
+      const user = pgCreateAccount(state, body);
+      pgCreatePendingPlayerForUser(state, user);
+      const sid = pgCreateSession(state, user.id);
+      return { payload: pgGetStatePayload(state, user), sid };
+    });
+    return sendJson(req, res, 201, result.payload, [sessionCookie(req, result.sid)]);
+  }
+
+  if (method === "POST" && pathname === "/api/login") {
+    const body = await readJsonBody(req);
+    const result = await withPostgresState((state) => {
+      const user = pgLoginAccount(state, body);
+      const sid = pgCreateSession(state, user.id);
+      return { payload: pgGetStatePayload(state, user), sid };
+    });
+    return sendJson(req, res, 200, result.payload, [sessionCookie(req, result.sid)]);
+  }
+
+  if (method === "POST" && pathname === "/api/logout") {
+    const sid = parseCookies(req.headers.cookie).sid;
+    const payload = await withPostgresState((state) => {
+      if (sid) {
+        state.sessions = state.sessions.filter((session) => session.id !== sid);
+      }
+      return pgGetStatePayload(state, null);
+    });
+    return sendJson(req, res, 200, payload, [clearSessionCookie(req)]);
+  }
+
+  if (method === "POST" && pathname === "/api/players") {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgInsertPlayer(state, body);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 201, payload);
+  }
+
+  const playerMatch = pathname.match(/^\/api\/players\/([^/]+)$/);
+  if (method === "PATCH" && playerMatch) {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgUpdatePlayerSeedRating(state, decodeURIComponent(playerMatch[1]), body);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "DELETE" && playerMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgDeletePlayer(state, decodeURIComponent(playerMatch[1]));
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "POST" && pathname === "/api/matches") {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      pgInsertMatch(state, body, currentUser);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 201, payload);
+  }
+
+  const matchMatch = pathname.match(/^\/api\/matches\/([^/]+)$/);
+  if (method === "PUT" && matchMatch) {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgUpdateMatch(state, decodeURIComponent(matchMatch[1]), body, currentUser);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "DELETE" && matchMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgDeleteMatch(state, decodeURIComponent(matchMatch[1]));
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "PATCH" && pathname === "/api/settings") {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgSaveSettings(state, body);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "POST" && pathname === "/api/import") {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgReplaceData(state, body, currentUser);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "POST" && pathname === "/api/reset") {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgResetData(state);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  const toggleAdminMatch = pathname.match(/^\/api\/users\/([^/]+)\/toggle-admin$/);
+  if (method === "PATCH" && toggleAdminMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgToggleUserRole(state, decodeURIComponent(toggleAdminMatch[1]));
+      return pgGetStatePayload(state, pgGetCurrentUser(req, state) || currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (method === "DELETE" && userMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgDeleteUser(state, decodeURIComponent(userMatch[1]), currentUser);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  throw new HttpError(404, "NOT_FOUND");
+}
+
 async function handleApi(req, res, url) {
   const { pathname } = url;
   const method = req.method || "GET";
 
-  if (method === "GET" && ["/api/health", "/healthz", "/health"].includes(pathname)) {
-    return sendJson(req, res, 200, { ok: true });
+  if (method === "GET" && healthPaths.has(pathname)) {
+    return sendJson(req, res, 200, { ok: true, storage: "sqlite" });
   }
 
   if (method === "GET" && pathname === "/api/state") {
@@ -1215,13 +2041,11 @@ function serveStatic(req, res, url) {
   });
 }
 
-initDb();
-
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   try {
-    if (url.pathname.startsWith("/api/")) {
-      await handleApi(req, res, url);
+    if (url.pathname.startsWith("/api/") || healthPaths.has(url.pathname)) {
+      await (usePostgres ? handleApiPostgres(req, res, url) : handleApi(req, res, url));
       return;
     }
     serveStatic(req, res, url);
@@ -1231,6 +2055,22 @@ const server = http.createServer(async (req, res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-server.listen(port, () => {
-  console.log(`Badminton ELO server listening on port ${port}`);
+
+async function start() {
+  if (usePostgres) {
+    await initPostgresDb();
+    console.log("Using PostgreSQL database from DATABASE_URL");
+  } else {
+    initDb();
+    console.log(`Using SQLite database at ${dbPath}`);
+  }
+
+  server.listen(port, () => {
+    console.log(`Badminton ELO server listening on port ${port}`);
+  });
+}
+
+start().catch((error) => {
+  console.error("Failed to start Badminton ELO server", error);
+  process.exitCode = 1;
 });

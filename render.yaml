@@ -1,13 +1,12 @@
 services:
   - type: web
-    name: honeyserve
+    name: honeyserve-elo
     runtime: node
     plan: free
-    buildCommand: echo "No build required"
+    buildCommand: npm install
     startCommand: node --experimental-sqlite server.js
+    healthCheckPath: /healthz
     autoDeployTrigger: commit
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
-      - key: DATABASE_PATH
-        value: ./data/badminton.sqlite
