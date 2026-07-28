@@ -1064,6 +1064,9 @@ async function createPostgresPool() {
   const sslMode = new URL(databaseUrl).searchParams.get("sslmode") || process.env.PGSSLMODE || "";
   const pool = new Pool({
     connectionString: databaseUrl,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000,
+    max: clampNumber(Number(process.env.DATABASE_POOL_MAX || 5), 1, 20),
     ssl: sslMode === "require" ? { rejectUnauthorized: false } : undefined,
   });
 
