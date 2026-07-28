@@ -731,7 +731,24 @@ tbody tr:last-child td {
 }
 
 .player-name {
+  display: inline;
   overflow-wrap: anywhere;
+}
+
+.player-account-id {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f7fbf9;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  vertical-align: 1px;
+  white-space: nowrap;
 }
 
 .player-sub {

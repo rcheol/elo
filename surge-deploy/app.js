@@ -433,6 +433,23 @@ function playerName(id) {
   return state.players.find((player) => player.id === id)?.name || "알 수 없음";
 }
 
+function playerAccountId(player) {
+  if (!isAdmin()) {
+    return "";
+  }
+
+  const linkedUser = state.users.find((user) => user.playerId === player.id || user.id === player.userId);
+  return linkedUser?.username || "";
+}
+
+function renderPlayerName(player) {
+  const accountId = playerAccountId(player);
+  return `
+    <span class="player-name">${escapeHtml(player.name)}</span>
+    ${accountId ? `<span class="player-account-id">ID ${escapeHtml(accountId)}</span>` : ""}
+  `;
+}
+
 async function addPlayer(name, rating) {
   if (!requireAdmin()) return false;
 
@@ -787,7 +804,7 @@ function renderRankings(standings) {
             <div class="player-cell">
               <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
               <div class="player-meta">
-                <span class="player-name">${escapeHtml(player.name)}</span>
+                ${renderPlayerName(player)}
                 <span class="player-sub">${lastPlayed}</span>
               </div>
             </div>
@@ -812,7 +829,7 @@ function renderRankings(standings) {
               <div class="player-cell">
                 <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
                 <div class="player-meta">
-                  <span class="player-name">${escapeHtml(player.name)}</span>
+                  ${renderPlayerName(player)}
                   <span class="player-sub">승인 대기</span>
                 </div>
               </div>
