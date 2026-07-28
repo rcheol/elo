@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>배드민턴 2대2 ELO 랭킹</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div class="hero__overlay"></div>
+        <div class="hero__inner">
+          <div class="brand-row">
+            <div class="brand-mark" aria-hidden="true">E</div>
+            <span>Doubles ELO</span>
+          </div>
+          <div class="hero-grid">
+            <div class="title-block">
+              <span class="eyebrow">Badminton Club Board</span>
+              <h1><span class="title-line">배드민턴 2대2</span><span class="title-line">ELO 랭킹</span></h1>
+            </div>
+            <div class="metrics" aria-label="요약">
+              <div class="metric">
+                <span class="metric__label">선수</span>
+                <strong id="playerCount">0</strong>
+              </div>
+              <div class="metric">
+                <span class="metric__label">경기</span>
+                <strong id="matchCount">0</strong>
+              </div>
+              <div class="metric">
+                <span class="metric__label">평균</span>
+                <strong id="averageRating">0</strong>
+              </div>
+            </div>
+          </div>
+          <div class="toolbar" aria-label="데이터 도구">
+            <button class="button button--ghost" id="loadDemoBtn" type="button">
+              <i data-lucide="sparkles"></i>
+              <span>샘플</span>
+            </button>
+            <button class="button button--ghost" id="undoBtn" type="button">
+              <i data-lucide="undo-2"></i>
+              <span>되돌리기</span>
+            </button>
+            <button class="button button--ghost" id="exportBtn" type="button">
+              <i data-lucide="download"></i>
+              <span>내보내기</span>
+            </button>
+            <button class="button button--ghost" id="importBtn" type="button">
+              <i data-lucide="upload"></i>
+              <span>가져오기</span>
+            </button>
+            <button class="button button--danger" id="resetBtn" type="button">
+              <i data-lucide="trash-2"></i>
+              <span>초기화</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="panel match-panel" aria-labelledby="matchTitle">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Match</span>
+              <h2 id="matchTitle">경기 입력</h2>
+            </div>
+            <button class="icon-text-button" id="shuffleBtn" type="button">
+              <i data-lucide="shuffle"></i>
+              <span>팀 섞기</span>
+            </button>
+          </div>
+
+          <form id="matchForm" class="match-form">
+            <div class="team-grid">
+              <div class="team-box team-box--a" role="group" aria-labelledby="teamATitle">
+                <h3 id="teamATitle">A팀</h3>
+                <label>
+                  <span>선수 1</span>
+                  <select id="teamA1" required></select>
+                </label>
+                <label>
+                  <span>선수 2</span>
+                  <select id="teamA2" required></select>
+                </label>
+              </div>
+
+              <div class="score-box" aria-label="점수">
+                <div class="score-field">
+                  <label for="scoreA">A</label>
+                  <input id="scoreA" inputmode="numeric" min="0" max="99" required type="number" value="21">
+                </div>
+                <span class="score-divider">:</span>
+                <div class="score-field">
+                  <label for="scoreB">B</label>
+                  <input id="scoreB" inputmode="numeric" min="0" max="99" required type="number" value="15">
+                </div>
+              </div>
+
+              <div class="team-box team-box--b" role="group" aria-labelledby="teamBTitle">
+                <h3 id="teamBTitle">B팀</h3>
+                <label>
+                  <span>선수 1</span>
+                  <select id="teamB1" required></select>
+                </label>
+                <label>
+                  <span>선수 2</span>
+                  <select id="teamB2" required></select>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-footer">
+              <p id="matchPreview" class="rating-preview">선수 4명을 선택하세요.</p>
+              <button class="button button--primary" type="submit">
+                <i data-lucide="plus"></i>
+                <span>경기 저장</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel roster-panel" aria-labelledby="playerTitle">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Roster</span>
+              <h2 id="playerTitle">선수 등록</h2>
+            </div>
+          </div>
+
+          <form id="playerForm" class="player-form">
+            <label>
+              <span>이름</span>
+              <input id="playerName" maxlength="24" placeholder="예: 김민준" autocomplete="off" required type="text">
+            </label>
+            <label>
+              <span>초기 레이팅</span>
+              <input id="playerRating" inputmode="numeric" min="800" max="2400" placeholder="1500" type="number">
+            </label>
+            <button class="button button--primary" type="submit">
+              <i data-lucide="user-plus"></i>
+              <span>선수 추가</span>
+            </button>
+          </form>
+
+          <div class="settings">
+            <label>
+              <span>기본 레이팅</span>
+              <input id="baseRating" inputmode="numeric" min="800" max="2400" step="10" type="number">
+            </label>
+            <label>
+              <span>K값</span>
+              <input id="kFactor" inputmode="numeric" min="8" max="64" step="1" type="number">
+            </label>
+            <label class="toggle">
+              <input id="marginBonus" type="checkbox">
+              <span>점수차 반영</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="board rankings-board" aria-labelledby="rankingsTitle">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Rankings</span>
+              <h2 id="rankingsTitle">랭킹</h2>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>순위</th>
+                  <th>선수</th>
+                  <th>레이팅</th>
+                  <th>전적</th>
+                  <th>승률</th>
+                  <th>득실</th>
+                  <th>흐름</th>
+                  <th>관리</th>
+                </tr>
+              </thead>
+              <tbody id="rankingBody"></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="rankingEmpty">
+            <strong>등록된 선수가 없습니다.</strong>
+            <button class="button button--primary" id="emptyDemoBtn" type="button">
+              <i data-lucide="sparkles"></i>
+              <span>샘플 불러오기</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="board history-board" aria-labelledby="historyTitle">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">History</span>
+              <h2 id="historyTitle">경기 기록</h2>
+            </div>
+          </div>
+          <ol class="history-list" id="historyList"></ol>
+          <div class="empty-state empty-state--compact" id="historyEmpty">
+            <strong>아직 저장된 경기가 없습니다.</strong>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <input id="importFile" type="file" accept="application/json" hidden>
+    <div class="toast" id="toast" aria-live="polite"></div>
+
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
