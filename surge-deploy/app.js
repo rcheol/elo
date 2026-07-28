@@ -485,10 +485,6 @@ function applyMatchStats(table, ids, won, pointsFor, pointsAgainst, createdAt) {
   });
 }
 
-function playerName(id) {
-  return state.players.find((player) => player.id === id)?.name || "알 수 없음";
-}
-
 function playerAccountId(player) {
   if (!isAdmin()) {
     return "";
@@ -498,12 +494,20 @@ function playerAccountId(player) {
   return linkedUser?.username || "";
 }
 
-function renderPlayerName(player) {
+function playerDisplayName(player) {
+  if (!player) {
+    return "알 수 없음";
+  }
   const accountId = playerAccountId(player);
-  return `
-    <span class="player-name">${escapeHtml(player.name)}</span>
-    ${accountId ? `<span class="player-account-id">ID ${escapeHtml(accountId)}</span>` : ""}
-  `;
+  return accountId ? `${player.name} (${accountId})` : player.name;
+}
+
+function playerName(id) {
+  return playerDisplayName(state.players.find((player) => player.id === id));
+}
+
+function renderPlayerName(player) {
+  return `<span class="player-name">${escapeHtml(playerDisplayName(player))}</span>`;
 }
 
 async function addPlayer(name, rating) {
@@ -776,7 +780,7 @@ function renderSelects(standings) {
   const options = standings
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"))
-    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name)} (${Math.round(player.rating)})</option>`)
+    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(playerDisplayName(player))} · ${Math.round(player.rating)}</option>`)
     .join("");
 
   const ids = standings.map((player) => player.id);
@@ -800,7 +804,7 @@ function renderEditSelects(match) {
   const options = state.players
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"))
-    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name)}</option>`)
+    .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(playerDisplayName(player))}</option>`)
     .join("");
   const values = [...match.teamA, ...match.teamB];
 
