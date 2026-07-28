@@ -40,10 +40,6 @@
               <i data-lucide="sparkles"></i>
               <span>샘플</span>
             </button>
-            <button class="button button--ghost" id="undoBtn" type="button">
-              <i data-lucide="undo-2"></i>
-              <span>되돌리기</span>
-            </button>
             <button class="button button--ghost" id="exportBtn" type="button">
               <i data-lucide="download"></i>
               <span>내보내기</span>
@@ -61,6 +57,72 @@
       </header>
 
       <main class="workspace">
+        <section class="panel auth-panel" aria-labelledby="authTitle">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Account</span>
+              <h2 id="authTitle">계정</h2>
+            </div>
+          </div>
+
+          <div id="authSignedOut" class="auth-grid">
+            <form id="loginForm" class="auth-form">
+              <h3>로그인</h3>
+              <label>
+                <span>아이디</span>
+                <input id="loginUsername" autocomplete="username" required type="text">
+              </label>
+              <label>
+                <span>비밀번호</span>
+                <input id="loginPassword" autocomplete="current-password" required type="password">
+              </label>
+              <button class="button button--primary" type="submit">
+                <i data-lucide="log-in"></i>
+                <span>로그인</span>
+              </button>
+            </form>
+
+            <form id="signupForm" class="auth-form">
+              <h3>계정 만들기</h3>
+              <label>
+                <span>아이디</span>
+                <input id="signupUsername" autocomplete="username" minlength="3" required type="text">
+              </label>
+              <label>
+                <span>이름</span>
+                <input id="signupDisplayName" autocomplete="name" maxlength="24" required type="text">
+              </label>
+              <label>
+                <span>비밀번호</span>
+                <input id="signupPassword" autocomplete="new-password" minlength="4" required type="password">
+              </label>
+              <button class="button button--primary" type="submit">
+                <i data-lucide="user-plus"></i>
+                <span>가입</span>
+              </button>
+            </form>
+          </div>
+
+          <div id="authSignedIn" class="auth-session" hidden>
+            <div class="session-user">
+              <span class="avatar" id="currentUserAvatar" aria-hidden="true">U</span>
+              <div>
+                <strong id="currentUserName"></strong>
+                <span id="currentRoleBadge" class="role-badge"></span>
+              </div>
+            </div>
+            <button class="icon-text-button" id="logoutBtn" type="button">
+              <i data-lucide="log-out"></i>
+              <span>로그아웃</span>
+            </button>
+          </div>
+
+          <div id="adminUsers" class="admin-users" hidden>
+            <h3>계정 관리</h3>
+            <ul id="userList" class="user-list"></ul>
+          </div>
+        </section>
+
         <section class="panel match-panel" aria-labelledby="matchTitle">
           <div class="section-head">
             <div>
@@ -74,6 +136,7 @@
           </div>
 
           <form id="matchForm" class="match-form">
+            <p id="matchAuthNote" class="permission-note"></p>
             <div class="team-grid">
               <div class="team-box team-box--a" role="group" aria-labelledby="teamATitle">
                 <h3 id="teamATitle">A팀</h3>
@@ -114,7 +177,7 @@
 
             <div class="form-footer">
               <p id="matchPreview" class="rating-preview">선수 4명을 선택하세요.</p>
-              <button class="button button--primary" type="submit">
+              <button class="button button--primary" id="matchSubmitBtn" type="submit">
                 <i data-lucide="plus"></i>
                 <span>경기 저장</span>
               </button>
@@ -131,6 +194,7 @@
           </div>
 
           <form id="playerForm" class="player-form">
+            <p id="rosterAuthNote" class="permission-note"></p>
             <label>
               <span>이름</span>
               <input id="playerName" maxlength="24" placeholder="예: 김민준" autocomplete="off" required type="text">
@@ -211,9 +275,69 @@
     </div>
 
     <input id="importFile" type="file" accept="application/json" hidden>
+    <dialog class="match-dialog" id="matchEditDialog">
+      <form id="matchEditForm" class="match-edit-form">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">Edit</span>
+            <h2>경기 수정</h2>
+          </div>
+          <button class="icon-button" type="button" data-close-edit aria-label="닫기" title="닫기">
+            <i data-lucide="x"></i>
+            <span class="visually-hidden">닫기</span>
+          </button>
+        </div>
+
+        <div class="team-grid">
+          <div class="team-box team-box--a" role="group" aria-labelledby="editTeamATitle">
+            <h3 id="editTeamATitle">A팀</h3>
+            <label>
+              <span>선수 1</span>
+              <select id="editTeamA1" required></select>
+            </label>
+            <label>
+              <span>선수 2</span>
+              <select id="editTeamA2" required></select>
+            </label>
+          </div>
+
+          <div class="score-box" aria-label="수정 점수">
+            <div class="score-field">
+              <label for="editScoreA">A</label>
+              <input id="editScoreA" inputmode="numeric" min="0" max="99" required type="number">
+            </div>
+            <span class="score-divider">:</span>
+            <div class="score-field">
+              <label for="editScoreB">B</label>
+              <input id="editScoreB" inputmode="numeric" min="0" max="99" required type="number">
+            </div>
+          </div>
+
+          <div class="team-box team-box--b" role="group" aria-labelledby="editTeamBTitle">
+            <h3 id="editTeamBTitle">B팀</h3>
+            <label>
+              <span>선수 1</span>
+              <select id="editTeamB1" required></select>
+            </label>
+            <label>
+              <span>선수 2</span>
+              <select id="editTeamB2" required></select>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-footer">
+          <button class="button button--neutral" type="button" data-close-edit>취소</button>
+          <button class="button button--primary" type="submit">
+            <i data-lucide="save"></i>
+            <span>수정 저장</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
     <div class="toast" id="toast" aria-live="polite"></div>
 
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="./app.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" async onload="window.lucide && window.lucide.createIcons()"></script>
   </body>
 </html>
