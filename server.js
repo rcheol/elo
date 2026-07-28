@@ -899,7 +899,7 @@ async function handleApi(req, res, url) {
   const { pathname } = url;
   const method = req.method || "GET";
 
-  if (method === "GET" && pathname === "/api/health") {
+  if (method === "GET" && ["/api/health", "/healthz", "/health"].includes(pathname)) {
     return sendJson(req, res, 200, { ok: true });
   }
 
