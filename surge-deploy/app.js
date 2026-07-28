@@ -849,7 +849,10 @@ function renderAccess() {
   $("#shuffleBtn").hidden = activePlayerCount < 4;
   $("#shuffleBtn").disabled = !canRecordMatch;
 
-  $$("#playerForm input, #playerForm button, #baseRating, #kFactor, #marginBonus").forEach((element) => {
+  $("#playerName").disabled = false;
+  $("#playerRating").disabled = false;
+  $("#playerForm button").disabled = !admin;
+  $$("#baseRating, #kFactor, #marginBonus").forEach((element) => {
     element.disabled = !admin;
   });
   $("#loadDemoBtn").disabled = !admin;
