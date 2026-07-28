@@ -362,6 +362,13 @@ h2 {
   min-width: 0;
 }
 
+.match-meta-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px);
+  gap: 12px;
+  min-width: 0;
+}
+
 .team-box {
   min-width: 0;
   padding: 16px;
@@ -382,6 +389,7 @@ h2 {
 }
 
 .team-box label,
+.match-meta-grid label,
 .player-form label,
 .settings label {
   display: grid;

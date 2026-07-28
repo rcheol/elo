@@ -98,6 +98,7 @@ function initDb() {
       created_by_name TEXT NOT NULL,
       updated_by TEXT,
       updated_by_name TEXT,
+      played_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
@@ -107,6 +108,7 @@ function initDb() {
   `);
 
   migratePlayersTable();
+  migrateMatchesTable();
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
 
   const insertSetting = db.prepare("INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)");
@@ -148,6 +150,18 @@ function migratePlayersTable() {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
 }
 
+function migrateMatchesTable() {
+  const columns = db.prepare("PRAGMA table_info(matches)").all();
+  const hasPlayedAt = columns.some((column) => column.name === "played_at");
+
+  if (!hasPlayedAt) {
+    db.exec("ALTER TABLE matches ADD COLUMN played_at TEXT");
+  }
+
+  db.prepare("UPDATE matches SET played_at = created_at WHERE played_at IS NULL OR played_at = ''").run();
+  db.exec("CREATE INDEX IF NOT EXISTS idx_matches_played_at ON matches(played_at, sequence)");
+}
+
 function clampNumber(value, min, max) {
   if (!Number.isFinite(value)) {
     return min;
@@ -173,6 +187,48 @@ function uid() {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function safeIsoDate(value, fallback = nowIso()) {
+  const fallbackDate = new Date(fallback);
+  const fallbackIso = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString();
+  const date = new Date(value || fallbackIso);
+  return Number.isNaN(date.getTime()) ? fallbackIso : date.toISOString();
+}
+
+function normalizeMatchDate(value, fallback = nowIso()) {
+  const date = new Date(value || fallback);
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpError(400, "MATCH_INVALID_DATE");
+  }
+  return date.toISOString();
+}
+
+function matchOrderTime(match) {
+  const date = new Date(match?.playedAt || match?.played_at || match?.createdAt || match?.created_at || 0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function compareMatchOrder(a, b) {
+  const timeDiff = matchOrderTime(a) - matchOrderTime(b);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+
+  const sequenceDiff = Number(a?.sequence || 0) - Number(b?.sequence || 0);
+  if (sequenceDiff !== 0) {
+    return sequenceDiff;
+  }
+
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function sortMatchesByPlayOrder(matches) {
+  return [...matches].sort(compareMatchOrder);
+}
+
+function earliestMatchOrder(...matches) {
+  return sortMatchesByPlayOrder(matches.filter(Boolean))[0] || null;
 }
 
 function normalizeUsername(value) {
@@ -330,6 +386,7 @@ function matchFromRow(row) {
     createdByName: row.created_by_name || "Unknown",
     updatedBy: row.updated_by || null,
     updatedByName: row.updated_by_name || "",
+    playedAt: row.played_at || row.created_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at || null,
   };
@@ -337,7 +394,7 @@ function matchFromRow(row) {
 
 function getMatches() {
   return db
-    .prepare("SELECT * FROM matches ORDER BY sequence ASC")
+    .prepare("SELECT * FROM matches ORDER BY played_at ASC, sequence ASC")
     .all()
     .map(matchFromRow);
 }
@@ -426,12 +483,12 @@ function writeCalculatedFields(match) {
   );
 }
 
-function recalculateMatchesFromSequence(startSequence = 1) {
+function recalculateMatchesFromOrder(startMatch = null) {
   const settings = getSettings();
   const ratings = new Map(getPlayers().map((player) => [player.id, player.seedRating]));
 
   getMatches().forEach((match) => {
-    if (match.sequence >= startSequence) {
+    if (!startMatch || compareMatchOrder(match, startMatch) >= 0) {
       Object.assign(match, calculateMatchFields(match, ratings, settings));
       writeCalculatedFields(match);
     }
@@ -439,11 +496,12 @@ function recalculateMatchesFromSequence(startSequence = 1) {
   });
 }
 
-function validateMatchInput(input) {
+function validateMatchInput(input, options = {}) {
   const teamA = Array.isArray(input?.teamA) ? input.teamA.map(String) : [];
   const teamB = Array.isArray(input?.teamB) ? input.teamB.map(String) : [];
   const scoreA = Number(input?.scoreA);
   const scoreB = Number(input?.scoreB);
+  const playedAt = normalizeMatchDate(input?.playedAt ?? input?.played_at ?? input?.matchAt, options.fallbackPlayedAt || nowIso());
   const ids = [...teamA, ...teamB];
   const playerIds = new Set(getPlayers().map((player) => player.id));
 
@@ -463,11 +521,11 @@ function validateMatchInput(input) {
     throw new HttpError(400, "MATCH_TIE_SCORE");
   }
 
-  return { teamA, teamB, scoreA, scoreB };
+  return { teamA, teamB, scoreA, scoreB, playedAt };
 }
 
 function insertMatch(input, currentUser) {
-  const { teamA, teamB, scoreA, scoreB } = validateMatchInput(input);
+  const { teamA, teamB, scoreA, scoreB, playedAt } = validateMatchInput(input);
   const settings = getSettings();
   const baseMatch = {
     id: uid(),
@@ -476,6 +534,7 @@ function insertMatch(input, currentUser) {
     teamB,
     scoreA,
     scoreB,
+    playedAt,
     kFactor: settings.kFactor,
     marginBonus: settings.marginBonus,
     createdBy: currentUser.id,
@@ -495,9 +554,9 @@ function insertMatch(input, currentUser) {
       id, sequence, team_a, team_b, score_a, score_b, winner,
       expected_a, expected_b, team_rating_a, team_rating_b, k_factor,
       margin_bonus, margin_factor, changes, created_by, created_by_name,
-      updated_by, updated_by_name, created_at, updated_at
+      updated_by, updated_by_name, played_at, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     fullMatch.id,
     fullMatch.sequence,
@@ -518,9 +577,11 @@ function insertMatch(input, currentUser) {
     fullMatch.createdByName,
     fullMatch.updatedBy,
     fullMatch.updatedByName,
+    fullMatch.playedAt,
     fullMatch.createdAt,
     fullMatch.updatedAt,
   );
+  recalculateMatchesFromOrder(fullMatch);
 }
 
 function updateMatch(matchId, input, currentUser) {
@@ -530,13 +591,16 @@ function updateMatch(matchId, input, currentUser) {
   }
 
   const current = matchFromRow(existing);
-  const { teamA, teamB, scoreA, scoreB } = validateMatchInput(input);
+  const { teamA, teamB, scoreA, scoreB, playedAt } = validateMatchInput(input, { fallbackPlayedAt: current.playedAt });
+  const next = { ...current, teamA, teamB, scoreA, scoreB, playedAt };
+  const recalculateFrom = earliestMatchOrder(current, next);
   db.prepare(`
     UPDATE matches
     SET team_a = ?,
         team_b = ?,
         score_a = ?,
         score_b = ?,
+        played_at = ?,
         updated_by = ?,
         updated_by_name = ?,
         updated_at = ?
@@ -546,13 +610,14 @@ function updateMatch(matchId, input, currentUser) {
     JSON.stringify(teamB),
     scoreA,
     scoreB,
+    playedAt,
     currentUser.id,
     currentUser.displayName,
     nowIso(),
     current.id,
   );
 
-  recalculateMatchesFromSequence(current.sequence);
+  recalculateMatchesFromOrder(recalculateFrom);
 }
 
 function insertPlayer(input) {
@@ -657,7 +722,7 @@ function deleteMatch(matchId) {
 
   const match = matchFromRow(existing);
   db.prepare("DELETE FROM matches WHERE id = ?").run(match.id);
-  recalculateMatchesFromSequence(match.sequence);
+  recalculateMatchesFromOrder(match);
 }
 
 function runInTransaction(callback) {
@@ -975,6 +1040,7 @@ function normalizeImportedMatches(inputMatches, players, currentUser) {
       updatedBy: match?.updatedBy ? String(match.updatedBy) : null,
       updatedByName: match?.updatedByName ? String(match.updatedByName) : "",
       createdAt: match?.createdAt || nowIso(),
+      playedAt: normalizeMatchDate(match?.playedAt ?? match?.played_at ?? match?.createdAt ?? match?.created_at, nowIso()),
       updatedAt: match?.updatedAt || null,
     };
   });
@@ -1009,13 +1075,13 @@ function replaceData(input, currentUser) {
       id, sequence, team_a, team_b, score_a, score_b, winner,
       expected_a, expected_b, team_rating_a, team_rating_b, k_factor,
       margin_bonus, margin_factor, changes, created_by, created_by_name,
-      updated_by, updated_by_name, created_at, updated_at
+      updated_by, updated_by_name, played_at, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const ratings = new Map(players.map((player) => [player.id, player.seedRating]));
+  const ratings = new Map(players.filter((player) => player.seedRating != null).map((player) => [player.id, player.seedRating]));
 
-  matches.forEach((baseMatch) => {
+  sortMatchesByPlayOrder(matches).forEach((baseMatch) => {
     const fullMatch = {
       ...baseMatch,
       ...calculateMatchFields(baseMatch, ratings, settings),
@@ -1040,6 +1106,7 @@ function replaceData(input, currentUser) {
       fullMatch.createdByName,
       fullMatch.updatedBy,
       fullMatch.updatedByName,
+      fullMatch.playedAt,
       fullMatch.createdAt,
       fullMatch.updatedAt,
     );
@@ -1165,7 +1232,11 @@ function normalizeStoredMatch(match, index, seenIds) {
     createdByName: normalizeDisplayName(match?.createdByName ?? match?.created_by_name, "Unknown") || "Unknown",
     updatedBy: match?.updatedBy ?? match?.updated_by ?? null,
     updatedByName: match?.updatedByName ?? match?.updated_by_name ?? "",
-    createdAt: match?.createdAt ?? match?.created_at ?? nowIso(),
+    createdAt: safeIsoDate(match?.createdAt ?? match?.created_at, nowIso()),
+    playedAt: safeIsoDate(
+      match?.playedAt ?? match?.played_at ?? match?.matchAt ?? match?.createdAt ?? match?.created_at,
+      match?.createdAt ?? match?.created_at ?? nowIso(),
+    ),
     updatedAt: match?.updatedAt ?? match?.updated_at ?? null,
   };
 }
@@ -1210,8 +1281,7 @@ function normalizePostgresState(value) {
   state.matches = (Array.isArray(source.matches) ? source.matches : [])
     .map((match, index) => normalizeStoredMatch(match, index, matchIds))
     .filter(Boolean)
-    .sort((a, b) => a.sequence - b.sequence)
-    .map((match, index) => ({ ...match, sequence: Number.isFinite(match.sequence) ? match.sequence : index + 1 }));
+    .sort(compareMatchOrder);
 
   return state;
 }
@@ -1231,7 +1301,7 @@ async function initPostgresDb() {
 
   await withPostgresState((state) => {
     pgEnsurePendingPlayersForUsers(state);
-    pgRecalculateMatchesFromSequence(state, 1);
+    pgRecalculateMatchesFromOrder(state);
   });
 }
 
@@ -1307,6 +1377,7 @@ function pgMatchFromStored(match) {
     createdByName: match.createdByName || "Unknown",
     updatedBy: match.updatedBy || null,
     updatedByName: match.updatedByName || "",
+    playedAt: match.playedAt || match.createdAt,
     createdAt: match.createdAt,
     updatedAt: match.updatedAt || null,
   };
@@ -1331,7 +1402,7 @@ function pgGetPlayers(state, options = {}) {
 }
 
 function pgGetMatches(state) {
-  return state.matches.sort((a, b) => a.sequence - b.sequence).map(pgMatchFromStored);
+  return sortMatchesByPlayOrder(state.matches).map(pgMatchFromStored);
 }
 
 function pgGetStatePayload(state, currentUser) {
@@ -1394,29 +1465,30 @@ function pgGetCurrentRatingMap(state) {
   const ratings = new Map(
     state.players.filter((player) => player.seedRating != null).map((player) => [player.id, Number(player.seedRating)]),
   );
-  state.matches.sort((a, b) => a.sequence - b.sequence).forEach((match) => applyRatingChanges(ratings, match));
+  sortMatchesByPlayOrder(state.matches).forEach((match) => applyRatingChanges(ratings, match));
   return ratings;
 }
 
-function pgRecalculateMatchesFromSequence(state, startSequence = 1) {
+function pgRecalculateMatchesFromOrder(state, startMatch = null) {
   const settings = cloneSettings(state.settings);
   const ratings = new Map(
     state.players.filter((player) => player.seedRating != null).map((player) => [player.id, Number(player.seedRating)]),
   );
 
-  state.matches.sort((a, b) => a.sequence - b.sequence).forEach((match) => {
-    if (match.sequence >= startSequence) {
+  sortMatchesByPlayOrder(state.matches).forEach((match) => {
+    if (!startMatch || compareMatchOrder(match, startMatch) >= 0) {
       Object.assign(match, calculateMatchFields(match, ratings, settings));
     }
     applyRatingChanges(ratings, match);
   });
 }
 
-function pgValidateMatchInput(state, input) {
+function pgValidateMatchInput(state, input, options = {}) {
   const teamA = Array.isArray(input?.teamA) ? input.teamA.map(String) : [];
   const teamB = Array.isArray(input?.teamB) ? input.teamB.map(String) : [];
   const scoreA = Number(input?.scoreA);
   const scoreB = Number(input?.scoreB);
+  const playedAt = normalizeMatchDate(input?.playedAt ?? input?.played_at ?? input?.matchAt, options.fallbackPlayedAt || nowIso());
   const ids = [...teamA, ...teamB];
   const playerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
 
@@ -1436,11 +1508,11 @@ function pgValidateMatchInput(state, input) {
     throw new HttpError(400, "MATCH_TIE_SCORE");
   }
 
-  return { teamA, teamB, scoreA, scoreB };
+  return { teamA, teamB, scoreA, scoreB, playedAt };
 }
 
 function pgInsertMatch(state, input, currentUser) {
-  const { teamA, teamB, scoreA, scoreB } = pgValidateMatchInput(state, input);
+  const { teamA, teamB, scoreA, scoreB, playedAt } = pgValidateMatchInput(state, input);
   const settings = cloneSettings(state.settings);
   const baseMatch = {
     id: uid(),
@@ -1449,6 +1521,7 @@ function pgInsertMatch(state, input, currentUser) {
     teamB,
     scoreA,
     scoreB,
+    playedAt,
     kFactor: settings.kFactor,
     marginBonus: settings.marginBonus,
     createdBy: currentUser.id,
@@ -1459,10 +1532,12 @@ function pgInsertMatch(state, input, currentUser) {
     updatedAt: null,
   };
 
-  state.matches.push({
+  const fullMatch = {
     ...baseMatch,
     ...calculateMatchFields(baseMatch, pgGetCurrentRatingMap(state), settings),
-  });
+  };
+  state.matches.push(fullMatch);
+  pgRecalculateMatchesFromOrder(state, fullMatch);
 }
 
 function pgUpdateMatch(state, matchId, input, currentUser) {
@@ -1471,17 +1546,21 @@ function pgUpdateMatch(state, matchId, input, currentUser) {
     throw new HttpError(404, "MATCH_NOT_FOUND");
   }
 
-  const { teamA, teamB, scoreA, scoreB } = pgValidateMatchInput(state, input);
+  const current = { ...match };
+  const { teamA, teamB, scoreA, scoreB, playedAt } = pgValidateMatchInput(state, input, { fallbackPlayedAt: match.playedAt });
+  const next = { ...current, teamA, teamB, scoreA, scoreB, playedAt };
+  const recalculateFrom = earliestMatchOrder(current, next);
   Object.assign(match, {
     teamA,
     teamB,
     scoreA,
     scoreB,
+    playedAt,
     updatedBy: currentUser.id,
     updatedByName: currentUser.displayName,
     updatedAt: nowIso(),
   });
-  pgRecalculateMatchesFromSequence(state, match.sequence);
+  pgRecalculateMatchesFromOrder(state, recalculateFrom);
 }
 
 function pgCountPlayerGames(state, playerId) {
@@ -1581,7 +1660,7 @@ function pgDeleteMatch(state, matchId) {
   }
 
   state.matches = state.matches.filter((candidate) => candidate.id !== matchId);
-  pgRecalculateMatchesFromSequence(state, match.sequence);
+  pgRecalculateMatchesFromOrder(state, match);
 }
 
 function pgCreateAccount(state, input) {
@@ -1702,7 +1781,7 @@ function pgReplaceData(state, input, currentUser) {
   state.settings = cloneSettings(settings);
 
   const ratings = new Map(players.filter((player) => player.seedRating != null).map((player) => [player.id, player.seedRating]));
-  matches.forEach((baseMatch) => {
+  sortMatchesByPlayOrder(matches).forEach((baseMatch) => {
     const fullMatch = {
       ...baseMatch,
       ...calculateMatchFields(baseMatch, ratings, state.settings),

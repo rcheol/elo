@@ -137,6 +137,12 @@
 
           <form id="matchForm" class="match-form">
             <p id="matchAuthNote" class="permission-note"></p>
+            <div class="match-meta-grid">
+              <label>
+                <span>경기 일시</span>
+                <input id="matchPlayedAt" required type="datetime-local">
+              </label>
+            </div>
             <div class="team-grid">
               <div class="team-box team-box--a" role="group" aria-labelledby="teamATitle">
                 <h3 id="teamATitle">A팀</h3>
@@ -286,6 +292,13 @@
             <i data-lucide="x"></i>
             <span class="visually-hidden">닫기</span>
           </button>
+        </div>
+
+        <div class="match-meta-grid">
+          <label>
+            <span>경기 일시</span>
+            <input id="editPlayedAt" required type="datetime-local">
+          </label>
         </div>
 
         <div class="team-grid">

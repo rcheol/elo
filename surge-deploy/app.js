@@ -15,6 +15,7 @@ const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
 const errorMessages = {
+  MATCH_INVALID_DATE: "경기 일시를 확인하세요.",
   API_UNAVAILABLE: "서버 API가 연결되지 않았습니다. Render 서비스를 Static Site가 아니라 Web Service로 배포해야 합니다.",
   CANNOT_DELETE_SELF: "현재 로그인한 계정은 삭제할 수 없습니다.",
   DISPLAY_NAME_REQUIRED: "이름을 입력하세요.",
@@ -86,6 +87,59 @@ function normalizeUsername(value) {
   return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, "");
 }
 
+function safeIsoDate(value, fallback = new Date().toISOString()) {
+  const fallbackDate = new Date(fallback);
+  const fallbackIso = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString();
+  const date = new Date(value || fallbackIso);
+  return Number.isNaN(date.getTime()) ? fallbackIso : date.toISOString();
+}
+
+function matchPlayedAt(match) {
+  return match?.playedAt || match?.createdAt || new Date().toISOString();
+}
+
+function matchOrderTime(match) {
+  const date = new Date(matchPlayedAt(match));
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function compareMatchOrder(a, b) {
+  const timeDiff = matchOrderTime(a) - matchOrderTime(b);
+  if (timeDiff !== 0) {
+    return timeDiff;
+  }
+  const sequenceDiff = Number(a?.sequence || 0) - Number(b?.sequence || 0);
+  if (sequenceDiff !== 0) {
+    return sequenceDiff;
+  }
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function sortedMatches(matches = state.matches) {
+  return [...matches].sort(compareMatchOrder);
+}
+
+function formatDateTimeLocal(isoDate = new Date().toISOString()) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) {
+    return formatDateTimeLocal(new Date().toISOString());
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function dateTimeLocalToIso(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function setDefaultMatchPlayedAt(force = false) {
+  const input = $("#matchPlayedAt");
+  if (input && (force || !input.value)) {
+    input.value = formatDateTimeLocal();
+  }
+}
+
 function normalizeUser(user) {
   if (!user || !user.id || !user.username) {
     return null;
@@ -149,9 +203,11 @@ function normalizeState(input) {
           createdByName: match.createdByName ? String(match.createdByName) : "알 수 없음",
           updatedBy: match.updatedBy ? String(match.updatedBy) : null,
           updatedByName: match.updatedByName ? String(match.updatedByName) : "",
-          createdAt: match.createdAt || new Date().toISOString(),
+          createdAt: safeIsoDate(match.createdAt),
+          playedAt: safeIsoDate(match.playedAt ?? match.played_at ?? match.matchAt ?? match.createdAt),
           updatedAt: match.updatedAt || null,
         }))
+        .sort(compareMatchOrder)
     : [];
 
   return {
@@ -385,7 +441,7 @@ function getStandings(sourceState = state) {
     ]),
   );
 
-  sourceState.matches.forEach((match) => {
+  sortedMatches(sourceState.matches).forEach((match) => {
     match.changes.forEach((change) => {
       const player = table.get(change.id);
       if (player) {
@@ -393,8 +449,8 @@ function getStandings(sourceState = state) {
       }
     });
 
-    applyMatchStats(table, match.teamA, match.winner === "A", match.scoreA, match.scoreB, match.createdAt);
-    applyMatchStats(table, match.teamB, match.winner === "B", match.scoreB, match.scoreA, match.createdAt);
+    applyMatchStats(table, match.teamA, match.winner === "A", match.scoreA, match.scoreB, matchPlayedAt(match));
+    applyMatchStats(table, match.teamB, match.winner === "B", match.scoreB, match.scoreA, matchPlayedAt(match));
   });
 
   return [...table.values()]
@@ -568,7 +624,13 @@ async function recordMatch() {
   const teamB = [$("#teamB1").value, $("#teamB2").value];
   const scoreA = Number($("#scoreA").value);
   const scoreB = Number($("#scoreB").value);
+  const playedAt = dateTimeLocalToIso($("#matchPlayedAt").value);
   const error = validateMatch(teamA, teamB, scoreA, scoreB);
+
+  if (!playedAt) {
+    showToast("경기 일시를 확인하세요.");
+    return;
+  }
 
   if (error) {
     showToast(error);
@@ -579,9 +641,10 @@ async function recordMatch() {
     applyServerState(
       await apiFetch("/api/matches", {
         method: "POST",
-        body: { teamA, teamB, scoreA, scoreB },
+        body: { teamA, teamB, scoreA, scoreB, playedAt },
       }),
     );
+    setDefaultMatchPlayedAt(true);
     showToast("경기 결과를 저장했습니다.");
   } catch (apiError) {
     showApiError(apiError);
@@ -597,6 +660,7 @@ function openEditMatch(matchId) {
   renderEditSelects(match);
   $("#editScoreA").value = match.scoreA;
   $("#editScoreB").value = match.scoreB;
+  $("#editPlayedAt").value = formatDateTimeLocal(matchPlayedAt(match));
   $("#matchEditDialog").showModal();
 }
 
@@ -614,7 +678,13 @@ async function saveEditedMatch() {
   const teamB = [$("#editTeamB1").value, $("#editTeamB2").value];
   const scoreA = Number($("#editScoreA").value);
   const scoreB = Number($("#editScoreB").value);
+  const playedAt = dateTimeLocalToIso($("#editPlayedAt").value);
   const error = validateMatch(teamA, teamB, scoreA, scoreB);
+
+  if (!playedAt) {
+    showToast("경기 일시를 확인하세요.");
+    return;
+  }
 
   if (error) {
     showToast(error);
@@ -626,7 +696,7 @@ async function saveEditedMatch() {
     applyServerState(
       await apiFetch(`/api/matches/${encodeURIComponent(match.id)}`, {
         method: "PUT",
-        body: { teamA, teamB, scoreA, scoreB },
+        body: { teamA, teamB, scoreA, scoreB, playedAt },
       }),
     );
     showToast("경기 기록을 수정했고 이후 ELO를 다시 계산했습니다.");
@@ -763,6 +833,7 @@ function renderAccess() {
   });
   $("#scoreA").disabled = !loggedIn;
   $("#scoreB").disabled = !loggedIn;
+  $("#matchPlayedAt").disabled = !loggedIn;
   $("#matchSubmitBtn").disabled = !canRecordMatch;
   $("#shuffleBtn").hidden = activePlayerCount < 4;
   $("#shuffleBtn").disabled = !canRecordMatch;
@@ -869,8 +940,7 @@ function renderHistory() {
   const list = $("#historyList");
   const empty = $("#historyEmpty");
 
-  list.innerHTML = state.matches
-    .slice()
+  list.innerHTML = sortedMatches()
     .reverse()
     .map((match) => {
       const teamA = match.teamA.map(playerName).join(" / ");
@@ -881,7 +951,7 @@ function renderHistory() {
 
       return `
         <li class="history-item">
-          <time class="history-date" datetime="${escapeHtml(match.createdAt)}">${formatDate(match.createdAt)}</time>
+          <time class="history-date" datetime="${escapeHtml(matchPlayedAt(match))}">${formatDate(matchPlayedAt(match))}</time>
           <div class="history-main">
             <div class="teams-line">
               <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${escapeHtml(teamA)}</span>
@@ -1007,6 +1077,7 @@ async function loadDemoData() {
     scoreB,
     createdBy: getCurrentUser().id,
     createdByName: getCurrentUser().displayName,
+    playedAt: new Date(Date.now() - (5 - index) * 3600 * 1000).toISOString(),
     createdAt: new Date(Date.now() - (5 - index) * 3600 * 1000).toISOString(),
   }));
 
@@ -1217,6 +1288,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  setDefaultMatchPlayedAt(true);
   render();
   try {
     await refreshState();
