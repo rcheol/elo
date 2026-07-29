@@ -609,29 +609,39 @@ function splitBulkMatchRecords(input) {
 }
 
 function buildBulkPlayerLookup(players) {
-  const lookup = new Map();
+  const exact = new Map();
+  const base = new Map();
 
   players.forEach((player) => {
-    const keys = new Set([normalizeNameKey(player.name), normalizeBulkPlayerName(player.name)].filter(Boolean));
-    keys.forEach((key) => {
-      const existing = lookup.get(key) || [];
-      existing.push(player);
-      lookup.set(key, existing);
-    });
+    const exactKey = normalizeNameKey(player.name);
+    const baseKey = normalizeBulkPlayerName(player.name);
+
+    if (exactKey) {
+      exact.set(exactKey, [...(exact.get(exactKey) || []), player]);
+    }
+    if (baseKey) {
+      base.set(baseKey, [...(base.get(baseKey) || []), player]);
+    }
   });
 
-  return lookup;
+  return { exact, base };
 }
 
 function resolveBulkPlayer(name, lookup, lineNumber) {
-  const key = normalizeBulkPlayerName(name);
-  const matches = lookup.get(key) || [];
+  const exactKey = normalizeNameKey(name);
+  const baseKey = normalizeBulkPlayerName(name);
+  const exactMatches = lookup.exact.get(exactKey) || [];
+  const matches = exactMatches.length ? exactMatches : lookup.base.get(baseKey) || [];
 
   if (!matches.length) {
     throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: '${name}' 선수를 찾을 수 없습니다.`);
   }
   if (matches.length > 1) {
-    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: '${name}' 이름과 일치하는 선수가 여러 명입니다.`);
+    throw new HttpError(
+      400,
+      "BULK_MATCH_PARSE_ERROR",
+      `${lineNumber}행: '${name}' 이름과 일치하는 선수가 여러 명입니다. 선수 목록의 정확한 이름으로 입력하세요.`,
+    );
   }
   return matches[0].id;
 }

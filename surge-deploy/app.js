@@ -226,7 +226,7 @@ function normalizeState(input) {
 }
 
 function apiMessage(error) {
-  return errorMessages[error?.code] || error?.message || "요청 처리 중 문제가 생겼습니다.";
+  return error?.message || errorMessages[error?.code] || "요청 처리 중 문제가 생겼습니다.";
 }
 
 async function apiFetch(path, options = {}) {
