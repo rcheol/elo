@@ -15,6 +15,8 @@ const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
 
 const errorMessages = {
+  BULK_MATCH_PARSE_ERROR: "텍스트 경기 기록을 확인하세요.",
+  BULK_MATCH_TEXT_REQUIRED: "경기 기록 텍스트를 입력하세요.",
   MATCH_INVALID_DATE: "경기 일시를 확인하세요.",
   API_UNAVAILABLE: "서버 API가 연결되지 않았습니다. Render 서비스를 Static Site가 아니라 Web Service로 배포해야 합니다.",
   CANNOT_DELETE_SELF: "현재 로그인한 계정은 삭제할 수 없습니다.",
@@ -271,7 +273,7 @@ async function apiFetch(path, options = {}) {
   }
 
   if (!response.ok) {
-    const error = new Error(errorMessages[data.code] || "요청 처리 중 문제가 생겼습니다.");
+    const error = new Error(data.message || errorMessages[data.code] || "요청 처리 중 문제가 생겼습니다.");
     error.code = data.code || data.error || "REQUEST_FAILED";
     throw error;
   }
@@ -716,6 +718,31 @@ async function saveEditedMatch() {
   }
 }
 
+async function importBulkMatchesFromText() {
+  if (!requireAdmin()) return;
+
+  const textarea = $("#bulkMatchText");
+  const text = textarea.value.trim();
+  if (!text) {
+    showToast("경기 기록 텍스트를 입력하세요.");
+    textarea.focus();
+    return;
+  }
+
+  try {
+    const payload = await apiFetch("/api/matches/bulk-text", {
+      method: "POST",
+      body: { text },
+    });
+    const count = Number(payload.bulkInserted || 0);
+    applyServerState(payload);
+    textarea.value = "";
+    showToast(`${count}개 경기 기록을 저장했습니다.`);
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
 function render() {
   const standings = getStandings();
   renderAuth();
@@ -859,6 +886,9 @@ function renderAccess() {
   $("#emptyDemoBtn").disabled = !admin;
   $("#importBtn").disabled = !admin;
   $("#resetBtn").disabled = !admin;
+  $("#bulkMatchPanel").hidden = !admin;
+  $("#bulkMatchText").disabled = !admin;
+  $("#bulkMatchSubmitBtn").disabled = !admin;
 }
 
 function renderRankings(standings) {
@@ -1224,6 +1254,11 @@ function bindEvents() {
   $("#matchEditForm").addEventListener("submit", (event) => {
     event.preventDefault();
     saveEditedMatch();
+  });
+
+  $("#bulkMatchForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    importBulkMatchesFromText();
   });
 
   $$("[data-close-edit]").forEach((button) => {

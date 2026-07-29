@@ -524,6 +524,162 @@ function validateMatchInput(input, options = {}) {
   return { teamA, teamB, scoreA, scoreB, playedAt };
 }
 
+function currentKoreaYear() {
+  return Number(new Intl.DateTimeFormat("en", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date()));
+}
+
+function stripAccountSuffix(value) {
+  return normalizePlayerName(value).replace(/\s*\([^)]*\)\s*$/, "");
+}
+
+function normalizeBulkPlayerName(value) {
+  return normalizeNameKey(stripAccountSuffix(value));
+}
+
+function buildBulkPlayerLookup(players) {
+  const lookup = new Map();
+
+  players.forEach((player) => {
+    const keys = new Set([normalizeNameKey(player.name), normalizeBulkPlayerName(player.name)].filter(Boolean));
+    keys.forEach((key) => {
+      const existing = lookup.get(key) || [];
+      existing.push(player);
+      lookup.set(key, existing);
+    });
+  });
+
+  return lookup;
+}
+
+function resolveBulkPlayer(name, lookup, lineNumber) {
+  const key = normalizeBulkPlayerName(name);
+  const matches = lookup.get(key) || [];
+
+  if (!matches.length) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: '${name}' 선수를 찾을 수 없습니다.`);
+  }
+  if (matches.length > 1) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: '${name}' 이름과 일치하는 선수가 여러 명입니다.`);
+  }
+  return matches[0].id;
+}
+
+function parseBulkPlayedAt(parts, lineNumber) {
+  const year = parts.year ? Number(parts.year) : currentKoreaYear();
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  const minute = parts.minute == null || parts.minute === "" ? 0 : Number(parts.minute);
+  let hour = Number(parts.hour);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) || !Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 경기 일시를 읽을 수 없습니다.`);
+  }
+
+  if (parts.period) {
+    if (hour < 1 || hour > 12) {
+      throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 오전/오후 시간은 1~12로 입력하세요.`);
+    }
+    if (parts.period === "오전" && hour === 12) {
+      hour = 0;
+    } else if (parts.period === "오후" && hour !== 12) {
+      hour += 12;
+    }
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 경기 일시 범위를 확인하세요.`);
+  }
+
+  const isoInput = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+09:00`;
+  const date = new Date(isoInput);
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 경기 일시를 확인하세요.`);
+  }
+
+  const koreaParts = Object.fromEntries(
+    new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  if (
+    koreaParts.year !== year ||
+    koreaParts.month !== month ||
+    koreaParts.day !== day ||
+    koreaParts.hour !== hour ||
+    koreaParts.minute !== minute
+  ) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 경기 일시를 확인하세요.`);
+  }
+
+  return date.toISOString();
+}
+
+function parseBulkTeam(teamText, lookup, lineNumber) {
+  const names = String(teamText || "")
+    .split(/\s*\/\s*/)
+    .map((name) => normalizePlayerName(name))
+    .filter(Boolean);
+
+  if (names.length !== 2) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 팀은 '선수 / 선수' 형식으로 입력하세요.`);
+  }
+
+  return names.map((name) => resolveBulkPlayer(name, lookup, lineNumber));
+}
+
+function parseBulkMatchLine(line, lineNumber, lookup) {
+  const dateMatch = String(line || "").match(
+    /^(?:(?<year>\d{4})\s*년\s*)?(?<month>\d{1,2})\s*월\s*(?<day>\d{1,2})\s*일\s*(?:(?<period>오전|오후)\s*)?(?<hour>\d{1,2})(?:(?:\s*:\s*|\s*시\s*)(?<minute>\d{1,2}))?\s*(?:분)?\s+(?<rest>.+)$/,
+  );
+  if (!dateMatch?.groups) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 날짜/시간 형식을 확인하세요.`);
+  }
+
+  const scoreMatch = dateMatch.groups.rest.match(/^(?<teamA>.+?)\s+(?<scoreA>\d{1,2})\s*[:：]\s*(?<scoreB>\d{1,2})\s+(?<teamB>.+)$/);
+  if (!scoreMatch?.groups) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", `${lineNumber}행: 점수 형식을 확인하세요.`);
+  }
+
+  return {
+    playedAt: parseBulkPlayedAt(dateMatch.groups, lineNumber),
+    teamA: parseBulkTeam(scoreMatch.groups.teamA, lookup, lineNumber),
+    teamB: parseBulkTeam(scoreMatch.groups.teamB, lookup, lineNumber),
+    scoreA: Number(scoreMatch.groups.scoreA),
+    scoreB: Number(scoreMatch.groups.scoreB),
+  };
+}
+
+function parseBulkMatchText(input, players) {
+  const text = String(input?.text || "").trim();
+  if (!text) {
+    throw new HttpError(400, "BULK_MATCH_TEXT_REQUIRED", "경기 기록 텍스트를 입력하세요.");
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    throw new HttpError(400, "BULK_MATCH_TEXT_REQUIRED", "경기 기록 텍스트를 입력하세요.");
+  }
+  if (lines.length > 200) {
+    throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", "한 번에 최대 200경기까지 입력할 수 있습니다.");
+  }
+
+  const lookup = buildBulkPlayerLookup(players);
+  return lines.map((line, index) => parseBulkMatchLine(line, index + 1, lookup));
+}
+
 function insertMatch(input, currentUser) {
   const { teamA, teamB, scoreA, scoreB, playedAt } = validateMatchInput(input);
   const settings = getSettings();
@@ -582,6 +738,12 @@ function insertMatch(input, currentUser) {
     fullMatch.updatedAt,
   );
   recalculateMatchesFromOrder(fullMatch);
+}
+
+function insertBulkTextMatches(input, currentUser) {
+  const matches = parseBulkMatchText(input, getPlayers());
+  matches.forEach((match) => insertMatch(match, currentUser));
+  return matches.length;
 }
 
 function updateMatch(matchId, input, currentUser) {
@@ -865,7 +1027,11 @@ function sendError(req, res, error) {
   if (!(error instanceof HttpError)) {
     console.error(error);
   }
-  sendJson(req, res, status, { error: code, code });
+  const payload = { error: code, code };
+  if (error instanceof HttpError && error.message && error.message !== code) {
+    payload.message = error.message;
+  }
+  sendJson(req, res, status, payload);
 }
 
 function createAccount(input) {
@@ -1540,6 +1706,12 @@ function pgInsertMatch(state, input, currentUser) {
   pgRecalculateMatchesFromOrder(state, fullMatch);
 }
 
+function pgInsertBulkTextMatches(state, input, currentUser) {
+  const matches = parseBulkMatchText(input, pgGetPlayers(state));
+  matches.forEach((match) => pgInsertMatch(state, match, currentUser));
+  return matches.length;
+}
+
 function pgUpdateMatch(state, matchId, input, currentUser) {
   const match = state.matches.find((candidate) => candidate.id === matchId);
   if (!match) {
@@ -1884,6 +2056,16 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 201, payload);
   }
 
+  if (method === "POST" && pathname === "/api/matches/bulk-text") {
+    const body = await readJsonBody(req);
+    const result = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      const bulkInserted = pgInsertBulkTextMatches(state, body, currentUser);
+      return { payload: pgGetStatePayload(state, currentUser), bulkInserted };
+    });
+    return sendJson(req, res, 201, { ...result.payload, bulkInserted: result.bulkInserted });
+  }
+
   const matchMatch = pathname.match(/^\/api\/matches\/([^/]+)$/);
   if (method === "PUT" && matchMatch) {
     const body = await readJsonBody(req);
@@ -2023,6 +2205,16 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     runInTransaction(() => insertMatch(body, currentUser));
     return sendJson(req, res, 201, getStatePayload(currentUser));
+  }
+
+  if (method === "POST" && pathname === "/api/matches/bulk-text") {
+    const currentUser = requireAdmin(req);
+    const body = await readJsonBody(req);
+    let bulkInserted = 0;
+    runInTransaction(() => {
+      bulkInserted = insertBulkTextMatches(body, currentUser);
+    });
+    return sendJson(req, res, 201, { ...getStatePayload(currentUser), bulkInserted });
   }
 
   const matchMatch = pathname.match(/^\/api\/matches\/([^/]+)$/);

@@ -277,6 +277,24 @@
             <strong>아직 저장된 경기가 없습니다.</strong>
           </div>
         </section>
+
+        <section class="board bulk-match-board" id="bulkMatchPanel" aria-labelledby="bulkMatchTitle" hidden>
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Bulk</span>
+              <h2 id="bulkMatchTitle">텍스트 경기 입력</h2>
+            </div>
+          </div>
+          <form id="bulkMatchForm" class="bulk-match-form">
+            <textarea id="bulkMatchText" rows="5" placeholder="7월 29일 오후 10:33 조민신 / 홍석기 22 : 20 박성수 / 류철"></textarea>
+            <div class="form-footer">
+              <button class="button button--primary" id="bulkMatchSubmitBtn" type="submit">
+                <i data-lucide="upload"></i>
+                <span>한번에 저장</span>
+              </button>
+            </div>
+          </form>
+        </section>
       </main>
     </div>
 
