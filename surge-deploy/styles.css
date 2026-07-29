@@ -794,12 +794,14 @@ tbody tr:last-child td {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 900;
   white-space: nowrap;
 }
 
 .streak-delta {
-  font-size: 0.74rem;
-  font-weight: 900;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 .streak--win {
