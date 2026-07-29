@@ -19,6 +19,7 @@ const errorMessages = {
   BULK_MATCH_TEXT_REQUIRED: "경기 기록 텍스트를 입력하세요.",
   MATCH_INVALID_DATE: "경기 일시를 확인하세요.",
   API_UNAVAILABLE: "서버 API가 연결되지 않았습니다. Render 서비스를 Static Site가 아니라 Web Service로 배포해야 합니다.",
+  ADMIN_ROLE_LOCKED: "admin 계정은 admin 해제 후 manager로 변경하세요.",
   CANNOT_DELETE_SELF: "현재 로그인한 계정은 삭제할 수 없습니다.",
   DISPLAY_NAME_REQUIRED: "이름을 입력하세요.",
   FORBIDDEN: "admin 권한이 필요합니다.",
@@ -41,6 +42,7 @@ const errorMessages = {
   PLAYER_NAME_REQUIRED: "선수 이름을 입력하세요.",
   PLAYER_NAME_TAKEN: "이미 등록된 선수 이름입니다.",
   PLAYER_NOT_FOUND: "선수를 찾을 수 없습니다.",
+  PLAYER_REGISTER_FORBIDDEN: "manager 또는 admin 권한이 필요합니다.",
   PLAYER_RATING_REQUIRED: "초기 ELO를 입력하세요.",
   REQUEST_TOO_LARGE: "파일이 너무 큽니다.",
   SERVER_ERROR: "서버 처리 중 문제가 생겼습니다.",
@@ -90,6 +92,10 @@ function escapeHtml(value) {
 
 function normalizeUsername(value) {
   return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, "");
+}
+
+function normalizeRole(value) {
+  return ["admin", "manager", "member"].includes(value) ? value : "member";
 }
 
 function safeIsoDate(value, fallback = new Date().toISOString()) {
@@ -153,7 +159,7 @@ function normalizeUser(user) {
     id: String(user.id),
     username: normalizeUsername(user.username),
     displayName: String(user.displayName || user.username).trim(),
-    role: user.role === "admin" ? "admin" : "member",
+    role: normalizeRole(user.role),
     playerId: user.playerId ? String(user.playerId) : null,
     playerSeedRating: user.playerSeedRating == null ? null : Number(user.playerSeedRating),
     playerStatus: user.playerStatus || "none",
@@ -170,6 +176,7 @@ function normalizeState(input) {
           id: String(player.id),
           userId: player.userId ? String(player.userId) : null,
           accountUsername: normalizeUsername(player.accountUsername || player.account_username || ""),
+          accountRole: player.accountRole || player.account_role ? normalizeRole(player.accountRole || player.account_role) : "",
           name: String(player.name).trim(),
           seedRating:
             player.seedRating == null && player.rating == null
@@ -325,6 +332,19 @@ function isAdmin() {
   return getCurrentUser()?.role === "admin";
 }
 
+function isManager() {
+  return getCurrentUser()?.role === "manager";
+}
+
+function canRegisterPlayers() {
+  const role = getCurrentUser()?.role;
+  return role === "admin" || role === "manager";
+}
+
+function roleLabel(role) {
+  return role === "admin" ? "admin" : role === "manager" ? "manager" : "member";
+}
+
 function getActivePlayers(sourceState = state) {
   return sourceState.players.filter((player) => player.seedRating != null && player.status !== "pending");
 }
@@ -340,6 +360,14 @@ function requireLogin() {
 function requireAdmin() {
   if (!isAdmin()) {
     showToast("admin 권한이 필요합니다.");
+    return false;
+  }
+  return true;
+}
+
+function requirePlayerRegistrar() {
+  if (!canRegisterPlayers()) {
+    showToast("manager 또는 admin 권한이 필요합니다.");
     return false;
   }
   return true;
@@ -421,6 +449,16 @@ async function toggleUserRole(userId) {
   try {
     applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-admin`, { method: "PATCH" }));
     showToast("계정 권한을 변경했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
+async function toggleManagerRole(userId) {
+  if (!requireAdmin()) return;
+  try {
+    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-manager`, { method: "PATCH" }));
+    showToast("manager 권한을 변경했습니다.");
   } catch (error) {
     showApiError(error);
   }
@@ -575,7 +613,15 @@ function playerAccountId(player) {
   return linkedUser?.username || "";
 }
 
-function playerDisplayName(player) {
+function playerAccountRole(player) {
+  if (player?.accountRole) {
+    return player.accountRole;
+  }
+  const linkedUser = state.users.find((user) => user.playerId === player.id || user.id === player.userId);
+  return linkedUser?.role || "";
+}
+
+function playerDisplayName(player, options = {}) {
   if (!player) {
     return "알 수 없음";
   }
@@ -585,21 +631,22 @@ function playerDisplayName(player) {
   }
 
   const accountSuffix = `(${accountId})`;
-  return player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
+  const displayName = player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
     ? player.name
     : `${player.name} ${accountSuffix}`;
+  return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} 🧭` : displayName;
 }
 
 function playerName(id) {
   return playerDisplayName(state.players.find((player) => player.id === id));
 }
 
-function renderPlayerName(player) {
-  return `<span class="player-name">${escapeHtml(playerDisplayName(player))}</span>`;
+function renderPlayerName(player, options = {}) {
+  return `<span class="player-name">${escapeHtml(playerDisplayName(player, options))}</span>`;
 }
 
 async function addPlayer(name, rating) {
-  if (!requireAdmin()) return false;
+  if (!requirePlayerRegistrar()) return false;
 
   const normalizedName = name.trim().replace(/\s+/g, " ");
   if (!normalizedName) {
@@ -845,7 +892,7 @@ function renderAuth() {
 
   if (user) {
     $("#currentUserName").textContent = user.displayName;
-    $("#currentRoleBadge").textContent = user.role === "admin" ? "admin" : "member";
+    $("#currentRoleBadge").textContent = roleLabel(user.role);
     $("#currentUserAvatar").textContent = user.displayName.slice(0, 1).toLocaleUpperCase();
   }
 
@@ -856,6 +903,7 @@ function renderAuth() {
       const canDelete = isAdmin() && !isCurrent;
       const adminCount = state.users.filter((candidate) => candidate.role === "admin").length;
       const canToggle = isAdmin() && !(entry.role === "admin" && adminCount <= 1);
+      const canToggleManager = isAdmin() && entry.role !== "admin";
       const playerInfo = entry.playerStatus === "active"
         ? `선수 ELO ${Math.round(entry.playerSeedRating)}`
         : entry.playerStatus === "pending"
@@ -865,13 +913,17 @@ function renderAuth() {
         <li class="user-row">
           <div class="user-row-main">
             <strong>${escapeHtml(entry.displayName)}</strong>
-            <span>${escapeHtml(entry.username)} · ${entry.role === "admin" ? "admin" : "member"} · ${playerInfo}${isCurrent ? " · 현재" : ""}</span>
+            <span>${escapeHtml(entry.username)} · ${roleLabel(entry.role)} · ${playerInfo}${isCurrent ? " · 현재" : ""}</span>
           </div>
           ${renderUserPlayerLink(entry)}
           <div class="row-actions">
             <button class="icon-text-button" type="button" data-toggle-admin="${escapeHtml(entry.id)}" ${canToggle ? "" : "disabled"}>
               <i data-lucide="shield"></i>
               <span>${entry.role === "admin" ? "해제" : "admin"}</span>
+            </button>
+            <button class="icon-text-button" type="button" data-toggle-manager="${escapeHtml(entry.id)}" ${canToggleManager ? "" : "disabled"}>
+              <i data-lucide="compass"></i>
+              <span>${entry.role === "manager" ? "member" : "manager"}</span>
             </button>
             <button class="icon-button" type="button" data-delete-user="${escapeHtml(entry.id)}" ${canDelete ? "" : "disabled"} aria-label="${escapeHtml(entry.displayName)} 삭제" title="삭제">
               <i data-lucide="x"></i>
@@ -940,11 +992,14 @@ function renderAccess() {
   const user = getCurrentUser();
   const loggedIn = Boolean(user);
   const admin = isAdmin();
+  const canAddPlayers = canRegisterPlayers();
   const activePlayerCount = getActivePlayers().length;
   const canRecordMatch = loggedIn && activePlayerCount >= 4;
 
   $("#matchAuthNote").textContent = loggedIn ? `${user.displayName}님으로 경기 입력 중` : "로그인하면 경기 결과를 입력할 수 있습니다.";
-  $("#rosterAuthNote").textContent = admin ? "admin 권한으로 선수와 설정을 관리 중" : "선수 등록과 설정 변경은 admin만 가능합니다.";
+  $("#rosterAuthNote").textContent = canAddPlayers
+    ? admin ? "admin 권한으로 선수와 설정을 관리 중" : "manager 권한으로 선수 등록 가능"
+    : "선수 등록은 manager 또는 admin만 가능합니다.";
 
   selectIds.forEach((id) => {
     $(`#${id}`).disabled = !canRecordMatch;
@@ -956,9 +1011,9 @@ function renderAccess() {
   $("#shuffleBtn").hidden = activePlayerCount < 4;
   $("#shuffleBtn").disabled = !canRecordMatch;
 
-  $("#playerName").disabled = false;
-  $("#playerRating").disabled = false;
-  $("#playerForm button").disabled = !admin;
+  $("#playerName").disabled = !canAddPlayers;
+  $("#playerRating").disabled = !canAddPlayers;
+  $("#playerForm button").disabled = !canAddPlayers;
   $$("#baseRating, #kFactor, #marginBonus").forEach((element) => {
     element.disabled = !admin;
   });
@@ -996,7 +1051,7 @@ function renderRankings(standings) {
             <div class="player-cell">
               <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
               <div class="player-meta">
-                ${renderPlayerName(player)}
+                ${renderPlayerName(player, { managerBadge: true })}
                 <span class="player-sub">${lastPlayed}</span>
               </div>
             </div>
@@ -1024,7 +1079,7 @@ function renderRankings(standings) {
               <div class="player-cell">
                 <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
                 <div class="player-meta">
-                  ${renderPlayerName(player)}
+                  ${renderPlayerName(player, { managerBadge: true })}
                   <span class="player-sub">승인 대기</span>
                 </div>
               </div>
@@ -1169,7 +1224,7 @@ function buildRankingExportLines() {
     const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
     const seedRating = isAdmin() ? ` | 초기 ${Math.round(player.seedRating)}` : "";
     return [
-      `${index + 1}. ${playerDisplayName(player)}`,
+      `${index + 1}. ${playerDisplayName(player, { managerBadge: true })}`,
       `레이팅 ${player.rating.toFixed(1)}`,
       formatStreakText(player.streak, player.streakDelta),
       `전적 ${player.wins}승 ${player.losses}패`,
@@ -1182,7 +1237,7 @@ function buildRankingExportLines() {
     state.players
       .filter((player) => player.seedRating == null || player.status === "pending")
       .forEach((player) => {
-        lines.push(`-. ${playerDisplayName(player)} | 초기 ELO 필요 | 전적 - | 승률 -`);
+        lines.push(`-. ${playerDisplayName(player, { managerBadge: true })} | 초기 ELO 필요 | 전적 - | 승률 -`);
       });
   }
 
@@ -1373,6 +1428,12 @@ function bindEvents() {
     const toggleButton = target.closest("[data-toggle-admin]");
     if (toggleButton) {
       toggleUserRole(toggleButton.dataset.toggleAdmin);
+      return;
+    }
+
+    const toggleManagerButton = target.closest("[data-toggle-manager]");
+    if (toggleManagerButton) {
+      toggleManagerRole(toggleManagerButton.dataset.toggleManager);
       return;
     }
 

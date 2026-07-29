@@ -20,6 +20,7 @@ const defaultSettings = {
   kFactor: 32,
   marginBonus: true,
 };
+const validRoles = new Set(["admin", "manager", "member"]);
 
 let db = null;
 let pgPool = null;
@@ -58,7 +59,7 @@ function initDb() {
       username TEXT NOT NULL UNIQUE,
       display_name TEXT NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+      role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'member')),
       created_at TEXT NOT NULL
     );
 
@@ -107,6 +108,7 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_matches_sequence ON matches(sequence);
   `);
 
+  migrateUsersTable();
   migratePlayersTable();
   migrateMatchesTable();
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
@@ -148,6 +150,61 @@ function migratePlayersTable() {
   `).run();
   db.exec("DROP TABLE players_legacy");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
+}
+
+function migrateUsersTable() {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();
+  if (!table?.sql || table.sql.includes("'manager'")) {
+    return;
+  }
+
+  const users = db.prepare("SELECT id, username, display_name, password_hash, role, created_at FROM users").all();
+  const sessions = db.prepare("SELECT id, user_id, expires_at, created_at FROM sessions").all();
+  const userIds = new Set(users.map((user) => user.id));
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("DROP TABLE IF EXISTS sessions");
+  db.exec("ALTER TABLE users RENAME TO users_legacy");
+  db.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'member')),
+      created_at TEXT NOT NULL
+    );
+  `);
+  const insertUser = db.prepare(`
+    INSERT INTO users (id, username, display_name, password_hash, role, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  users.forEach((user) => {
+    insertUser.run(
+      user.id,
+      user.username,
+      user.display_name,
+      user.password_hash,
+      normalizeRole(user.role),
+      user.created_at,
+    );
+  });
+  db.exec("DROP TABLE users_legacy");
+  db.exec(`
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  const insertSession = db.prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)");
+  sessions
+    .filter((session) => userIds.has(session.user_id))
+    .forEach((session) => {
+      insertSession.run(session.id, session.user_id, session.expires_at, session.created_at);
+    });
+  db.exec("PRAGMA foreign_keys = ON");
 }
 
 function migrateMatchesTable() {
@@ -194,6 +251,11 @@ function safeIsoDate(value, fallback = nowIso()) {
   const fallbackIso = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString();
   const date = new Date(value || fallbackIso);
   return Number.isNaN(date.getTime()) ? fallbackIso : date.toISOString();
+}
+
+function normalizeRole(value, fallback = "member") {
+  const role = String(value || "").trim();
+  return validRoles.has(role) ? role : fallback;
 }
 
 function normalizeMatchDate(value, fallback = nowIso()) {
@@ -310,7 +372,7 @@ function userFromRow(row) {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
-    role: row.role,
+    role: normalizeRole(row.role),
     createdAt: row.created_at,
   };
 
@@ -346,6 +408,7 @@ function playerFromRow(row) {
     id: row.id,
     userId: row.user_id || null,
     accountUsername: row.account_username || "",
+    accountRole: row.account_role ? normalizeRole(row.account_role) : "",
     name: row.name,
     seedRating: row.seed_rating == null ? null : Number(row.seed_rating),
     status: row.seed_rating == null ? "pending" : "active",
@@ -360,6 +423,7 @@ function getPlayers(options = {}) {
       SELECT players.id,
              players.user_id,
              users.username AS account_username,
+             users.role AS account_role,
              players.name,
              players.seed_rating,
              players.created_at
@@ -1082,6 +1146,18 @@ function requireAdmin(req) {
   return currentUser;
 }
 
+function canRegisterPlayers(user) {
+  return user?.role === "admin" || user?.role === "manager";
+}
+
+function requirePlayerRegistrar(req) {
+  const currentUser = requireUser(req);
+  if (!canRegisterPlayers(currentUser)) {
+    throw new HttpError(403, "PLAYER_REGISTER_FORBIDDEN", "manager 또는 admin 권한이 필요합니다.");
+  }
+  return currentUser;
+}
+
 function createSession(userId) {
   const sid = uid();
   db.prepare("INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)").run(
@@ -1223,6 +1299,18 @@ function toggleUserRole(targetUserId) {
   }
 
   db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target.role === "admin" ? "member" : "admin", targetUserId);
+}
+
+function toggleManagerRole(targetUserId) {
+  const target = db.prepare("SELECT * FROM users WHERE id = ?").get(targetUserId);
+  if (!target) {
+    throw new HttpError(404, "USER_NOT_FOUND");
+  }
+  if (target.role === "admin") {
+    throw new HttpError(409, "ADMIN_ROLE_LOCKED", "admin 계정은 admin 해제 후 manager로 변경하세요.");
+  }
+
+  db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target.role === "manager" ? "member" : "manager", targetUserId);
 }
 
 function deleteUser(targetUserId, currentUser) {
@@ -1470,7 +1558,7 @@ function normalizeStoredUser(user, seenIds, seenUsernames) {
     username,
     displayName: normalizeDisplayName(user?.displayName ?? user?.display_name, username),
     passwordHash: String(user?.passwordHash ?? user?.password_hash ?? ""),
-    role: user?.role === "admin" ? "admin" : "member",
+    role: normalizeRole(user?.role),
     createdAt: user?.createdAt ?? user?.created_at ?? nowIso(),
   };
 }
@@ -1634,7 +1722,7 @@ function pgUserFromStored(user) {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
-    role: user.role,
+    role: normalizeRole(user.role),
     createdAt: user.createdAt,
   };
 }
@@ -1647,6 +1735,7 @@ function pgPlayerFromStored(player, state = null) {
     id: player.id,
     userId: player.userId || null,
     accountUsername: accountUser?.username || "",
+    accountRole: accountUser ? normalizeRole(accountUser.role) : "",
     name: player.name,
     seedRating: player.seedRating == null ? null : Number(player.seedRating),
     status: player.seedRating == null ? "pending" : "active",
@@ -1744,6 +1833,14 @@ function pgRequireAdmin(req, state) {
   const currentUser = pgRequireUser(req, state);
   if (currentUser.role !== "admin") {
     throw new HttpError(403, "FORBIDDEN");
+  }
+  return currentUser;
+}
+
+function pgRequirePlayerRegistrar(req, state) {
+  const currentUser = pgRequireUser(req, state);
+  if (!canRegisterPlayers(currentUser)) {
+    throw new HttpError(403, "PLAYER_REGISTER_FORBIDDEN", "manager 또는 admin 권한이 필요합니다.");
   }
   return currentUser;
 }
@@ -2056,6 +2153,18 @@ function pgToggleUserRole(state, targetUserId) {
   target.role = target.role === "admin" ? "member" : "admin";
 }
 
+function pgToggleManagerRole(state, targetUserId) {
+  const target = state.users.find((user) => user.id === targetUserId);
+  if (!target) {
+    throw new HttpError(404, "USER_NOT_FOUND");
+  }
+  if (target.role === "admin") {
+    throw new HttpError(409, "ADMIN_ROLE_LOCKED", "admin 계정은 admin 해제 후 manager로 변경하세요.");
+  }
+
+  target.role = target.role === "manager" ? "member" : "manager";
+}
+
 function pgDeleteUser(state, targetUserId, currentUser) {
   if (targetUserId === currentUser.id) {
     throw new HttpError(409, "CANNOT_DELETE_SELF");
@@ -2186,7 +2295,7 @@ async function handleApiPostgres(req, res, url) {
   if (method === "POST" && pathname === "/api/players") {
     const body = await readJsonBody(req);
     const payload = await withPostgresState((state) => {
-      const currentUser = pgRequireAdmin(req, state);
+      const currentUser = pgRequirePlayerRegistrar(req, state);
       pgInsertPlayer(state, body);
       return pgGetStatePayload(state, currentUser);
     });
@@ -2292,6 +2401,16 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, payload);
   }
 
+  const toggleManagerMatch = pathname.match(/^\/api\/users\/([^/]+)\/toggle-manager$/);
+  if (method === "PATCH" && toggleManagerMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgToggleManagerRole(state, decodeURIComponent(toggleManagerMatch[1]));
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
   const userPlayerMatch = pathname.match(/^\/api\/users\/([^/]+)\/player$/);
   if (method === "PATCH" && userPlayerMatch) {
     const body = await readJsonBody(req);
@@ -2358,7 +2477,7 @@ async function handleApi(req, res, url) {
   }
 
   if (method === "POST" && pathname === "/api/players") {
-    const currentUser = requireAdmin(req);
+    const currentUser = requirePlayerRegistrar(req);
     const body = await readJsonBody(req);
     runInTransaction(() => insertPlayer(body));
     return sendJson(req, res, 201, getStatePayload(currentUser));
@@ -2434,6 +2553,13 @@ async function handleApi(req, res, url) {
     const currentUser = requireAdmin(req);
     runInTransaction(() => toggleUserRole(decodeURIComponent(toggleAdminMatch[1])));
     return sendJson(req, res, 200, getStatePayload(getCurrentUser(req) || currentUser));
+  }
+
+  const toggleManagerMatch = pathname.match(/^\/api\/users\/([^/]+)\/toggle-manager$/);
+  if (method === "PATCH" && toggleManagerMatch) {
+    const currentUser = requireAdmin(req);
+    runInTransaction(() => toggleManagerRole(decodeURIComponent(toggleManagerMatch[1])));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
   }
 
   const userPlayerMatch = pathname.match(/^\/api\/users\/([^/]+)\/player$/);
