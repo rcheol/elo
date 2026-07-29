@@ -166,6 +166,7 @@ function normalizeState(input) {
         .map((player) => ({
           id: String(player.id),
           userId: player.userId ? String(player.userId) : null,
+          accountUsername: normalizeUsername(player.accountUsername || player.account_username || ""),
           name: String(player.name).trim(),
           seedRating:
             player.seedRating == null && player.rating == null
@@ -491,10 +492,9 @@ function applyMatchStats(table, ids, won, createdAt, changeMap) {
 }
 
 function playerAccountId(player) {
-  if (!isAdmin()) {
-    return "";
+  if (player?.accountUsername) {
+    return player.accountUsername;
   }
-
   const linkedUser = state.users.find((user) => user.playerId === player.id || user.id === player.userId);
   return linkedUser?.username || "";
 }

@@ -345,6 +345,7 @@ function playerFromRow(row) {
   return {
     id: row.id,
     userId: row.user_id || null,
+    accountUsername: row.account_username || "",
     name: row.name,
     seedRating: row.seed_rating == null ? null : Number(row.seed_rating),
     status: row.seed_rating == null ? "pending" : "active",
@@ -356,10 +357,16 @@ function getPlayers(options = {}) {
   const includePending = Boolean(options.includePending);
   return db
     .prepare(`
-      SELECT id, user_id, name, seed_rating, created_at
+      SELECT players.id,
+             players.user_id,
+             users.username AS account_username,
+             players.name,
+             players.seed_rating,
+             players.created_at
       FROM players
+      LEFT JOIN users ON users.id = players.user_id
       ${includePending ? "" : "WHERE seed_rating IS NOT NULL"}
-      ORDER BY created_at ASC, name ASC
+      ORDER BY players.created_at ASC, players.name ASC
     `)
     .all()
     .map(playerFromRow);
@@ -1590,10 +1597,14 @@ function pgUserFromStored(user) {
   };
 }
 
-function pgPlayerFromStored(player) {
+function pgPlayerFromStored(player, state = null) {
+  const accountUser = state && player.userId
+    ? state.users.find((user) => user.id === player.userId)
+    : null;
   return {
     id: player.id,
     userId: player.userId || null,
+    accountUsername: accountUser?.username || "",
     name: player.name,
     seedRating: player.seedRating == null ? null : Number(player.seedRating),
     status: player.seedRating == null ? "pending" : "active",
@@ -1643,7 +1654,7 @@ function pgGetPlayers(state, options = {}) {
   const includePending = Boolean(options.includePending);
   return state.players
     .filter((player) => includePending || player.seedRating != null)
-    .map(pgPlayerFromStored);
+    .map((player) => pgPlayerFromStored(player, state));
 }
 
 function pgGetMatches(state) {
