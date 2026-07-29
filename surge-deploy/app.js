@@ -980,12 +980,12 @@ function renderRankings(standings) {
 }
 
 function formatStreak(streak, streakDelta = 0) {
-  const delta = `<span class="streak-delta">${formatSigned(streakDelta)} ELO</span>`;
+  const delta = `<span class="streak-delta">${formatSigned(streakDelta)}</span>`;
   if (streak > 0) {
-    return `<span class="streak streak--win">${streak}연승 ${delta}</span>`;
+    return `<span class="streak streak--win">${delta} ${streak}연승</span>`;
   }
   if (streak < 0) {
-    return `<span class="streak streak--loss">${Math.abs(streak)}연패 ${delta}</span>`;
+    return `<span class="streak streak--loss">${delta} ${Math.abs(streak)}연패</span>`;
   }
   return `<span class="muted">-</span>`;
 }
