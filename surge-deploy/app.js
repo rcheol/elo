@@ -903,10 +903,6 @@ function renderAccess() {
   $$("#baseRating, #kFactor, #marginBonus").forEach((element) => {
     element.disabled = !admin;
   });
-  $("#loadDemoBtn").disabled = !admin;
-  $("#emptyDemoBtn").disabled = !admin;
-  $("#importBtn").disabled = !admin;
-  $("#resetBtn").disabled = !admin;
   $("#bulkMatchPanel").hidden = !admin;
   $("#bulkMatchText").disabled = !admin;
   $("#bulkMatchSubmitBtn").disabled = !admin;
@@ -1097,118 +1093,91 @@ function shuffleTeams() {
   renderPreview();
 }
 
-async function importSnapshot(snapshot, successMessage) {
-  try {
-    applyServerState(
-      await apiFetch("/api/import", {
-        method: "POST",
-        body: snapshot,
-      }),
-    );
-    showToast(successMessage);
-    return true;
-  } catch (error) {
-    showApiError(error);
-    return false;
+function formatStreakText(streak, streakDelta = 0) {
+  if (streak > 0) {
+    return `${formatSigned(streakDelta)} ${streak}연승`;
   }
+  if (streak < 0) {
+    return `${formatSigned(streakDelta)} ${Math.abs(streak)}연패`;
+  }
+  return "-";
 }
 
-async function loadDemoData() {
-  if (!requireAdmin()) return;
-  if ((state.players.length || state.matches.length) && !window.confirm("현재 데이터를 샘플 데이터로 바꿀까요?")) {
-    return;
+function buildRankingExportLines() {
+  const standings = getStandings();
+  const lines = standings.map((player, index) => {
+    const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
+    const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
+    const seedRating = isAdmin() ? ` | 초기 ${Math.round(player.seedRating)}` : "";
+    return [
+      `${index + 1}. ${playerDisplayName(player)}`,
+      `레이팅 ${player.rating.toFixed(1)}`,
+      formatStreakText(player.streak, player.streakDelta),
+      `전적 ${player.wins}승 ${player.losses}패`,
+      `승률 ${winRate}`,
+      lastPlayed,
+    ].join(" | ") + seedRating;
+  });
+
+  if (isAdmin()) {
+    state.players
+      .filter((player) => player.seedRating == null || player.status === "pending")
+      .forEach((player) => {
+        lines.push(`-. ${playerDisplayName(player)} | 초기 ELO 필요 | 전적 - | 승률 -`);
+      });
   }
 
-  const createdAt = new Date().toISOString();
-  const players = [
-    ["김서준", 1540],
-    ["이도윤", 1510],
-    ["박민재", 1490],
-    ["최유나", 1500],
-    ["정하린", 1470],
-    ["한지우", 1525],
-  ].map(([name, seedRating]) => ({
-    id: uid(),
-    name,
-    seedRating,
-    createdAt,
-  }));
+  return lines.length ? lines : ["등록된 선수가 없습니다."];
+}
 
-  const byName = Object.fromEntries(players.map((player) => [player.name, player.id]));
-  const matches = [
-    [["김서준", "이도윤"], ["박민재", "최유나"], 21, 17],
-    [["정하린", "한지우"], ["김서준", "최유나"], 18, 21],
-    [["이도윤", "박민재"], ["정하린", "한지우"], 22, 20],
-    [["김서준", "한지우"], ["이도윤", "최유나"], 16, 21],
-    [["박민재", "최유나"], ["정하린", "김서준"], 21, 14],
-  ].map(([teamA, teamB, scoreA, scoreB], index) => ({
-    id: uid(),
-    teamA: teamA.map((name) => byName[name]),
-    teamB: teamB.map((name) => byName[name]),
-    scoreA,
-    scoreB,
-    createdBy: getCurrentUser().id,
-    createdByName: getCurrentUser().displayName,
-    playedAt: new Date(Date.now() - (5 - index) * 3600 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - (5 - index) * 3600 * 1000).toISOString(),
-  }));
+function buildHistoryExportLines() {
+  const matches = sortedMatches().reverse();
+  if (!matches.length) {
+    return ["아직 저장된 경기가 없습니다."];
+  }
 
-  await importSnapshot({ players, matches, settings: defaultSettings }, "샘플 데이터를 불러왔습니다.");
+  return matches.map((match, index) => {
+    const teamA = match.teamA.map(playerName).join(" / ");
+    const teamB = match.teamB.map(playerName).join(" / ");
+    const deltaA = match.changes.find((change) => match.teamA.includes(change.id))?.delta || 0;
+    const deltaB = match.changes.find((change) => match.teamB.includes(change.id))?.delta || 0;
+    const editedText = match.updatedAt ? ` | 수정 ${match.updatedByName || "알 수 없음"} ${formatDate(match.updatedAt)}` : "";
+    return [
+      `${index + 1}. ${formatDate(matchPlayedAt(match))}`,
+      `${teamA} ${match.scoreA} : ${match.scoreB} ${teamB}`,
+      `A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)}`,
+      `기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}%`,
+      `입력 ${match.createdByName || "알 수 없음"}`,
+    ].join(" | ") + editedText;
+  });
+}
+
+function buildTextExport() {
+  return [
+    "허니서브 동호회 랭킹",
+    `내보낸 시각: ${new Date().toLocaleString("ko-KR")}`,
+    "",
+    "[랭킹]",
+    ...buildRankingExportLines(),
+    "",
+    "[경기 기록]",
+    ...buildHistoryExportLines(),
+    "",
+  ].join("\n");
 }
 
 function exportData() {
-  const payload = JSON.stringify(
-    {
-      players: state.players,
-      matches: state.matches,
-      settings: state.settings,
-    },
-    null,
-    2,
-  );
-  const blob = new Blob([payload], { type: "application/json" });
+  const text = buildTextExport();
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `badminton-elo-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.download = `honeyserve-ranking-${new Date().toISOString().slice(0, 10)}.txt`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
-  showToast("랭킹 데이터를 내보냈습니다.");
-}
-
-function importData(file) {
-  if (!requireAdmin() || !file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const imported = JSON.parse(reader.result);
-      await importSnapshot(imported, "랭킹 데이터를 가져왔습니다.");
-    } catch (error) {
-      console.error(error);
-      showToast("JSON 파일을 확인하세요.");
-    }
-  };
-  reader.readAsText(file);
-}
-
-async function resetData() {
-  if (!requireAdmin()) return;
-  if (!state.players.length && !state.matches.length) {
-    showToast("초기화할 데이터가 없습니다.");
-    return;
-  }
-  if (!window.confirm("모든 선수와 경기 기록을 삭제할까요?")) {
-    return;
-  }
-
-  try {
-    applyServerState(await apiFetch("/api/reset", { method: "POST" }));
-    showToast("데이터를 초기화했습니다.");
-  } catch (error) {
-    showApiError(error);
-  }
+  showToast("랭킹과 경기 기록을 텍스트로 내보냈습니다.");
 }
 
 async function updateSettings(patch) {
@@ -1300,15 +1269,7 @@ function bindEvents() {
   $("#scoreA").addEventListener("input", renderPreview);
   $("#scoreB").addEventListener("input", renderPreview);
   $("#shuffleBtn").addEventListener("click", shuffleTeams);
-  $("#loadDemoBtn").addEventListener("click", loadDemoData);
-  $("#emptyDemoBtn").addEventListener("click", loadDemoData);
   $("#exportBtn").addEventListener("click", exportData);
-  $("#importBtn").addEventListener("click", () => $("#importFile").click());
-  $("#importFile").addEventListener("change", (event) => {
-    importData(event.target.files[0]);
-    event.target.value = "";
-  });
-  $("#resetBtn").addEventListener("click", resetData);
 
   $("#baseRating").addEventListener("change", (event) => {
     updateSettings({ baseRating: clampNumber(Number(event.target.value), 800, 2400) });

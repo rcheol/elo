@@ -36,21 +36,9 @@
             </div>
           </div>
           <div class="toolbar" aria-label="데이터 도구">
-            <button class="button button--ghost" id="loadDemoBtn" type="button">
-              <i data-lucide="sparkles"></i>
-              <span>샘플</span>
-            </button>
             <button class="button button--ghost" id="exportBtn" type="button">
               <i data-lucide="download"></i>
               <span>내보내기</span>
-            </button>
-            <button class="button button--ghost" id="importBtn" type="button">
-              <i data-lucide="upload"></i>
-              <span>가져오기</span>
-            </button>
-            <button class="button button--danger" id="resetBtn" type="button">
-              <i data-lucide="trash-2"></i>
-              <span>초기화</span>
             </button>
           </div>
         </div>
@@ -256,10 +244,6 @@
           </div>
           <div class="empty-state" id="rankingEmpty">
             <strong>등록된 선수가 없습니다.</strong>
-            <button class="button button--primary" id="emptyDemoBtn" type="button">
-              <i data-lucide="sparkles"></i>
-              <span>샘플 불러오기</span>
-            </button>
           </div>
         </section>
 
@@ -295,8 +279,6 @@
         </section>
       </main>
     </div>
-
-    <input id="importFile" type="file" accept="application/json" hidden>
     <dialog class="match-dialog" id="matchEditDialog">
       <form id="matchEditForm" class="match-edit-form">
         <div class="section-head">
