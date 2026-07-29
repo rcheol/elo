@@ -104,11 +104,6 @@
               <span>로그아웃</span>
             </button>
           </div>
-
-          <div id="adminUsers" class="admin-users" hidden>
-            <h3>계정 관리</h3>
-            <ul id="userList" class="user-list"></ul>
-          </div>
         </section>
 
         <section class="panel match-panel" aria-labelledby="matchTitle">
@@ -276,6 +271,16 @@
               </button>
             </div>
           </form>
+        </section>
+
+        <section class="board admin-users-board" id="adminUsers" aria-labelledby="adminUsersTitle" hidden>
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Admin</span>
+              <h2 id="adminUsersTitle">계정 관리</h2>
+            </div>
+          </div>
+          <ul id="userList" class="user-list"></ul>
         </section>
       </main>
     </div>

@@ -228,7 +228,8 @@ h2 {
 }
 
 .rankings-board,
-.history-board {
+.history-board,
+.admin-users-board {
   grid-column: 1 / -1;
 }
 
@@ -523,8 +524,7 @@ textarea:focus {
   min-width: 0;
 }
 
-.auth-form h3,
-.admin-users h3 {
+.auth-form h3 {
   margin: 0;
   color: var(--green-deep);
   font-size: 0.9rem;
@@ -571,12 +571,6 @@ textarea:focus {
   color: var(--green-deep);
   font-size: 0.72rem;
   font-weight: 900;
-}
-
-.admin-users {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
 }
 
 .user-list {
