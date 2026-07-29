@@ -28,6 +28,7 @@ const errorMessages = {
   INVALID_JSON: "JSON 파일을 확인하세요.",
   LAST_ADMIN: "admin 계정은 최소 1개가 필요합니다.",
   MATCH_DUPLICATE_PLAYER: "한 선수는 한 경기에서 한 번만 선택할 수 있습니다.",
+  MATCH_EDIT_FORBIDDEN: "이 경기 기록은 입력자 또는 admin만 수정할 수 있습니다.",
   MATCH_INVALID_SCORE: "점수를 확인하세요.",
   MATCH_NEEDS_PLAYERS: "선수 4명을 선택하세요.",
   MATCH_NOT_FOUND: "경기 기록을 찾을 수 없습니다.",
@@ -337,6 +338,23 @@ function requireLogin() {
 function requireAdmin() {
   if (!isAdmin()) {
     showToast("admin 권한이 필요합니다.");
+    return false;
+  }
+  return true;
+}
+
+function canEditMatch(match) {
+  const currentUser = getCurrentUser();
+  return Boolean(currentUser && match && (isAdmin() || match.createdBy === currentUser.id));
+}
+
+function requireMatchEditor(match) {
+  if (!getCurrentUser()) {
+    showToast("로그인이 필요합니다.");
+    return false;
+  }
+  if (!canEditMatch(match)) {
+    showToast("이 경기 기록은 입력자 또는 admin만 수정할 수 있습니다.");
     return false;
   }
   return true;
@@ -668,9 +686,9 @@ async function recordMatch() {
 }
 
 function openEditMatch(matchId) {
-  if (!requireAdmin()) return;
   const match = state.matches.find((entry) => entry.id === matchId);
   if (!match) return;
+  if (!requireMatchEditor(match)) return;
 
   editingMatchId = match.id;
   renderEditSelects(match);
@@ -686,9 +704,9 @@ function closeEditMatch() {
 }
 
 async function saveEditedMatch() {
-  if (!requireAdmin()) return;
   const match = state.matches.find((entry) => entry.id === editingMatchId);
   if (!match) return;
+  if (!requireMatchEditor(match)) return;
 
   const teamA = [$("#editTeamA1").value, $("#editTeamA2").value];
   const teamB = [$("#editTeamB1").value, $("#editTeamB2").value];
@@ -1002,6 +1020,15 @@ function renderHistory() {
       const deltaA = match.changes.find((change) => match.teamA.includes(change.id))?.delta || 0;
       const deltaB = match.changes.find((change) => match.teamB.includes(change.id))?.delta || 0;
       const editedText = match.updatedAt ? ` · 수정 ${escapeHtml(match.updatedByName || "알 수 없음")} ${formatDate(match.updatedAt)}` : "";
+      const editButton = canEditMatch(match)
+        ? `<button class="icon-button" type="button" data-edit-match="${escapeHtml(match.id)}" aria-label="경기 수정" title="경기 수정"><i data-lucide="pencil"></i><span class="visually-hidden">수정</span></button>`
+        : "";
+      const deleteButton = isAdmin()
+        ? `<button class="icon-button" type="button" data-delete-match="${escapeHtml(match.id)}" aria-label="경기 삭제" title="경기 삭제"><i data-lucide="trash-2"></i><span class="visually-hidden">삭제</span></button>`
+        : "";
+      const actions = editButton || deleteButton
+        ? `<div class="row-actions">${editButton}${deleteButton}</div>`
+        : `<span class="muted">-</span>`;
 
       return `
         <li class="history-item">
@@ -1014,16 +1041,7 @@ function renderHistory() {
             </div>
             <p class="history-sub">A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)} · 기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}% · 입력 ${escapeHtml(match.createdByName || "알 수 없음")}${editedText}</p>
           </div>
-          ${
-            isAdmin()
-              ? `
-                <div class="row-actions">
-                  <button class="icon-button" type="button" data-edit-match="${escapeHtml(match.id)}" aria-label="경기 수정" title="경기 수정"><i data-lucide="pencil"></i><span class="visually-hidden">수정</span></button>
-                  <button class="icon-button" type="button" data-delete-match="${escapeHtml(match.id)}" aria-label="경기 삭제" title="경기 삭제"><i data-lucide="trash-2"></i><span class="visually-hidden">삭제</span></button>
-                </div>
-              `
-              : `<span class="muted">-</span>`
-          }
+          ${actions}
         </li>
       `;
     })

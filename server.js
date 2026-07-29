@@ -832,6 +832,13 @@ function insertBulkTextMatches(input, currentUser) {
   return matches.length;
 }
 
+function ensureCanEditMatch(match, currentUser) {
+  if (currentUser?.role === "admin" || (match.createdBy && match.createdBy === currentUser?.id)) {
+    return;
+  }
+  throw new HttpError(403, "MATCH_EDIT_FORBIDDEN", "이 경기 기록은 입력자 또는 admin만 수정할 수 있습니다.");
+}
+
 function updateMatch(matchId, input, currentUser) {
   const existing = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId);
   if (!existing) {
@@ -839,6 +846,7 @@ function updateMatch(matchId, input, currentUser) {
   }
 
   const current = matchFromRow(existing);
+  ensureCanEditMatch(current, currentUser);
   const { teamA, teamB, scoreA, scoreB, playedAt } = validateMatchInput(input, { fallbackPlayedAt: current.playedAt });
   const next = { ...current, teamA, teamB, scoreA, scoreB, playedAt };
   const recalculateFrom = earliestMatchOrder(current, next);
@@ -1809,6 +1817,7 @@ function pgUpdateMatch(state, matchId, input, currentUser) {
   }
 
   const current = { ...match };
+  ensureCanEditMatch(current, currentUser);
   const { teamA, teamB, scoreA, scoreB, playedAt } = pgValidateMatchInput(state, input, { fallbackPlayedAt: match.playedAt });
   const next = { ...current, teamA, teamB, scoreA, scoreB, playedAt };
   const recalculateFrom = earliestMatchOrder(current, next);
@@ -2160,7 +2169,7 @@ async function handleApiPostgres(req, res, url) {
   if (method === "PUT" && matchMatch) {
     const body = await readJsonBody(req);
     const payload = await withPostgresState((state) => {
-      const currentUser = pgRequireAdmin(req, state);
+      const currentUser = pgRequireUser(req, state);
       pgUpdateMatch(state, decodeURIComponent(matchMatch[1]), body, currentUser);
       return pgGetStatePayload(state, currentUser);
     });
@@ -2309,7 +2318,7 @@ async function handleApi(req, res, url) {
 
   const matchMatch = pathname.match(/^\/api\/matches\/([^/]+)$/);
   if (method === "PUT" && matchMatch) {
-    const currentUser = requireAdmin(req);
+    const currentUser = requireUser(req);
     const body = await readJsonBody(req);
     runInTransaction(() => updateMatch(decodeURIComponent(matchMatch[1]), body, currentUser));
     return sendJson(req, res, 200, getStatePayload(currentUser));
