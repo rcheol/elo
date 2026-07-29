@@ -435,8 +435,6 @@ function getStandings(sourceState = state) {
         games: 0,
         wins: 0,
         losses: 0,
-        pointsFor: 0,
-        pointsAgainst: 0,
         streak: 0,
         lastPlayed: null,
       },
@@ -451,8 +449,8 @@ function getStandings(sourceState = state) {
       }
     });
 
-    applyMatchStats(table, match.teamA, match.winner === "A", match.scoreA, match.scoreB, matchPlayedAt(match));
-    applyMatchStats(table, match.teamB, match.winner === "B", match.scoreB, match.scoreA, matchPlayedAt(match));
+    applyMatchStats(table, match.teamA, match.winner === "A", matchPlayedAt(match));
+    applyMatchStats(table, match.teamB, match.winner === "B", matchPlayedAt(match));
   });
 
   return [...table.values()]
@@ -460,8 +458,6 @@ function getStandings(sourceState = state) {
       ...player,
       rating: round1(player.rating),
       winRate: player.games ? player.wins / player.games : 0,
-      pointDiff: player.pointsFor - player.pointsAgainst,
-      ratingDelta: round1(player.rating - player.seedRating),
     }))
     .sort((a, b) => {
       if (b.rating !== a.rating) return b.rating - a.rating;
@@ -471,15 +467,13 @@ function getStandings(sourceState = state) {
     });
 }
 
-function applyMatchStats(table, ids, won, pointsFor, pointsAgainst, createdAt) {
+function applyMatchStats(table, ids, won, createdAt) {
   ids.forEach((id) => {
     const player = table.get(id);
     if (!player) return;
     player.games += 1;
     player.wins += won ? 1 : 0;
     player.losses += won ? 0 : 1;
-    player.pointsFor += pointsFor;
-    player.pointsAgainst += pointsAgainst;
     player.lastPlayed = createdAt;
     player.streak = won
       ? player.streak > 0 ? player.streak + 1 : 1
@@ -897,11 +891,12 @@ function renderRankings(standings) {
   const activeRows = standings.map((player, index) => {
       const rank = index + 1;
       const rankClass = rank <= 3 ? "rank-pill rank-pill--podium" : "rank-pill";
-      const ratingClass = player.ratingDelta < 0 ? "delta delta--down" : "delta";
       const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
-      const pointDiff = player.pointDiff > 0 ? `+${player.pointDiff}` : String(player.pointDiff);
       const streak = formatStreak(player.streak);
       const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
+      const seedRating = isAdmin()
+        ? `<span class="seed-rating-note">초기 ${Math.round(player.seedRating)}</span>`
+        : "";
       const actions = isAdmin() && player.games === 0
         ? `
           <div class="row-actions roster-actions">
@@ -924,11 +919,14 @@ function renderRankings(standings) {
               </div>
             </div>
           </td>
-          <td><span class="rating-number">${player.rating.toFixed(1)}</span> <span class="${ratingClass}">${formatSigned(player.ratingDelta)}</span></td>
+          <td>
+            <div class="rating-cell">
+              <span class="rating-line"><span class="rating-number">${player.rating.toFixed(1)}</span> ${streak}</span>
+              ${seedRating}
+            </div>
+          </td>
           <td class="record">${player.wins}승 ${player.losses}패</td>
           <td class="win-rate">${winRate}</td>
-          <td class="point-diff">${pointDiff}</td>
-          <td>${streak}</td>
           <td>${actions}</td>
         </tr>
       `;
@@ -949,11 +947,13 @@ function renderRankings(standings) {
                 </div>
               </div>
             </td>
-            <td><span class="muted">초기 ELO 필요</span></td>
+            <td>
+              <div class="rating-cell">
+                <span class="muted">초기 ELO 필요</span>
+              </div>
+            </td>
             <td class="record">-</td>
             <td class="win-rate">-</td>
-            <td class="point-diff">-</td>
-            <td><span class="muted">-</span></td>
             <td>
               <div class="row-actions roster-actions">
                 <input class="inline-rating-input" data-player-rating="${escapeHtml(player.id)}" inputmode="numeric" min="800" max="2400" placeholder="${state.settings.baseRating}" type="number" aria-label="${escapeHtml(player.name)} 초기 ELO">

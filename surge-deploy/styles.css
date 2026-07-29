@@ -679,7 +679,7 @@ textarea:focus {
 
 table {
   width: 100%;
-  min-width: 820px;
+  min-width: 720px;
   border-collapse: collapse;
 }
 
@@ -766,26 +766,26 @@ tbody tr:last-child td {
   font-weight: 900;
 }
 
-.delta {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  padding: 0 8px;
-  border-radius: 6px;
-  background: #edf6ff;
-  color: var(--blue);
-  font-size: 0.78rem;
-  font-weight: 900;
+.rating-cell {
+  display: grid;
+  gap: 4px;
 }
 
-.delta--down {
-  background: #fff0ee;
-  color: var(--coral);
+.rating-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.seed-rating-note {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .record,
 .win-rate,
-.point-diff,
 .streak {
   font-variant-numeric: tabular-nums;
 }
