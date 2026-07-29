@@ -36,6 +36,7 @@ const errorMessages = {
   MATCH_UNKNOWN_PLAYER: "등록되지 않은 선수가 포함되어 있습니다.",
   NOT_FOUND: "요청한 데이터를 찾을 수 없습니다.",
   PASSWORD_TOO_SHORT: "비밀번호는 4자 이상 입력하세요.",
+  PLAYER_ALREADY_LINKED: "이미 다른 계정과 연결된 선수입니다.",
   PLAYER_HAS_MATCHES: "경기 기록이 있는 선수는 삭제할 수 없습니다.",
   PLAYER_NAME_REQUIRED: "선수 이름을 입력하세요.",
   PLAYER_NAME_TAKEN: "이미 등록된 선수 이름입니다.",
@@ -45,6 +46,7 @@ const errorMessages = {
   SERVER_ERROR: "서버 처리 중 문제가 생겼습니다.",
   UNAUTHORIZED: "로그인이 필요합니다.",
   USER_NOT_FOUND: "계정을 찾을 수 없습니다.",
+  USER_PLAYER_REQUIRED: "연결할 선수를 선택하세요.",
   USERNAME_TAKEN: "이미 등록된 아이디입니다.",
   USERNAME_TOO_SHORT: "아이디는 3자 이상 입력하세요.",
 };
@@ -444,6 +446,62 @@ async function deleteUser(userId) {
   }
 }
 
+function linkablePlayersForUser(user) {
+  return state.players
+    .filter((player) => player.seedRating != null && player.status !== "pending" && (!player.userId || player.userId === user.id))
+    .sort((a, b) => playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR"));
+}
+
+function renderUserPlayerLink(entry) {
+  const options = linkablePlayersForUser(entry);
+  const selectedPlayerId = entry.playerStatus === "active" ? entry.playerId : "";
+  const hasOptions = options.length > 0;
+  const optionHtml = hasOptions
+    ? [
+        `<option value="">기존 선수 선택</option>`,
+        ...options.map((player) => (
+          `<option value="${escapeHtml(player.id)}" ${player.id === selectedPlayerId ? "selected" : ""}>${escapeHtml(playerDisplayName(player))}</option>`
+        )),
+      ].join("")
+    : `<option value="">연결 가능한 선수 없음</option>`;
+
+  return `
+    <div class="user-player-link">
+      <select class="user-player-select" data-user-player="${escapeHtml(entry.id)}" ${hasOptions ? "" : "disabled"}>
+        ${optionHtml}
+      </select>
+      <button class="icon-button" type="button" data-link-user-player="${escapeHtml(entry.id)}" ${hasOptions ? "" : "disabled"} aria-label="${escapeHtml(entry.displayName)} 선수 연결" title="선수 연결">
+        <i data-lucide="link"></i>
+        <span class="visually-hidden">연결</span>
+      </button>
+    </div>
+  `;
+}
+
+async function linkUserPlayer(userId) {
+  if (!requireAdmin()) return;
+
+  const select = $(`[data-user-player="${CSS.escape(userId)}"]`);
+  const playerId = select?.value || "";
+  if (!playerId) {
+    showToast("연결할 선수를 선택하세요.");
+    select?.focus();
+    return;
+  }
+
+  try {
+    applyServerState(
+      await apiFetch(`/api/users/${encodeURIComponent(userId)}/player`, {
+        method: "PATCH",
+        body: { playerId },
+      }),
+    );
+    showToast("계정과 선수를 연결했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
 function getStandings(sourceState = state) {
   const table = new Map(
     getActivePlayers(sourceState).map((player) => [
@@ -805,10 +863,11 @@ function renderAuth() {
           : "선수 없음";
       return `
         <li class="user-row">
-          <div>
+          <div class="user-row-main">
             <strong>${escapeHtml(entry.displayName)}</strong>
             <span>${escapeHtml(entry.username)} · ${entry.role === "admin" ? "admin" : "member"} · ${playerInfo}${isCurrent ? " · 현재" : ""}</span>
           </div>
+          ${renderUserPlayerLink(entry)}
           <div class="row-actions">
             <button class="icon-text-button" type="button" data-toggle-admin="${escapeHtml(entry.id)}" ${canToggle ? "" : "disabled"}>
               <i data-lucide="shield"></i>
@@ -1320,6 +1379,12 @@ function bindEvents() {
     const deleteUserButton = target.closest("[data-delete-user]");
     if (deleteUserButton) {
       deleteUser(deleteUserButton.dataset.deleteUser);
+      return;
+    }
+
+    const linkUserPlayerButton = target.closest("[data-link-user-player]");
+    if (linkUserPlayerButton) {
+      linkUserPlayer(linkUserPlayerButton.dataset.linkUserPlayer);
     }
   });
 }

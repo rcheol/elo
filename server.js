@@ -932,6 +932,40 @@ function deletePlayer(playerId) {
   }
 }
 
+function linkUserToPlayer(targetUserId, input) {
+  const playerId = String(input?.playerId || input?.player_id || "").trim();
+  if (!playerId) {
+    throw new HttpError(400, "USER_PLAYER_REQUIRED", "연결할 선수를 선택하세요.");
+  }
+
+  const targetUser = db.prepare("SELECT * FROM users WHERE id = ?").get(targetUserId);
+  if (!targetUser) {
+    throw new HttpError(404, "USER_NOT_FOUND");
+  }
+
+  const targetPlayer = db.prepare("SELECT * FROM players WHERE id = ?").get(playerId);
+  if (!targetPlayer) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+  if (targetPlayer.seed_rating == null) {
+    throw new HttpError(400, "PLAYER_RATING_REQUIRED", "초기 ELO가 있는 선수만 연결할 수 있습니다.");
+  }
+  if (targetPlayer.user_id && targetPlayer.user_id !== targetUserId) {
+    throw new HttpError(409, "PLAYER_ALREADY_LINKED", "이미 다른 계정과 연결된 선수입니다.");
+  }
+
+  const linkedPlayer = db.prepare("SELECT * FROM players WHERE user_id = ? AND id <> ?").get(targetUserId, playerId);
+  if (linkedPlayer) {
+    if (countPlayerGames(linkedPlayer.id) === 0) {
+      db.prepare("DELETE FROM players WHERE id = ?").run(linkedPlayer.id);
+    } else {
+      db.prepare("UPDATE players SET user_id = NULL WHERE id = ?").run(linkedPlayer.id);
+    }
+  }
+
+  db.prepare("UPDATE players SET user_id = ? WHERE id = ?").run(targetUserId, playerId);
+}
+
 function uniquePlayerNameForAccount(displayName, username) {
   const candidates = [
     normalizePlayerName(displayName),
@@ -1888,6 +1922,40 @@ function pgDeletePlayer(state, playerId) {
   }
 }
 
+function pgLinkUserToPlayer(state, targetUserId, input) {
+  const playerId = String(input?.playerId || input?.player_id || "").trim();
+  if (!playerId) {
+    throw new HttpError(400, "USER_PLAYER_REQUIRED", "연결할 선수를 선택하세요.");
+  }
+
+  const targetUser = state.users.find((user) => user.id === targetUserId);
+  if (!targetUser) {
+    throw new HttpError(404, "USER_NOT_FOUND");
+  }
+
+  const targetPlayer = state.players.find((player) => player.id === playerId);
+  if (!targetPlayer) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+  if (targetPlayer.seedRating == null) {
+    throw new HttpError(400, "PLAYER_RATING_REQUIRED", "초기 ELO가 있는 선수만 연결할 수 있습니다.");
+  }
+  if (targetPlayer.userId && targetPlayer.userId !== targetUserId) {
+    throw new HttpError(409, "PLAYER_ALREADY_LINKED", "이미 다른 계정과 연결된 선수입니다.");
+  }
+
+  const linkedPlayer = state.players.find((player) => player.userId === targetUserId && player.id !== targetPlayer.id);
+  if (linkedPlayer) {
+    if (pgCountPlayerGames(state, linkedPlayer.id) === 0) {
+      state.players = state.players.filter((player) => player.id !== linkedPlayer.id);
+    } else {
+      linkedPlayer.userId = null;
+    }
+  }
+
+  targetPlayer.userId = targetUserId;
+}
+
 function pgUniquePlayerNameForAccount(state, displayName, username) {
   const candidates = [
     normalizePlayerName(displayName),
@@ -2224,6 +2292,17 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, payload);
   }
 
+  const userPlayerMatch = pathname.match(/^\/api\/users\/([^/]+)\/player$/);
+  if (method === "PATCH" && userPlayerMatch) {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireAdmin(req, state);
+      pgLinkUserToPlayer(state, decodeURIComponent(userPlayerMatch[1]), body);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
   const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
   if (method === "DELETE" && userMatch) {
     const payload = await withPostgresState((state) => {
@@ -2355,6 +2434,14 @@ async function handleApi(req, res, url) {
     const currentUser = requireAdmin(req);
     runInTransaction(() => toggleUserRole(decodeURIComponent(toggleAdminMatch[1])));
     return sendJson(req, res, 200, getStatePayload(getCurrentUser(req) || currentUser));
+  }
+
+  const userPlayerMatch = pathname.match(/^\/api\/users\/([^/]+)\/player$/);
+  if (method === "PATCH" && userPlayerMatch) {
+    const currentUser = requireAdmin(req);
+    const body = await readJsonBody(req);
+    runInTransaction(() => linkUserToPlayer(decodeURIComponent(userPlayerMatch[1]), body));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
   }
 
   const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);

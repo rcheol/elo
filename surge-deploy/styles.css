@@ -588,15 +588,19 @@ textarea:focus {
 }
 
 .user-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-height: 54px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-soft);
+}
+
+.user-row-main {
+  min-width: 0;
 }
 
 .user-row strong {
@@ -611,6 +615,19 @@ textarea:focus {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.user-player-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.user-player-select {
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 0.82rem;
 }
 
 .row-actions {
@@ -1072,6 +1089,14 @@ tbody tr:last-child td {
   .section-head .icon-text-button,
   .auth-session .icon-text-button {
     width: 100%;
+  }
+
+  .user-player-link {
+    align-items: stretch;
+  }
+
+  .user-player-select {
+    flex: 1 1 auto;
   }
 
   .row-actions {
