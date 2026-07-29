@@ -436,12 +436,15 @@ function getStandings(sourceState = state) {
         wins: 0,
         losses: 0,
         streak: 0,
+        streakDelta: 0,
         lastPlayed: null,
       },
     ]),
   );
 
   sortedMatches(sourceState.matches).forEach((match) => {
+    const changeMap = new Map(match.changes.map((change) => [change.id, Number(change.delta || 0)]));
+
     match.changes.forEach((change) => {
       const player = table.get(change.id);
       if (player) {
@@ -449,14 +452,15 @@ function getStandings(sourceState = state) {
       }
     });
 
-    applyMatchStats(table, match.teamA, match.winner === "A", matchPlayedAt(match));
-    applyMatchStats(table, match.teamB, match.winner === "B", matchPlayedAt(match));
+    applyMatchStats(table, match.teamA, match.winner === "A", matchPlayedAt(match), changeMap);
+    applyMatchStats(table, match.teamB, match.winner === "B", matchPlayedAt(match), changeMap);
   });
 
   return [...table.values()]
     .map((player) => ({
       ...player,
       rating: round1(player.rating),
+      streakDelta: round1(player.streakDelta),
       winRate: player.games ? player.wins / player.games : 0,
     }))
     .sort((a, b) => {
@@ -467,10 +471,12 @@ function getStandings(sourceState = state) {
     });
 }
 
-function applyMatchStats(table, ids, won, createdAt) {
+function applyMatchStats(table, ids, won, createdAt, changeMap) {
   ids.forEach((id) => {
     const player = table.get(id);
     if (!player) return;
+    const previousStreak = player.streak;
+    const delta = Number(changeMap.get(id) || 0);
     player.games += 1;
     player.wins += won ? 1 : 0;
     player.losses += won ? 0 : 1;
@@ -478,6 +484,9 @@ function applyMatchStats(table, ids, won, createdAt) {
     player.streak = won
       ? player.streak > 0 ? player.streak + 1 : 1
       : player.streak < 0 ? player.streak - 1 : -1;
+    player.streakDelta = (won && previousStreak > 0) || (!won && previousStreak < 0)
+      ? round1(player.streakDelta + delta)
+      : round1(delta);
   });
 }
 
@@ -892,7 +901,7 @@ function renderRankings(standings) {
       const rank = index + 1;
       const rankClass = rank <= 3 ? "rank-pill rank-pill--podium" : "rank-pill";
       const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
-      const streak = formatStreak(player.streak);
+      const streak = formatStreak(player.streak, player.streakDelta);
       const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
       const seedRating = isAdmin()
         ? `<span class="seed-rating-note">초기 ${Math.round(player.seedRating)}</span>`
@@ -970,12 +979,13 @@ function renderRankings(standings) {
   empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
 }
 
-function formatStreak(streak) {
+function formatStreak(streak, streakDelta = 0) {
+  const delta = `<span class="streak-delta">${formatSigned(streakDelta)} ELO</span>`;
   if (streak > 0) {
-    return `<span class="streak streak--win">${streak}연승</span>`;
+    return `<span class="streak streak--win">${streak}연승 ${delta}</span>`;
   }
   if (streak < 0) {
-    return `<span class="streak streak--loss">${Math.abs(streak)}연패</span>`;
+    return `<span class="streak streak--loss">${Math.abs(streak)}연패 ${delta}</span>`;
   }
   return `<span class="muted">-</span>`;
 }
