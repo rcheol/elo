@@ -634,7 +634,7 @@ function playerDisplayName(player, options = {}) {
   const displayName = player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
     ? player.name
     : `${player.name} ${accountSuffix}`;
-  return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} 🧭` : displayName;
+  return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} ⭐` : displayName;
 }
 
 function playerName(id) {
