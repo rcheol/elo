@@ -536,6 +536,78 @@ function normalizeBulkPlayerName(value) {
   return normalizeNameKey(stripAccountSuffix(value));
 }
 
+function normalizeBulkText(value) {
+  return String(value || "")
+    .replace(/\uFEFF/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u2028\u2029]/g, "\n")
+    .replace(/\u00a0/g, " ");
+}
+
+function startsWithBulkMatchDate(value) {
+  return /^(?:\d{4}\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:(?:오전|오후)\s*)?\d{1,2}/.test(String(value || "").trim());
+}
+
+function splitInlineBulkMatchRecords(line) {
+  const text = String(line || "").trim();
+  if (!text) {
+    return [];
+  }
+
+  const starts = [];
+  const recordStartPattern =
+    /(?:^|\s)((?:\d{4}\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일\s*(?:(?:오전|오후)\s*)?\d{1,2}(?:(?:\s*:\s*|\s*시\s*)\d{1,2})?)/g;
+  let match = recordStartPattern.exec(text);
+  while (match) {
+    starts.push(match.index + match[0].length - match[1].length);
+    match = recordStartPattern.exec(text);
+  }
+
+  if (starts.length <= 1) {
+    return [text];
+  }
+
+  return starts.map((start, index) => text.slice(start, starts[index + 1]).trim()).filter(Boolean);
+}
+
+function splitBulkMatchRecords(input) {
+  const records = [];
+  let current = null;
+
+  normalizeBulkText(input)
+    .split("\n")
+    .forEach((rawLine, index) => {
+      const lineNumber = index + 1;
+      const line = rawLine.trim();
+      if (!line) {
+        return;
+      }
+
+      splitInlineBulkMatchRecords(line).forEach((piece) => {
+        if (startsWithBulkMatchDate(piece)) {
+          if (current) {
+            records.push(current);
+          }
+          current = { lineNumber, text: piece };
+          return;
+        }
+
+        if (current) {
+          current.text = `${current.text} ${piece}`.replace(/\s+/g, " ").trim();
+          return;
+        }
+
+        records.push({ lineNumber, text: piece });
+      });
+    });
+
+  if (current) {
+    records.push(current);
+  }
+
+  return records;
+}
+
 function buildBulkPlayerLookup(players) {
   const lookup = new Map();
 
@@ -637,7 +709,8 @@ function parseBulkTeam(teamText, lookup, lineNumber) {
 }
 
 function parseBulkMatchLine(line, lineNumber, lookup) {
-  const dateMatch = String(line || "").match(
+  const normalizedLine = normalizeBulkText(line).replace(/\s+/g, " ").trim();
+  const dateMatch = normalizedLine.match(
     /^(?:(?<year>\d{4})\s*년\s*)?(?<month>\d{1,2})\s*월\s*(?<day>\d{1,2})\s*일\s*(?:(?<period>오전|오후)\s*)?(?<hour>\d{1,2})(?:(?:\s*:\s*|\s*시\s*)(?<minute>\d{1,2}))?\s*(?:분)?\s+(?<rest>.+)$/,
   );
   if (!dateMatch?.groups) {
@@ -659,25 +732,21 @@ function parseBulkMatchLine(line, lineNumber, lookup) {
 }
 
 function parseBulkMatchText(input, players) {
-  const text = String(input?.text || "").trim();
+  const text = normalizeBulkText(input?.text).trim();
   if (!text) {
     throw new HttpError(400, "BULK_MATCH_TEXT_REQUIRED", "경기 기록 텍스트를 입력하세요.");
   }
 
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (!lines.length) {
+  const records = splitBulkMatchRecords(text);
+  if (!records.length) {
     throw new HttpError(400, "BULK_MATCH_TEXT_REQUIRED", "경기 기록 텍스트를 입력하세요.");
   }
-  if (lines.length > 200) {
+  if (records.length > 200) {
     throw new HttpError(400, "BULK_MATCH_PARSE_ERROR", "한 번에 최대 200경기까지 입력할 수 있습니다.");
   }
 
   const lookup = buildBulkPlayerLookup(players);
-  return lines.map((line, index) => parseBulkMatchLine(line, index + 1, lookup));
+  return records.map((record) => parseBulkMatchLine(record.text, record.lineNumber, lookup));
 }
 
 function insertMatch(input, currentUser) {
