@@ -1200,6 +1200,7 @@ function renderMyHistory() {
     : [];
 
   list.innerHTML = myMatches.map(renderHistoryItem).join("");
+  list.scrollTop = 0;
 
   if (!getCurrentUser()) {
     emptyText.textContent = "로그인하면 나의 경기 기록을 볼 수 있습니다.";
@@ -1217,6 +1218,7 @@ function renderHistory() {
   const empty = $("#historyEmpty");
 
   list.innerHTML = sortedMatches().reverse().map(renderHistoryItem).join("");
+  list.scrollTop = 0;
 
   empty.classList.toggle("is-visible", state.matches.length === 0);
 }

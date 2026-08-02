@@ -858,8 +858,11 @@ tbody tr:last-child td {
 .history-list {
   display: grid;
   gap: 10px;
+  max-height: 482px;
+  overflow-y: auto;
+  padding: 0 4px 0 0;
+  scrollbar-gutter: stable;
   margin: 0;
-  padding: 0;
   list-style: none;
 }
 
