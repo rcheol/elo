@@ -641,6 +641,36 @@ function playerName(id) {
   return playerDisplayName(state.players.find((player) => player.id === id));
 }
 
+function focusedRankingPlayerId(standings) {
+  const currentUser = getCurrentUser();
+  const ownPlayer = currentUser
+    ? standings.find((player) => player.id === currentUser.playerId || player.userId === currentUser.id)
+    : null;
+  return ownPlayer?.id || standings[0]?.id || "";
+}
+
+function scrollRankingToFocus(playerId) {
+  const wrap = $(".rankings-board .table-wrap");
+  if (!wrap) {
+    return;
+  }
+  if (!playerId) {
+    wrap.scrollTop = 0;
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    const row = $(`[data-ranking-player="${CSS.escape(playerId)}"]`, wrap);
+    if (!row) {
+      wrap.scrollTop = 0;
+      return;
+    }
+
+    const targetTop = row.offsetTop - wrap.clientHeight / 2 + row.clientHeight / 2;
+    wrap.scrollTo({ top: Math.max(0, targetTop), behavior: "auto" });
+  });
+}
+
 function renderPlayerName(player, options = {}) {
   return `<span class="player-name">${escapeHtml(playerDisplayName(player, options))}</span>`;
 }
@@ -1025,9 +1055,12 @@ function renderAccess() {
 function renderRankings(standings) {
   const body = $("#rankingBody");
   const empty = $("#rankingEmpty");
+  const focusPlayerId = focusedRankingPlayerId(standings);
   const activeRows = standings.map((player, index) => {
       const rank = index + 1;
       const rankClass = rank <= 3 ? "rank-pill rank-pill--podium" : "rank-pill";
+      const focusClass = player.id === focusPlayerId ? "is-ranking-focus" : "";
+      const ariaCurrent = player.id === focusPlayerId ? ` aria-current="true"` : "";
       const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
       const streak = formatStreak(player.streak, player.streakDelta);
       const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
@@ -1045,7 +1078,7 @@ function renderRankings(standings) {
         : `<span class="muted">-</span>`;
 
       return `
-        <tr>
+        <tr class="${focusClass}" data-ranking-player="${escapeHtml(player.id)}"${ariaCurrent}>
           <td><span class="${rankClass}">${rank}</span></td>
           <td>
             <div class="player-cell">
@@ -1105,6 +1138,7 @@ function renderRankings(standings) {
   body.innerHTML = [...activeRows, ...pendingRows].join("");
 
   empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
+  scrollRankingToFocus(focusPlayerId);
 }
 
 function formatStreak(streak, streakDelta = 0) {

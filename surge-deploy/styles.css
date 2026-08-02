@@ -688,6 +688,12 @@ textarea:focus {
   overflow-x: auto;
 }
 
+.rankings-board .table-wrap {
+  max-height: 704px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
 table {
   width: 100%;
   min-width: 720px;
@@ -703,10 +709,17 @@ td {
 }
 
 th {
+  background: var(--surface);
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.rankings-board thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 td {
@@ -716,6 +729,20 @@ td {
 
 tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.rankings-board tbody tr {
+  height: 66px;
+}
+
+.rankings-board tbody tr.is-ranking-focus {
+  background: #f0fbf5;
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.rankings-board tbody tr.is-ranking-focus .rank-pill {
+  background: var(--green);
+  color: #ffffff;
 }
 
 .rank-pill {
