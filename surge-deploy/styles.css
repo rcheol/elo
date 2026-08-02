@@ -228,6 +228,7 @@ h2 {
 }
 
 .rankings-board,
+.my-history-board,
 .history-board,
 .admin-users-board {
   grid-column: 1 / -1;

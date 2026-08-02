@@ -341,6 +341,14 @@ function canRegisterPlayers() {
   return role === "admin" || role === "manager";
 }
 
+function currentUserPlayer(players = state.players) {
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+    return null;
+  }
+  return players.find((player) => player.id === currentUser.playerId || player.userId === currentUser.id) || null;
+}
+
 function roleLabel(role) {
   return role === "admin" ? "admin" : role === "manager" ? "manager" : "member";
 }
@@ -642,10 +650,7 @@ function playerName(id) {
 }
 
 function focusedRankingPlayerId(standings) {
-  const currentUser = getCurrentUser();
-  const ownPlayer = currentUser
-    ? standings.find((player) => player.id === currentUser.playerId || player.userId === currentUser.id)
-    : null;
+  const ownPlayer = currentUserPlayer(standings);
   return ownPlayer?.id || standings[0]?.id || "";
 }
 
@@ -906,6 +911,7 @@ function render() {
   renderSelects(standings);
   renderSettings();
   renderRankings(standings);
+  renderMyHistory();
   renderHistory();
   renderPreview();
   renderAccess();
@@ -1152,44 +1158,65 @@ function formatStreak(streak, streakDelta = 0) {
   return `<span class="muted">-</span>`;
 }
 
+function renderHistoryItem(match) {
+  const teamA = match.teamA.map(playerName).join(" / ");
+  const teamB = match.teamB.map(playerName).join(" / ");
+  const deltaA = match.changes.find((change) => match.teamA.includes(change.id))?.delta || 0;
+  const deltaB = match.changes.find((change) => match.teamB.includes(change.id))?.delta || 0;
+  const editedText = match.updatedAt ? ` · 수정 ${escapeHtml(match.updatedByName || "알 수 없음")} ${formatDate(match.updatedAt)}` : "";
+  const editButton = canEditMatch(match)
+    ? `<button class="icon-button" type="button" data-edit-match="${escapeHtml(match.id)}" aria-label="경기 수정" title="경기 수정"><i data-lucide="pencil"></i><span class="visually-hidden">수정</span></button>`
+    : "";
+  const deleteButton = isAdmin()
+    ? `<button class="icon-button" type="button" data-delete-match="${escapeHtml(match.id)}" aria-label="경기 삭제" title="경기 삭제"><i data-lucide="trash-2"></i><span class="visually-hidden">삭제</span></button>`
+    : "";
+  const actions = editButton || deleteButton
+    ? `<div class="row-actions">${editButton}${deleteButton}</div>`
+    : `<span class="muted">-</span>`;
+
+  return `
+    <li class="history-item">
+      <time class="history-date" datetime="${escapeHtml(matchPlayedAt(match))}">${formatDate(matchPlayedAt(match))}</time>
+      <div class="history-main">
+        <div class="teams-line">
+          <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${escapeHtml(teamA)}</span>
+          <span class="score-badge">${match.scoreA} : ${match.scoreB}</span>
+          <span class="team-name ${match.winner === "B" ? "team-name--winner" : ""}">${escapeHtml(teamB)}</span>
+        </div>
+        <p class="history-sub">A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)} · 기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}% · 입력 ${escapeHtml(match.createdByName || "알 수 없음")}${editedText}</p>
+      </div>
+      ${actions}
+    </li>
+  `;
+}
+
+function renderMyHistory() {
+  const list = $("#myHistoryList");
+  const empty = $("#myHistoryEmpty");
+  const emptyText = $("#myHistoryEmptyText");
+  const ownPlayer = currentUserPlayer();
+  const myMatches = ownPlayer
+    ? sortedMatches().filter((match) => [...match.teamA, ...match.teamB].includes(ownPlayer.id)).reverse()
+    : [];
+
+  list.innerHTML = myMatches.map(renderHistoryItem).join("");
+
+  if (!getCurrentUser()) {
+    emptyText.textContent = "로그인하면 나의 경기 기록을 볼 수 있습니다.";
+  } else if (!ownPlayer) {
+    emptyText.textContent = "계정에 연결된 선수가 없습니다.";
+  } else {
+    emptyText.textContent = "아직 내 경기 기록이 없습니다.";
+  }
+
+  empty.classList.toggle("is-visible", myMatches.length === 0);
+}
+
 function renderHistory() {
   const list = $("#historyList");
   const empty = $("#historyEmpty");
 
-  list.innerHTML = sortedMatches()
-    .reverse()
-    .map((match) => {
-      const teamA = match.teamA.map(playerName).join(" / ");
-      const teamB = match.teamB.map(playerName).join(" / ");
-      const deltaA = match.changes.find((change) => match.teamA.includes(change.id))?.delta || 0;
-      const deltaB = match.changes.find((change) => match.teamB.includes(change.id))?.delta || 0;
-      const editedText = match.updatedAt ? ` · 수정 ${escapeHtml(match.updatedByName || "알 수 없음")} ${formatDate(match.updatedAt)}` : "";
-      const editButton = canEditMatch(match)
-        ? `<button class="icon-button" type="button" data-edit-match="${escapeHtml(match.id)}" aria-label="경기 수정" title="경기 수정"><i data-lucide="pencil"></i><span class="visually-hidden">수정</span></button>`
-        : "";
-      const deleteButton = isAdmin()
-        ? `<button class="icon-button" type="button" data-delete-match="${escapeHtml(match.id)}" aria-label="경기 삭제" title="경기 삭제"><i data-lucide="trash-2"></i><span class="visually-hidden">삭제</span></button>`
-        : "";
-      const actions = editButton || deleteButton
-        ? `<div class="row-actions">${editButton}${deleteButton}</div>`
-        : `<span class="muted">-</span>`;
-
-      return `
-        <li class="history-item">
-          <time class="history-date" datetime="${escapeHtml(matchPlayedAt(match))}">${formatDate(matchPlayedAt(match))}</time>
-          <div class="history-main">
-            <div class="teams-line">
-              <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${escapeHtml(teamA)}</span>
-              <span class="score-badge">${match.scoreA} : ${match.scoreB}</span>
-              <span class="team-name ${match.winner === "B" ? "team-name--winner" : ""}">${escapeHtml(teamB)}</span>
-            </div>
-            <p class="history-sub">A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)} · 기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}% · 입력 ${escapeHtml(match.createdByName || "알 수 없음")}${editedText}</p>
-          </div>
-          ${actions}
-        </li>
-      `;
-    })
-    .join("");
+  list.innerHTML = sortedMatches().reverse().map(renderHistoryItem).join("");
 
   empty.classList.toggle("is-visible", state.matches.length === 0);
 }
