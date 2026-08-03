@@ -691,7 +691,7 @@ textarea:focus {
 }
 
 .rankings-board .table-wrap {
-  max-height: 704px;
+  max-height: 506px;
   overflow: auto;
   scrollbar-gutter: stable;
 }
