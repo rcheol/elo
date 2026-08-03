@@ -229,6 +229,7 @@ h2 {
 
 .rankings-board,
 .my-history-board,
+.partner-stats-board,
 .history-board,
 .admin-users-board {
   grid-column: 1 / -1;
@@ -853,6 +854,59 @@ tbody tr:last-child td {
 
 .muted {
   color: var(--muted);
+}
+
+.partner-stats-list {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0 4px 0 0;
+  scrollbar-gutter: stable;
+  margin: 0;
+  list-style: none;
+}
+
+.partner-stat-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.partner-stat-main {
+  min-width: 0;
+}
+
+.partner-stat-line {
+  display: block;
+  color: var(--ink);
+  font-size: 0.94rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.partner-stat-line strong {
+  font-weight: 900;
+}
+
+.partner-stat-main .partner-delta {
+  display: inline;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.partner-stat-main .partner-delta--win {
+  color: var(--green);
+}
+
+.partner-stat-main .partner-delta--loss {
+  color: var(--coral);
 }
 
 .history-list {
