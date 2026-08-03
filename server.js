@@ -12,6 +12,8 @@ const databaseUrl = process.env.DATABASE_URL || "";
 const usePostgres = Boolean(databaseUrl);
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, "data", "badminton.sqlite");
 const sessionMaxAgeMs = 1000 * 60 * 60 * 24 * 30;
+const visitorMaxAgeMs = 1000 * 60 * 60 * 24 * 400;
+const visitorCookieName = "visitor_id";
 const maxBodyBytes = 2 * 1024 * 1024;
 const healthPaths = new Set(["/api/health", "/healthz", "/health"]);
 
@@ -68,6 +70,18 @@ function initDb() {
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS visitors (
+      id TEXT PRIMARY KEY,
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      last_seen_date TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS visitor_counts (
+      date_key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS players (
@@ -246,11 +260,20 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function todayVisitorDateKey(date = new Date()) {
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 function safeIsoDate(value, fallback = nowIso()) {
   const fallbackDate = new Date(fallback);
   const fallbackIso = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString();
   const date = new Date(value || fallbackIso);
   return Number.isNaN(date.getTime()) ? fallbackIso : date.toISOString();
+}
+
+function normalizeVisitorId(value) {
+  const id = String(value || "").trim();
+  return /^[a-zA-Z0-9_-]{16,80}$/.test(id) ? id : "";
 }
 
 function normalizeRole(value, fallback = "member") {
@@ -362,6 +385,52 @@ function saveSettings(partialSettings = {}) {
   upsert.run("kFactor", String(next.kFactor));
   upsert.run("marginBonus", next.marginBonus ? "true" : "false");
   return next;
+}
+
+function incrementVisitorCount(dateKey) {
+  db.prepare(`
+    INSERT INTO visitor_counts (date_key, count)
+    VALUES (?, 1)
+    ON CONFLICT(date_key) DO UPDATE SET count = count + 1
+  `).run(dateKey);
+}
+
+function recordVisitorVisit(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  let visitorId = normalizeVisitorId(cookies[visitorCookieName]);
+  const shouldSetCookie = !visitorId;
+  if (!visitorId) {
+    visitorId = uid();
+  }
+
+  const now = nowIso();
+  const dateKey = todayVisitorDateKey(new Date(now));
+  const existing = db.prepare("SELECT id, last_seen_date FROM visitors WHERE id = ?").get(visitorId);
+  if (existing) {
+    if (existing.last_seen_date !== dateKey) {
+      incrementVisitorCount(dateKey);
+      db.prepare("UPDATE visitors SET last_seen_at = ?, last_seen_date = ? WHERE id = ?").run(now, dateKey, visitorId);
+    } else {
+      db.prepare("UPDATE visitors SET last_seen_at = ? WHERE id = ?").run(now, visitorId);
+    }
+  } else {
+    db.prepare("INSERT INTO visitors (id, first_seen_at, last_seen_at, last_seen_date) VALUES (?, ?, ?, ?)").run(
+      visitorId,
+      now,
+      now,
+      dateKey,
+    );
+    incrementVisitorCount(dateKey);
+  }
+
+  return shouldSetCookie ? visitorCookie(req, visitorId) : "";
+}
+
+function getVisitorStats() {
+  const dateKey = todayVisitorDateKey();
+  const today = Number(db.prepare("SELECT count FROM visitor_counts WHERE date_key = ?").get(dateKey)?.count || 0);
+  const total = Number(db.prepare("SELECT COUNT(*) AS count FROM visitors").get()?.count || 0);
+  return { today, total };
 }
 
 function userFromRow(row) {
@@ -476,6 +545,7 @@ function getStatePayload(currentUser) {
     players: getPlayers({ includePending: includePendingPlayers }),
     matches: getMatches(),
     settings: getSettings(),
+    visitorStats: getVisitorStats(),
     users: currentUser?.role === "admin" ? getUsersSafe() : [],
     currentUser,
   };
@@ -1183,6 +1253,20 @@ function sessionCookie(req, sid) {
     .join("; ");
 }
 
+function visitorCookie(req, visitorId) {
+  const secure = req.headers["x-forwarded-proto"] === "https";
+  return [
+    `${visitorCookieName}=${encodeURIComponent(visitorId)}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    "Path=/",
+    `Max-Age=${Math.floor(visitorMaxAgeMs / 1000)}`,
+    secure ? "Secure" : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
 function clearSessionCookie(req) {
   const secure = req.headers["x-forwarded-proto"] === "https";
   return ["sid=", "HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0", secure ? "Secure" : ""]
@@ -1533,6 +1617,54 @@ function cloneSettings(settings = defaultSettings) {
   };
 }
 
+function createDefaultVisitorStats() {
+  return {
+    total: 0,
+    byDate: {},
+    visitors: {},
+  };
+}
+
+function normalizeVisitorStats(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const byDate = {};
+  Object.entries(source.byDate && typeof source.byDate === "object" ? source.byDate : {}).forEach(([dateKey, count]) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      byDate[dateKey] = Math.max(0, Math.floor(Number(count) || 0));
+    }
+  });
+
+  const visitors = {};
+  Object.entries(source.visitors && typeof source.visitors === "object" ? source.visitors : {}).forEach(([rawId, visitor]) => {
+    const id = normalizeVisitorId(rawId);
+    if (!id || !visitor || typeof visitor !== "object") {
+      return;
+    }
+    const firstSeenAt = safeIsoDate(visitor.firstSeenAt ?? visitor.first_seen_at, nowIso());
+    const lastSeenAt = safeIsoDate(visitor.lastSeenAt ?? visitor.last_seen_at, firstSeenAt);
+    const rawLastSeenDate = visitor.lastSeenDate ?? visitor.last_seen_date ?? "";
+    const lastSeenDate = /^\d{4}-\d{2}-\d{2}$/.test(String(rawLastSeenDate))
+      ? String(rawLastSeenDate)
+      : todayVisitorDateKey(new Date(lastSeenAt));
+    visitors[id] = { firstSeenAt, lastSeenAt, lastSeenDate };
+  });
+
+  return {
+    total: Math.max(Math.max(0, Math.floor(Number(source.total) || 0)), Object.keys(visitors).length),
+    byDate,
+    visitors,
+  };
+}
+
+function publicVisitorStats(visitorStats) {
+  const stats = normalizeVisitorStats(visitorStats);
+  const dateKey = todayVisitorDateKey();
+  return {
+    today: Number(stats.byDate[dateKey] || 0),
+    total: Number(stats.total || 0),
+  };
+}
+
 function createDefaultPostgresState() {
   return {
     schemaVersion: 1,
@@ -1541,6 +1673,7 @@ function createDefaultPostgresState() {
     players: [],
     matches: [],
     settings: cloneSettings(defaultSettings),
+    visitorStats: createDefaultVisitorStats(),
   };
 }
 
@@ -1632,6 +1765,7 @@ function normalizePostgresState(value) {
     players: [],
     matches: [],
     settings: cloneSettings(source.settings),
+    visitorStats: normalizeVisitorStats(source.visitorStats),
   };
 
   const userIds = new Set();
@@ -1792,12 +1926,44 @@ function pgGetMatches(state) {
   return sortMatchesByPlayOrder(state.matches).map(pgMatchFromStored);
 }
 
+function pgRecordVisitorVisit(state, req) {
+  state.visitorStats = normalizeVisitorStats(state.visitorStats);
+  const cookies = parseCookies(req.headers.cookie);
+  let visitorId = normalizeVisitorId(cookies[visitorCookieName]);
+  const shouldSetCookie = !visitorId;
+  if (!visitorId) {
+    visitorId = uid();
+  }
+
+  const now = nowIso();
+  const dateKey = todayVisitorDateKey(new Date(now));
+  const existing = state.visitorStats.visitors[visitorId];
+  if (existing) {
+    if (existing.lastSeenDate !== dateKey) {
+      state.visitorStats.byDate[dateKey] = Number(state.visitorStats.byDate[dateKey] || 0) + 1;
+      existing.lastSeenDate = dateKey;
+    }
+    existing.lastSeenAt = now;
+  } else {
+    state.visitorStats.visitors[visitorId] = {
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastSeenDate: dateKey,
+    };
+    state.visitorStats.total = Number(state.visitorStats.total || 0) + 1;
+    state.visitorStats.byDate[dateKey] = Number(state.visitorStats.byDate[dateKey] || 0) + 1;
+  }
+
+  return shouldSetCookie ? visitorCookie(req, visitorId) : "";
+}
+
 function pgGetStatePayload(state, currentUser) {
   const includePendingPlayers = currentUser?.role === "admin";
   return {
     players: pgGetPlayers(state, { includePending: includePendingPlayers }),
     matches: pgGetMatches(state),
     settings: cloneSettings(state.settings),
+    visitorStats: publicVisitorStats(state.visitorStats),
     users: currentUser?.role === "admin" ? pgGetUsersSafe(state) : [],
     currentUser,
   };
@@ -2256,8 +2422,15 @@ async function handleApiPostgres(req, res, url) {
   }
 
   if (method === "GET" && pathname === "/api/state") {
-    const payload = await withPostgresState((state) => pgGetStatePayload(state, pgGetCurrentUser(req, state)));
-    return sendJson(req, res, 200, payload);
+    const result = await withPostgresState((state) => {
+      const currentUser = pgGetCurrentUser(req, state);
+      const visitCookie = pgRecordVisitorVisit(state, req);
+      return {
+        payload: pgGetStatePayload(state, currentUser),
+        cookies: visitCookie ? [visitCookie] : [],
+      };
+    });
+    return sendJson(req, res, 200, result.payload, result.cookies);
   }
 
   if (method === "POST" && pathname === "/api/signup") {
@@ -2444,7 +2617,15 @@ async function handleApi(req, res, url) {
   }
 
   if (method === "GET" && pathname === "/api/state") {
-    return sendJson(req, res, 200, getStatePayload(getCurrentUser(req)));
+    const result = runInTransaction(() => {
+      const currentUser = getCurrentUser(req);
+      const visitCookie = recordVisitorVisit(req);
+      return {
+        payload: getStatePayload(currentUser),
+        cookies: visitCookie ? [visitCookie] : [],
+      };
+    });
+    return sendJson(req, res, 200, result.payload, result.cookies);
   }
 
   if (method === "POST" && pathname === "/api/signup") {

@@ -60,6 +60,7 @@ function createDefaultState() {
     users: [],
     currentUser: null,
     settings: { ...defaultSettings },
+    visitorStats: { today: 0, total: 0 },
   };
 }
 
@@ -228,6 +229,10 @@ function normalizeState(input) {
     matches,
     users: Array.isArray(input?.users) ? input.users.map(normalizeUser).filter(Boolean) : [],
     currentUser: normalizeUser(input?.currentUser),
+    visitorStats: {
+      today: Math.max(0, Math.floor(Number(input?.visitorStats?.today) || 0)),
+      total: Math.max(0, Math.floor(Number(input?.visitorStats?.total) || 0)),
+    },
     settings: {
       baseRating: clampNumber(Number(input?.settings?.baseRating ?? fallback.settings.baseRating), 800, 2400),
       kFactor: clampNumber(Number(input?.settings?.kFactor ?? fallback.settings.kFactor), 8, 64),
@@ -977,6 +982,8 @@ function renderSummary(standings) {
   $("#playerCount").textContent = getActivePlayers().length;
   $("#matchCount").textContent = state.matches.length;
   $("#averageRating").textContent = standings.length ? Math.round(average(standings.map((player) => player.rating))) : 0;
+  $("#todayVisitorCount").textContent = state.visitorStats.today.toLocaleString("ko-KR");
+  $("#totalVisitorCount").textContent = state.visitorStats.total.toLocaleString("ko-KR");
 }
 
 function renderSelects(standings) {
