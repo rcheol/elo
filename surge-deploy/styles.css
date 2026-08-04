@@ -693,7 +693,8 @@ textarea:focus {
 .queue-item strong {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
+  line-height: 1.25;
   font-weight: 900;
 }
 
