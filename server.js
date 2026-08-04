@@ -84,6 +84,12 @@ function initDb() {
       count INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS queue_players (
+      player_id TEXT PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+      added_by TEXT,
+      added_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS players (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -505,6 +511,54 @@ function getPlayers(options = {}) {
     .map(playerFromRow);
 }
 
+function getQueuePlayerIds() {
+  return db
+    .prepare(`
+      SELECT queue_players.player_id
+      FROM queue_players
+      JOIN players ON players.id = queue_players.player_id
+      WHERE players.seed_rating IS NOT NULL
+      ORDER BY queue_players.added_at ASC
+    `)
+    .all()
+    .map((row) => row.player_id);
+}
+
+function normalizeQueuePlayerIds(inputIds, activePlayerIds) {
+  if (!Array.isArray(inputIds)) {
+    throw new HttpError(400, "QUEUE_PLAYER_REQUIRED");
+  }
+
+  const ids = [];
+  const seen = new Set();
+  inputIds.forEach((rawId) => {
+    const id = String(rawId || "");
+    if (!id || seen.has(id)) {
+      return;
+    }
+    if (!activePlayerIds.has(id)) {
+      throw new HttpError(400, "QUEUE_UNKNOWN_PLAYER");
+    }
+    seen.add(id);
+    ids.push(id);
+  });
+  return ids;
+}
+
+function saveQueuePlayerIds(input, currentUser) {
+  const activePlayerIds = new Set(
+    db.prepare("SELECT id FROM players WHERE seed_rating IS NOT NULL").all().map((row) => row.id),
+  );
+  const ids = normalizeQueuePlayerIds(input?.playerIds, activePlayerIds);
+  const now = nowIso();
+  const insert = db.prepare("INSERT INTO queue_players (player_id, added_by, added_at) VALUES (?, ?, ?)");
+
+  db.prepare("DELETE FROM queue_players").run();
+  ids.forEach((id) => {
+    insert.run(id, currentUser.id, now);
+  });
+}
+
 function matchFromRow(row) {
   return {
     id: row.id,
@@ -546,6 +600,7 @@ function getStatePayload(currentUser) {
     matches: getMatches(),
     settings: getSettings(),
     visitorStats: getVisitorStats(),
+    queuePlayerIds: getQueuePlayerIds(),
     users: currentUser?.role === "admin" ? getUsersSafe() : [],
     currentUser,
   };
@@ -1525,6 +1580,7 @@ function replaceData(input, currentUser) {
   };
 
   db.prepare("DELETE FROM matches").run();
+  db.prepare("DELETE FROM queue_players").run();
   db.prepare("DELETE FROM players").run();
   saveSettings(settings);
 
@@ -1584,6 +1640,7 @@ function replaceData(input, currentUser) {
 
 function resetData() {
   db.prepare("DELETE FROM matches").run();
+  db.prepare("DELETE FROM queue_players").run();
   db.prepare("DELETE FROM players").run();
   saveSettings(defaultSettings);
   ensurePendingPlayersForUsers();
@@ -1674,6 +1731,7 @@ function createDefaultPostgresState() {
     matches: [],
     settings: cloneSettings(defaultSettings),
     visitorStats: createDefaultVisitorStats(),
+    queuePlayerIds: [],
   };
 }
 
@@ -1766,6 +1824,7 @@ function normalizePostgresState(value) {
     matches: [],
     settings: cloneSettings(source.settings),
     visitorStats: normalizeVisitorStats(source.visitorStats),
+    queuePlayerIds: [],
   };
 
   const userIds = new Set();
@@ -1781,6 +1840,19 @@ function normalizePostgresState(value) {
     .map((player) => normalizeStoredPlayer(player, playerIds, playerNames))
     .filter(Boolean)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.name.localeCompare(b.name));
+
+  const activePlayerIdsForQueue = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+  const queueIds = Array.isArray(source.queuePlayerIds) ? source.queuePlayerIds : [];
+  const seenQueueIds = new Set();
+  state.queuePlayerIds = queueIds
+    .map(String)
+    .filter((id) => {
+      if (!activePlayerIdsForQueue.has(id) || seenQueueIds.has(id)) {
+        return false;
+      }
+      seenQueueIds.add(id);
+      return true;
+    });
 
   const activeUserIds = new Set(state.users.map((user) => user.id));
   const now = Date.now();
@@ -1957,6 +2029,11 @@ function pgRecordVisitorVisit(state, req) {
   return shouldSetCookie ? visitorCookie(req, visitorId) : "";
 }
 
+function pgSaveQueuePlayerIds(state, input) {
+  const activePlayerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+  state.queuePlayerIds = normalizeQueuePlayerIds(input?.playerIds, activePlayerIds);
+}
+
 function pgGetStatePayload(state, currentUser) {
   const includePendingPlayers = currentUser?.role === "admin";
   return {
@@ -1964,6 +2041,7 @@ function pgGetStatePayload(state, currentUser) {
     matches: pgGetMatches(state),
     settings: cloneSettings(state.settings),
     visitorStats: publicVisitorStats(state.visitorStats),
+    queuePlayerIds: [...state.queuePlayerIds],
     users: currentUser?.role === "admin" ? pgGetUsersSafe(state) : [],
     currentUser,
   };
@@ -2180,6 +2258,7 @@ function pgDeletePlayer(state, playerId) {
 
   const originalLength = state.players.length;
   state.players = state.players.filter((player) => player.id !== playerId);
+  state.queuePlayerIds = state.queuePlayerIds.filter((id) => id !== playerId);
   if (state.players.length === originalLength) {
     throw new HttpError(404, "PLAYER_NOT_FOUND");
   }
@@ -2350,6 +2429,7 @@ function pgDeleteUser(state, targetUserId, currentUser) {
   if (linkedPlayer) {
     if (pgCountPlayerGames(state, linkedPlayer.id) === 0) {
       state.players = state.players.filter((player) => player.id !== linkedPlayer.id);
+      state.queuePlayerIds = state.queuePlayerIds.filter((id) => id !== linkedPlayer.id);
     } else {
       linkedPlayer.userId = null;
     }
@@ -2393,6 +2473,7 @@ function pgReplaceData(state, input, currentUser) {
   }));
   state.matches = [];
   state.settings = cloneSettings(settings);
+  state.queuePlayerIds = [];
 
   const ratings = new Map(players.filter((player) => player.seedRating != null).map((player) => [player.id, player.seedRating]));
   sortMatchesByPlayOrder(matches).forEach((baseMatch) => {
@@ -2410,6 +2491,7 @@ function pgResetData(state) {
   state.players = [];
   state.matches = [];
   state.settings = cloneSettings(defaultSettings);
+  state.queuePlayerIds = [];
   pgEnsurePendingPlayersForUsers(state);
 }
 
@@ -2473,6 +2555,16 @@ async function handleApiPostgres(req, res, url) {
       return pgGetStatePayload(state, currentUser);
     });
     return sendJson(req, res, 201, payload);
+  }
+
+  if (method === "PUT" && pathname === "/api/queue") {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      pgSaveQueuePlayerIds(state, body);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
   }
 
   const playerMatch = pathname.match(/^\/api\/players\/([^/]+)$/);
@@ -2662,6 +2754,13 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     runInTransaction(() => insertPlayer(body));
     return sendJson(req, res, 201, getStatePayload(currentUser));
+  }
+
+  if (method === "PUT" && pathname === "/api/queue") {
+    const currentUser = requireUser(req);
+    const body = await readJsonBody(req);
+    runInTransaction(() => saveQueuePlayerIds(body, currentUser));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
   }
 
   const playerMatch = pathname.match(/^\/api\/players\/([^/]+)$/);

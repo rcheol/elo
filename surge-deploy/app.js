@@ -44,6 +44,8 @@ const errorMessages = {
   PLAYER_NOT_FOUND: "선수를 찾을 수 없습니다.",
   PLAYER_REGISTER_FORBIDDEN: "manager 또는 admin 권한이 필요합니다.",
   PLAYER_RATING_REQUIRED: "초기 ELO를 입력하세요.",
+  QUEUE_PLAYER_REQUIRED: "대기열에 추가할 선수를 선택하세요.",
+  QUEUE_UNKNOWN_PLAYER: "등록된 선수를 선택하세요.",
   REQUEST_TOO_LARGE: "파일이 너무 큽니다.",
   SERVER_ERROR: "서버 처리 중 문제가 생겼습니다.",
   UNAUTHORIZED: "로그인이 필요합니다.",
@@ -61,6 +63,7 @@ function createDefaultState() {
     currentUser: null,
     settings: { ...defaultSettings },
     visitorStats: { today: 0, total: 0 },
+    queuePlayerIds: [],
   };
 }
 
@@ -233,6 +236,9 @@ function normalizeState(input) {
       today: Math.max(0, Math.floor(Number(input?.visitorStats?.today) || 0)),
       total: Math.max(0, Math.floor(Number(input?.visitorStats?.total) || 0)),
     },
+    queuePlayerIds: Array.isArray(input?.queuePlayerIds)
+      ? [...new Set(input.queuePlayerIds.map(String))].filter((id) => activePlayerIds.has(id))
+      : [],
     settings: {
       baseRating: clampNumber(Number(input?.settings?.baseRating ?? fallback.settings.baseRating), 800, 2400),
       kFactor: clampNumber(Number(input?.settings?.kFactor ?? fallback.settings.kFactor), 8, 64),
@@ -360,6 +366,35 @@ function roleLabel(role) {
 
 function getActivePlayers(sourceState = state) {
   return sourceState.players.filter((player) => player.seedRating != null && player.status !== "pending");
+}
+
+function queuedPlayerIdSet() {
+  return new Set(state.queuePlayerIds);
+}
+
+function sortPlayersByQueueThenName(players) {
+  const queueIds = queuedPlayerIdSet();
+  return [...players].sort((a, b) => {
+    const queueDiff = Number(queueIds.has(b.id)) - Number(queueIds.has(a.id));
+    if (queueDiff !== 0) {
+      return queueDiff;
+    }
+    return playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR");
+  });
+}
+
+function queuePlayers() {
+  const queueIds = queuedPlayerIdSet();
+  return getActivePlayers()
+    .filter((player) => queueIds.has(player.id))
+    .sort((a, b) => playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR"));
+}
+
+function availableQueuePlayers() {
+  const queueIds = queuedPlayerIdSet();
+  return getActivePlayers()
+    .filter((player) => !queueIds.has(player.id))
+    .sort((a, b) => playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR"));
 }
 
 function requireLogin() {
@@ -709,6 +744,42 @@ async function addPlayer(name, rating) {
   }
 }
 
+async function saveQueue(playerIds) {
+  if (!requireLogin()) return false;
+
+  try {
+    applyServerState(
+      await apiFetch("/api/queue", {
+        method: "PUT",
+        body: { playerIds },
+      }),
+    );
+    return true;
+  } catch (error) {
+    showApiError(error);
+    return false;
+  }
+}
+
+async function addQueuePlayer(playerId) {
+  if (!playerId) {
+    showToast("대기열에 추가할 선수를 선택하세요.");
+    return;
+  }
+  const nextIds = [...state.queuePlayerIds, playerId];
+  const saved = await saveQueue(nextIds);
+  if (saved) {
+    showToast("대기열에 추가했습니다.");
+  }
+}
+
+async function removeQueuePlayer(playerId) {
+  const saved = await saveQueue(state.queuePlayerIds.filter((id) => id !== playerId));
+  if (saved) {
+    showToast("대기열에서 제거했습니다.");
+  }
+}
+
 async function deletePlayer(playerId) {
   if (!requireAdmin()) return;
 
@@ -915,6 +986,7 @@ function render() {
   renderSummary(standings);
   renderSelects(standings);
   renderSettings();
+  renderQueue();
   renderRankings(standings);
   renderMyHistory();
   renderPartnerStats();
@@ -987,13 +1059,12 @@ function renderSummary(standings) {
 }
 
 function renderSelects(standings) {
-  const options = standings
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, "ko-KR"))
+  const orderedPlayers = sortPlayersByQueueThenName(standings);
+  const options = orderedPlayers
     .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(playerDisplayName(player))} · ${Math.round(player.rating)}</option>`)
     .join("");
 
-  const ids = standings.map((player) => player.id);
+  const ids = orderedPlayers.map((player) => player.id);
   const previousValues = selectIds.map((id) => $(`#${id}`).value);
   const selectedValues = [];
 
@@ -1032,6 +1103,42 @@ function renderSettings() {
   $("#playerRating").placeholder = String(state.settings.baseRating);
 }
 
+function renderQueue() {
+  const select = $("#queuePlayerSelect");
+  const list = $("#queueList");
+  const empty = $("#queueEmpty");
+  const emptyText = $("#queueEmptyText");
+  const canEditQueue = Boolean(getCurrentUser());
+  const queuedPlayers = queuePlayers();
+  const availablePlayers = availableQueuePlayers();
+
+  select.innerHTML = [
+    `<option value="">선수 선택</option>`,
+    ...availablePlayers.map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(playerDisplayName(player))}</option>`),
+  ].join("");
+
+  list.innerHTML = queuedPlayers
+    .map((player) => `
+      <li class="queue-item">
+        <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
+        <strong>${escapeHtml(playerDisplayName(player))}</strong>
+        <button class="icon-button" type="button" data-remove-queue-player="${escapeHtml(player.id)}" ${canEditQueue ? "" : "disabled"} aria-label="${escapeHtml(player.name)} 대기열 제거" title="대기열 제거">
+          <i data-lucide="x"></i>
+          <span class="visually-hidden">제거</span>
+        </button>
+      </li>
+    `)
+    .join("");
+
+  if (!getCurrentUser()) {
+    emptyText.textContent = "로그인하면 대기열을 관리할 수 있습니다.";
+  } else {
+    emptyText.textContent = "대기열이 비어 있습니다.";
+  }
+
+  empty.classList.toggle("is-visible", queuedPlayers.length === 0);
+}
+
 function renderAccess() {
   const user = getCurrentUser();
   const loggedIn = Boolean(user);
@@ -1039,11 +1146,15 @@ function renderAccess() {
   const canAddPlayers = canRegisterPlayers();
   const activePlayerCount = getActivePlayers().length;
   const canRecordMatch = loggedIn && activePlayerCount >= 4;
+  const availableQueueCount = availableQueuePlayers().length;
 
   $("#matchAuthNote").textContent = loggedIn ? `${user.displayName}님으로 경기 입력 중` : "로그인하면 경기 결과를 입력할 수 있습니다.";
   $("#rosterAuthNote").textContent = canAddPlayers
     ? admin ? "admin 권한으로 선수와 설정을 관리 중" : "manager 권한으로 선수 등록 가능"
     : "선수 등록은 manager 또는 admin만 가능합니다.";
+  $("#playerTitle").textContent = canAddPlayers ? "선수 등록" : "대기열";
+  $("#playerForm").hidden = !canAddPlayers;
+  $("#queueAuthNote").textContent = loggedIn ? "공용 대기열" : "로그인하면 대기열을 관리할 수 있습니다.";
 
   selectIds.forEach((id) => {
     $(`#${id}`).disabled = !canRecordMatch;
@@ -1058,6 +1169,8 @@ function renderAccess() {
   $("#playerName").disabled = !canAddPlayers;
   $("#playerRating").disabled = !canAddPlayers;
   $("#playerForm button").disabled = !canAddPlayers;
+  $("#queuePlayerSelect").disabled = !loggedIn || availableQueueCount === 0;
+  $("#queueAddBtn").disabled = !loggedIn || availableQueueCount === 0;
   $$("#baseRating, #kFactor, #marginBonus").forEach((element) => {
     element.disabled = !admin;
   });
@@ -1510,6 +1623,13 @@ function bindEvents() {
     }
   });
 
+  $("#queueForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const select = $("#queuePlayerSelect");
+    await addQueuePlayer(select.value);
+    select.value = "";
+  });
+
   $("#matchForm").addEventListener("submit", (event) => {
     event.preventDefault();
     recordMatch();
@@ -1563,6 +1683,12 @@ function bindEvents() {
     const updateRatingButton = target.closest("[data-update-rating]");
     if (updateRatingButton) {
       updatePlayerSeedRating(updateRatingButton.dataset.updateRating);
+      return;
+    }
+
+    const removeQueueButton = target.closest("[data-remove-queue-player]");
+    if (removeQueueButton) {
+      removeQueuePlayer(removeQueueButton.dataset.removeQueuePlayer);
       return;
     }
 

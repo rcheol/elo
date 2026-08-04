@@ -220,6 +220,24 @@
               <span>점수차 반영</span>
             </label>
           </div>
+
+          <div id="queueBlock" class="queue-block">
+            <form id="queueForm" class="queue-form">
+              <p id="queueAuthNote" class="permission-note"></p>
+              <label>
+                <span>대기열 선수</span>
+                <select id="queuePlayerSelect"></select>
+              </label>
+              <button class="button button--primary" id="queueAddBtn" type="submit">
+                <i data-lucide="plus"></i>
+                <span>추가</span>
+              </button>
+            </form>
+            <ul id="queueList" class="queue-list"></ul>
+            <div class="empty-state empty-state--compact" id="queueEmpty">
+              <strong id="queueEmptyText">대기열이 비어 있습니다.</strong>
+            </div>
+          </div>
         </section>
 
         <section class="board rankings-board" aria-labelledby="rankingsTitle">

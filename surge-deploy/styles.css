@@ -352,7 +352,8 @@ h2 {
 }
 
 .match-form,
-.player-form {
+.player-form,
+.queue-form {
   display: grid;
   gap: 16px;
 }
@@ -394,6 +395,7 @@ h2 {
 .team-box label,
 .match-meta-grid label,
 .player-form label,
+.queue-form label,
 .settings label {
   display: grid;
   gap: 7px;
@@ -496,7 +498,8 @@ textarea:focus {
   line-height: 1.45;
 }
 
-.player-form {
+.player-form,
+.queue-form {
   grid-template-columns: minmax(0, 1fr) 138px auto;
   align-items: end;
 }
@@ -509,7 +512,8 @@ textarea:focus {
   line-height: 1.45;
 }
 
-.player-form .permission-note {
+.player-form .permission-note,
+.queue-form .permission-note {
   grid-column: 1 / -1;
 }
 
@@ -646,6 +650,50 @@ textarea:focus {
 
 .pending-player-row {
   background: #fffdf4;
+}
+
+.queue-block {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.player-form[hidden] + .settings[hidden] + .queue-block {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.queue-list {
+  display: grid;
+  gap: 8px;
+  max-height: 238px;
+  overflow-y: auto;
+  padding: 0 4px 0 0;
+  scrollbar-gutter: stable;
+  margin: 0;
+  list-style: none;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.queue-item strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+  font-weight: 900;
 }
 
 .settings {
@@ -1152,6 +1200,8 @@ tbody tr:last-child td {
   .auth-session,
   .user-row,
   .player-form,
+  .queue-form,
+  .queue-item,
   .settings {
     grid-template-columns: 1fr;
   }
@@ -1159,7 +1209,8 @@ tbody tr:last-child td {
   .form-footer,
   .section-head,
   .auth-session,
-  .user-row {
+  .user-row,
+  .queue-item {
     align-items: stretch;
     flex-direction: column;
   }
