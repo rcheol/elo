@@ -372,17 +372,6 @@ function queuedPlayerIdSet() {
   return new Set(state.queuePlayerIds);
 }
 
-function sortPlayersByQueueThenName(players) {
-  const queueIds = queuedPlayerIdSet();
-  return [...players].sort((a, b) => {
-    const queueDiff = Number(queueIds.has(b.id)) - Number(queueIds.has(a.id));
-    if (queueDiff !== 0) {
-      return queueDiff;
-    }
-    return playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR");
-  });
-}
-
 function queuePlayers() {
   const queueIds = queuedPlayerIdSet();
   return getActivePlayers()
@@ -1059,8 +1048,25 @@ function renderSummary(standings) {
 }
 
 function renderSelects(standings) {
-  const orderedPlayers = sortPlayersByQueueThenName(standings);
-  const options = orderedPlayers
+  const queueIds = queuedPlayerIdSet();
+  const queuedPlayers = standings
+    .filter((player) => queueIds.has(player.id))
+    .sort((a, b) => playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR"));
+  const regularPlayers = standings
+    .filter((player) => !queueIds.has(player.id))
+    .sort((a, b) => playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR"));
+  const orderedPlayers = [...queuedPlayers, ...regularPlayers];
+  const optionForPlayer = (player) =>
+    `<option value="${escapeHtml(player.id)}">${escapeHtml(playerDisplayName(player))} · ${Math.round(player.rating)}</option>`;
+  const queueOptions = queuedPlayers.map(optionForPlayer).join("");
+  const regularOptions = regularPlayers.map(optionForPlayer).join("");
+  const groupedOptions = [
+    queueOptions ? `<optgroup label="대기열">${queueOptions}</optgroup>` : "",
+    queueOptions && regularOptions ? `<option value="" disabled>────────── 선수명단 ──────────</option>` : "",
+    regularOptions ? `<optgroup label="선수명단">${regularOptions}</optgroup>` : "",
+  ].join("");
+
+  const options = groupedOptions || orderedPlayers
     .map((player) => `<option value="${escapeHtml(player.id)}">${escapeHtml(playerDisplayName(player))} · ${Math.round(player.rating)}</option>`)
     .join("");
 
@@ -1457,13 +1463,17 @@ function renderPreview() {
 
 function shuffleTeams() {
   if (!requireLogin()) return;
-  if (getActivePlayers().length < 4) {
-    showToast("선수 4명 이상이 필요합니다.");
+  const queueIds = queuedPlayerIdSet();
+  const queuedPlayerIds = getStandings()
+    .filter((player) => queueIds.has(player.id))
+    .map((player) => player.id);
+
+  if (queuedPlayerIds.length < 4) {
+    showToast("대기열 선수 4명 이상이 필요합니다.");
     return;
   }
 
-  const shuffled = getStandings()
-    .map((player) => player.id)
+  const shuffled = queuedPlayerIds
     .sort(() => Math.random() - 0.5)
     .slice(0, 4);
 
