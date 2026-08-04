@@ -693,7 +693,7 @@ textarea:focus {
 .queue-item strong {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   line-height: 1.25;
   font-weight: 900;
 }
@@ -1203,20 +1203,43 @@ tbody tr:last-child td {
   .user-row,
   .player-form,
   .queue-form,
-  .queue-item,
   .settings {
     grid-template-columns: 1fr;
   }
 
   .queue-list {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    max-height: 210px;
+    padding-right: 2px;
+  }
+
+  .queue-item {
+    grid-template-columns: minmax(0, 1fr) 28px;
+    gap: 6px;
+    min-height: 38px;
+    padding: 6px 7px;
+  }
+
+  .queue-item .avatar {
+    display: none;
+  }
+
+  .queue-item .icon-button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+  }
+
+  .queue-item .icon-button svg {
+    width: 14px;
+    height: 14px;
   }
 
   .form-footer,
   .section-head,
   .auth-session,
-  .user-row,
-  .queue-item {
+  .user-row {
     align-items: stretch;
     flex-direction: column;
   }
