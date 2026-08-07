@@ -688,6 +688,42 @@ function playerPhotoUrl(player) {
   return "";
 }
 
+function playerCardTier(player) {
+  const rating = Number(player?.rating ?? player?.seedRating);
+  if (!Number.isFinite(rating)) {
+    return {
+      key: "unranked",
+      label: "등록 대기",
+      art: "./assets/player-cards/c-bronze.jpg",
+    };
+  }
+  if (rating >= 2000) {
+    return { key: "s", label: "S CLASS", art: "./assets/player-cards/s-hologram.jpg" };
+  }
+  if (rating >= 1700) {
+    return { key: "a", label: "A CLASS", art: "./assets/player-cards/a-gold.jpg" };
+  }
+  if (rating >= 1500) {
+    return { key: "b", label: "B CLASS", art: "./assets/player-cards/b-silver.jpg" };
+  }
+  return { key: "c", label: "C CLASS", art: "./assets/player-cards/c-bronze.jpg" };
+}
+
+function playerCardArtUrl(player, tier) {
+  if (playerPhotoUrl(player) !== "./assets/player-photos/cheol-ryu.png") {
+    return tier.art;
+  }
+
+  const cardTier = tier.key === "unranked" ? "c" : tier.key;
+  const cardFinish = {
+    s: "hologram",
+    a: "gold",
+    b: "silver",
+    c: "bronze",
+  }[cardTier];
+  return `./assets/player-cards/cheol-ryu-${cardTier}-${cardFinish}.jpg`;
+}
+
 function playerName(id) {
   return playerDisplayName(state.players.find((player) => player.id === id));
 }
@@ -993,7 +1029,7 @@ async function importBulkMatchesFromText() {
 
 function render() {
   const standings = getStandings();
-  renderAuth();
+  renderAuth(standings);
   renderSummary(standings);
   renderSelects(standings);
   renderSettings();
@@ -1009,16 +1045,28 @@ function render() {
   }
 }
 
-function renderAuth() {
+function renderAuth(standings) {
   const user = getCurrentUser();
   $("#authSignedOut").hidden = Boolean(user);
   $("#authSignedIn").hidden = !user;
   $("#adminUsers").hidden = !isAdmin();
 
   if (user) {
-    $("#currentUserName").textContent = user.displayName;
+    const player = currentUserPlayer(standings) || currentUserPlayer();
+    const tier = playerCardTier(player);
+    const rank = player ? standings.findIndex((entry) => entry.id === player.id) + 1 : 0;
+    const card = $("#currentPlayerCard");
+    const cardArt = $("#currentPlayerCardArt");
+
+    card.className = `player-card player-card--${tier.key}`;
+    cardArt.src = playerCardArtUrl(player, tier);
+    cardArt.alt = `${tier.label} 배드민턴 선수 카드 아트`;
+    $("#currentPlayerCardTier").textContent = tier.label;
+    $("#currentUserName").textContent = player?.name || user.displayName;
+    $("#currentUserHandle").textContent = `@${user.username}`;
     $("#currentRoleBadge").textContent = roleLabel(user.role);
-    $("#currentUserAvatar").textContent = user.displayName.slice(0, 1).toLocaleUpperCase();
+    $("#currentPlayerCardRating").textContent = player ? Math.round(player.rating).toLocaleString("ko-KR") : "--";
+    $("#currentPlayerCardRank").textContent = rank ? `#${rank}` : "--";
   }
 
   const userList = $("#userList");

@@ -1,1 +1,0 @@
-GitHub HTTPS push connectivity probe.

@@ -100,13 +100,30 @@
           </div>
 
           <div id="authSignedIn" class="auth-session" hidden>
-            <div class="session-user">
-              <span class="avatar" id="currentUserAvatar" aria-hidden="true">U</span>
-              <div>
-                <strong id="currentUserName"></strong>
-                <span id="currentRoleBadge" class="role-badge"></span>
+            <article id="currentPlayerCard" class="player-card player-card--unranked" aria-label="내 선수 카드">
+              <img id="currentPlayerCardArt" class="player-card__art" src="./assets/player-cards/c-bronze.jpg" alt="배드민턴 선수 카드 아트" decoding="async">
+              <div class="player-card__content">
+                <div class="player-card__topline">
+                  <span class="player-card__eyebrow">HONEY SERVE PLAYER CARD</span>
+                  <span id="currentPlayerCardTier" class="player-card__tier">등록 대기</span>
+                </div>
+                <div class="player-card__identity">
+                  <strong id="currentUserName"></strong>
+                  <span id="currentUserHandle" class="player-card__handle"></span>
+                  <span id="currentRoleBadge" class="role-badge"></span>
+                </div>
+                <div class="player-card__metrics" aria-label="선수 카드 기록">
+                  <div>
+                    <span>RATING</span>
+                    <strong id="currentPlayerCardRating">--</strong>
+                  </div>
+                  <div>
+                    <span>RANK</span>
+                    <strong id="currentPlayerCardRank">--</strong>
+                  </div>
+                </div>
               </div>
-            </div>
+            </article>
             <button class="icon-text-button" id="logoutBtn" type="button">
               <i data-lucide="log-out"></i>
               <span>로그아웃</span>
