@@ -697,6 +697,9 @@ function playerCardIdentity(player) {
   if (["eungi89.hong", "eungi.hong"].includes(normalizedAccountId) || normalizedName.includes("홍은기")) {
     return "eungi-hong";
   }
+  if (["yes.byun", "yeongseon.byun"].includes(normalizedAccountId) || normalizedName.includes("변영선")) {
+    return "yeongseon-byun";
+  }
   return "";
 }
 
@@ -716,6 +719,9 @@ function playerPhotoUrl(player) {
   }
   if (identity === "eungi-hong") {
     return "./assets/player-photos/eungi-hong.jpg";
+  }
+  if (identity === "yeongseon-byun") {
+    return "./assets/player-photos/yeongseon-byun.jpg";
   }
   return "";
 }
@@ -754,6 +760,9 @@ function playerCardArtUrl(player, tier) {
     b: "silver",
     c: "bronze",
   }[cardTier];
+  if (identity === "yeongseon-byun" && cardTier !== "c") {
+    return tier.art;
+  }
   return `./assets/player-cards/${identity}-${cardTier}-${cardFinish}.jpg`;
 }
 

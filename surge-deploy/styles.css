@@ -590,6 +590,7 @@ textarea:focus {
 }
 
 .player-card__content {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -630,12 +631,20 @@ textarea:focus {
 }
 
 .player-card__identity {
-  display: grid;
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 3px;
+  max-width: 46%;
   min-width: 0;
+  text-align: right;
 }
 
 .player-card__identity strong {
+  order: 3;
   overflow-wrap: anywhere;
   font-size: 1.5rem;
   font-weight: 900;
@@ -644,12 +653,14 @@ textarea:focus {
 }
 
 .player-card__handle {
+  order: 1;
   color: rgba(255, 255, 255, 0.84);
   font-size: 0.8rem;
   font-weight: 800;
 }
 
 .player-card .role-badge {
+  order: 2;
   width: fit-content;
   margin-top: 5px;
   background: rgba(255, 255, 255, 0.9);
@@ -657,6 +668,9 @@ textarea:focus {
 }
 
 .player-card__metrics {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
   justify-content: flex-start;
   gap: 24px;
 }
