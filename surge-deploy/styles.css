@@ -833,6 +833,13 @@ tbody tr:last-child td {
   font-weight: 900;
 }
 
+.avatar--photo {
+  display: block;
+  object-fit: cover;
+  background: #ffffff;
+  border: 1px solid rgba(5, 61, 44, 0.16);
+}
+
 .player-meta {
   min-width: 0;
 }

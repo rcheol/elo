@@ -674,6 +674,20 @@ function playerDisplayName(player, options = {}) {
   return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} ⭐` : displayName;
 }
 
+function playerPhotoUrl(player) {
+  const accountId = playerAccountId(player);
+  if (!player || !accountId) {
+    return "";
+  }
+
+  const normalizedAccountId = normalizeUsername(accountId);
+  const normalizedName = String(player.name || "").toLocaleLowerCase();
+  if (["rcheol", "cheol.ryu"].includes(normalizedAccountId) || normalizedName.includes("류철")) {
+    return "./assets/player-photos/cheol-ryu.png";
+  }
+  return "";
+}
+
 function playerName(id) {
   return playerDisplayName(state.players.find((player) => player.id === id));
 }
@@ -707,6 +721,14 @@ function scrollRankingToFocus(playerId) {
 
 function renderPlayerName(player, options = {}) {
   return `<span class="player-name">${escapeHtml(playerDisplayName(player, options))}</span>`;
+}
+
+function renderPlayerAvatar(player) {
+  const photoUrl = playerPhotoUrl(player);
+  if (photoUrl) {
+    return `<img class="avatar avatar--photo" src="${escapeHtml(photoUrl)}" alt="${escapeHtml(playerDisplayName(player))} 사진" loading="lazy" decoding="async">`;
+  }
+  return `<span class="avatar">${escapeHtml(player?.name?.slice(0, 1) || "?")}</span>`;
 }
 
 async function addPlayer(name, rating) {
@@ -1126,7 +1148,7 @@ function renderQueue() {
   list.innerHTML = queuedPlayers
     .map((player) => `
       <li class="queue-item">
-        <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
+        ${renderPlayerAvatar(player)}
         <strong>${escapeHtml(playerDisplayName(player))}</strong>
         <button class="icon-button" type="button" data-remove-queue-player="${escapeHtml(player.id)}" ${canEditQueue ? "" : "disabled"} aria-label="${escapeHtml(player.name)} 대기열 제거" title="대기열 제거">
           <i data-lucide="x"></i>
@@ -1215,7 +1237,7 @@ function renderRankings(standings) {
           <td><span class="${rankClass}">${rank}</span></td>
           <td>
             <div class="player-cell">
-              <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
+              ${renderPlayerAvatar(player)}
               <div class="player-meta">
                 ${renderPlayerName(player, { managerBadge: true })}
                 <span class="player-sub">${lastPlayed}</span>
@@ -1243,7 +1265,7 @@ function renderRankings(standings) {
             <td><span class="rank-pill">-</span></td>
             <td>
               <div class="player-cell">
-                <span class="avatar">${escapeHtml(player.name.slice(0, 1))}</span>
+                ${renderPlayerAvatar(player)}
                 <div class="player-meta">
                   ${renderPlayerName(player, { managerBadge: true })}
                   <span class="player-sub">승인 대기</span>
