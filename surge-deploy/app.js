@@ -674,7 +674,7 @@ function playerDisplayName(player, options = {}) {
   return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} ⭐` : displayName;
 }
 
-function playerPhotoUrl(player) {
+function playerCardIdentity(player) {
   const accountId = playerAccountId(player);
   if (!player || !accountId) {
     return "";
@@ -683,7 +683,39 @@ function playerPhotoUrl(player) {
   const normalizedAccountId = normalizeUsername(accountId);
   const normalizedName = String(player.name || "").toLocaleLowerCase();
   if (["rcheol", "cheol.ryu"].includes(normalizedAccountId) || normalizedName.includes("류철")) {
+    return "cheol-ryu";
+  }
+  if (["ji0.baek", "jiyeong.baek"].includes(normalizedAccountId) || normalizedName.includes("백지영")) {
+    return "jiyeong-baek";
+  }
+  if (["sj-_-.park", "sangjun.park"].includes(normalizedAccountId) || normalizedName.includes("박상준")) {
+    return "sangjun-park";
+  }
+  if (["hoseok5.jung", "hoseok.jung"].includes(normalizedAccountId) || normalizedName.includes("정호석")) {
+    return "hoseok-jung";
+  }
+  if (["eungi89.hong", "eungi.hong"].includes(normalizedAccountId) || normalizedName.includes("홍은기")) {
+    return "eungi-hong";
+  }
+  return "";
+}
+
+function playerPhotoUrl(player) {
+  const identity = playerCardIdentity(player);
+  if (identity === "cheol-ryu") {
     return "./assets/player-photos/cheol-ryu.png";
+  }
+  if (identity === "jiyeong-baek") {
+    return "./assets/player-photos/jiyeong-baek.jpg";
+  }
+  if (identity === "sangjun-park") {
+    return "./assets/player-photos/sangjun-park.jpg";
+  }
+  if (identity === "hoseok-jung") {
+    return "./assets/player-photos/hoseok-jung.jpg";
+  }
+  if (identity === "eungi-hong") {
+    return "./assets/player-photos/eungi-hong.jpg";
   }
   return "";
 }
@@ -710,7 +742,8 @@ function playerCardTier(player) {
 }
 
 function playerCardArtUrl(player, tier) {
-  if (playerPhotoUrl(player) !== "./assets/player-photos/cheol-ryu.png") {
+  const identity = playerCardIdentity(player);
+  if (!identity) {
     return tier.art;
   }
 
@@ -721,7 +754,7 @@ function playerCardArtUrl(player, tier) {
     b: "silver",
     c: "bronze",
   }[cardTier];
-  return `./assets/player-cards/cheol-ryu-${cardTier}-${cardFinish}.jpg`;
+  return `./assets/player-cards/${identity}-${cardTier}-${cardFinish}.jpg`;
 }
 
 function playerName(id) {
