@@ -1503,6 +1503,14 @@ tbody tr:last-child td {
     white-space: nowrap;
   }
 
+  .match-form .team-box label span {
+    display: none;
+  }
+
+  .match-form .team-box label {
+    gap: 0;
+  }
+
   .match-form .score-box {
     grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr) 34px;
     align-items: stretch;
