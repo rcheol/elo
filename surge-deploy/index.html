@@ -56,15 +56,15 @@
           </div>
 
           <div id="authSignedOut" class="auth-grid">
-            <form id="loginForm" class="auth-form">
+            <form id="loginForm" class="auth-form" autocomplete="on" method="post">
               <h3>로그인</h3>
               <label>
                 <span>아이디</span>
-                <input id="loginUsername" autocomplete="username" required type="text">
+                <input id="loginUsername" name="username" autocomplete="username" required type="text">
               </label>
               <label>
                 <span>비밀번호</span>
-                <input id="loginPassword" autocomplete="current-password" required type="password">
+                <input id="loginPassword" name="password" autocomplete="current-password" required type="password">
               </label>
               <button class="button button--primary" type="submit">
                 <i data-lucide="log-in"></i>
@@ -72,19 +72,19 @@
               </button>
             </form>
 
-            <form id="signupForm" class="auth-form">
+            <form id="signupForm" class="auth-form" autocomplete="on" method="post">
               <h3>계정 만들기</h3>
               <label>
                 <span>아이디</span>
-                <input id="signupUsername" autocomplete="username" minlength="3" required type="text">
+                <input id="signupUsername" name="username" autocomplete="username" minlength="3" required type="text">
               </label>
               <label>
                 <span>이름</span>
-                <input id="signupDisplayName" autocomplete="name" maxlength="24" required type="text">
+                <input id="signupDisplayName" name="name" autocomplete="name" maxlength="24" required type="text">
               </label>
               <label>
                 <span>비밀번호</span>
-                <input id="signupPassword" autocomplete="new-password" minlength="4" required type="password">
+                <input id="signupPassword" name="password" autocomplete="new-password" minlength="4" required type="password">
               </label>
               <button class="button button--primary" type="submit">
                 <i data-lucide="user-plus"></i>

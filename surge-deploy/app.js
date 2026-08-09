@@ -495,6 +495,24 @@ function requireMatchEditor(match) {
   return true;
 }
 
+async function offerBrowserCredentialSave(username, password, displayName = "") {
+  const cleanUsername = normalizeUsername(username);
+  if (!cleanUsername || !password || !window.isSecureContext || !window.PasswordCredential || !navigator.credentials?.store) {
+    return;
+  }
+
+  try {
+    const credential = new window.PasswordCredential({
+      id: cleanUsername,
+      name: String(displayName || cleanUsername).trim(),
+      password: String(password),
+    });
+    await navigator.credentials.store(credential);
+  } catch {
+    // Password managers are browser/user controlled; login should continue even if saving is unavailable or declined.
+  }
+}
+
 async function createAccount(username, displayName, password) {
   const normalizedUsername = normalizeUsername(username);
   const cleanDisplayName = String(displayName || username).trim().replace(/\s+/g, " ");
@@ -516,6 +534,7 @@ async function createAccount(username, displayName, password) {
       method: "POST",
       body: { username: normalizedUsername, displayName: cleanDisplayName, password },
     });
+    await offerBrowserCredentialSave(normalizedUsername, password, payload.currentUser?.displayName || cleanDisplayName);
     applyServerState(payload);
     showToast(payload.currentUser?.role === "admin" ? "admin 계정을 만들고 로그인했습니다." : "계정을 만들고 로그인했습니다.");
     return true;
@@ -526,11 +545,13 @@ async function createAccount(username, displayName, password) {
 }
 
 async function login(username, password) {
+  const normalizedUsername = normalizeUsername(username);
   try {
     const payload = await apiFetch("/api/login", {
       method: "POST",
-      body: { username: normalizeUsername(username), password },
+      body: { username: normalizedUsername, password },
     });
+    await offerBrowserCredentialSave(normalizedUsername, password, payload.currentUser?.displayName || normalizedUsername);
     applyServerState(payload);
     showToast(`${payload.currentUser?.displayName || "사용자"}님으로 로그인했습니다.`);
     return true;
