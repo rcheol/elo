@@ -1059,6 +1059,31 @@ tbody tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.player-name-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: inherit;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.player-name-button:hover {
+  color: var(--green-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.player-name-button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+
 .player-sub {
   display: block;
   margin-top: 2px;
@@ -1121,6 +1146,44 @@ tbody tr:last-child td {
 
 .muted {
   color: var(--muted);
+}
+
+.player-card-dialog {
+  width: min(92vw, 390px);
+  max-width: 390px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.player-card-dialog::backdrop {
+  background: rgba(5, 22, 16, 0.64);
+  backdrop-filter: blur(3px);
+}
+
+.player-card-dialog__shell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: 42px 14px 14px;
+}
+
+.player-card-dialog__close {
+  position: absolute;
+  top: 0;
+  right: 14px;
+  z-index: 2;
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(12, 22, 18, 0.78);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.player-card-dialog .player-card {
+  width: min(100%, 320px);
+  max-height: min(78vh, 520px);
 }
 
 .partner-stats-list {
@@ -1585,6 +1648,11 @@ tbody tr:last-child td {
     width: 100%;
     max-width: 384px;
     aspect-ratio: 3 / 4;
+  }
+
+  .player-card-dialog .player-card {
+    width: min(86vw, 320px);
+    aspect-ratio: 2 / 3;
   }
 
   .form-footer .button,

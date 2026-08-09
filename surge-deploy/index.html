@@ -442,6 +442,38 @@
         </div>
       </form>
     </dialog>
+    <dialog class="player-card-dialog" id="playerCardDialog">
+      <div class="player-card-dialog__shell">
+        <button class="icon-button player-card-dialog__close" type="button" data-close-player-card aria-label="닫기" title="닫기">
+          <i data-lucide="x"></i>
+          <span class="visually-hidden">닫기</span>
+        </button>
+        <article id="rankingPlayerCard" class="player-card player-card--unranked" aria-label="선수 카드">
+          <img id="rankingPlayerCardArt" class="player-card__art" src="./assets/player-cards/male-c-bronze.jpg" alt="배드민턴 선수 카드 아트" decoding="async">
+          <div class="player-card__content">
+            <div class="player-card__topline">
+              <span class="player-card__eyebrow">HONEY SERVE PLAYER CARD</span>
+              <span id="rankingPlayerCardTier" class="player-card__tier">등록 대기</span>
+            </div>
+            <div class="player-card__identity">
+              <strong id="rankingPlayerCardName"></strong>
+              <span id="rankingPlayerCardHandle" class="player-card__handle"></span>
+              <span id="rankingPlayerCardRoleBadge" class="role-badge" hidden></span>
+            </div>
+            <div class="player-card__metrics" aria-label="선수 카드 기록">
+              <div>
+                <span>RATING</span>
+                <strong id="rankingPlayerCardRating">--</strong>
+              </div>
+              <div>
+                <span>RANK</span>
+                <strong id="rankingPlayerCardRank">--</strong>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </dialog>
     <div class="toast" id="toast" aria-live="polite"></div>
 
     <script src="./app.js"></script>

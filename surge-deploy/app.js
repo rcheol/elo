@@ -927,6 +927,15 @@ function renderPlayerName(player, options = {}) {
   return `<span class="player-name">${escapeHtml(playerDisplayName(player, options))}</span>`;
 }
 
+function renderRankingPlayerName(player, options = {}) {
+  const displayName = playerDisplayName(player, options);
+  return `
+    <button class="player-name-button" type="button" data-show-player-card="${escapeHtml(player.id)}" aria-label="${escapeHtml(`${displayName} 선수 카드 보기`)}">
+      ${escapeHtml(displayName)}
+    </button>
+  `;
+}
+
 function renderPlayerAvatar(player) {
   const photoUrl = playerPhotoUrl(player);
   if (photoUrl) {
@@ -1481,7 +1490,7 @@ function renderRankings(standings) {
             <div class="player-cell">
               ${renderPlayerAvatar(player)}
               <div class="player-meta">
-                ${renderPlayerName(player, { managerBadge: true })}
+                ${renderRankingPlayerName(player, { managerBadge: true })}
                 <span class="player-sub">${lastPlayed}</span>
               </div>
             </div>
@@ -1509,7 +1518,7 @@ function renderRankings(standings) {
               <div class="player-cell">
                 ${renderPlayerAvatar(player)}
                 <div class="player-meta">
-                  ${renderPlayerName(player, { managerBadge: true })}
+                  ${renderRankingPlayerName(player, { managerBadge: true })}
                   <span class="player-sub">승인 대기</span>
                 </div>
               </div>
@@ -1536,6 +1545,58 @@ function renderRankings(standings) {
 
   empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
   scrollRankingToFocus(focusPlayerId);
+}
+
+function openPlayerCardDialog(playerId) {
+  const standings = getStandings();
+  const player = standings.find((entry) => entry.id === playerId)
+    || state.players.find((entry) => entry.id === playerId);
+  const dialog = $("#playerCardDialog");
+  if (!player || !dialog) {
+    return;
+  }
+
+  const tier = playerCardTier(player);
+  const rank = standings.findIndex((entry) => entry.id === player.id) + 1;
+  const accountId = playerAccountId(player);
+  const role = playerAccountRole(player);
+  const rating = Number(player.rating ?? player.seedRating);
+  const card = $("#rankingPlayerCard");
+  const cardArt = $("#rankingPlayerCardArt");
+  const roleBadge = $("#rankingPlayerCardRoleBadge");
+
+  card.className = `player-card player-card--${tier.key}`;
+  cardArt.src = playerCardArtUrl(player, tier);
+  cardArt.alt = `${tier.label} 배드민턴 선수 카드 아트`;
+  $("#rankingPlayerCardTier").textContent = tier.label;
+  $("#rankingPlayerCardName").textContent = player.name;
+  $("#rankingPlayerCardHandle").textContent = accountId ? `@${accountId}` : "";
+  roleBadge.textContent = role ? roleLabel(role) : "";
+  roleBadge.hidden = !role;
+  $("#rankingPlayerCardRating").textContent = Number.isFinite(rating) ? Math.round(rating).toLocaleString("ko-KR") : "--";
+  $("#rankingPlayerCardRank").textContent = rank > 0 ? `#${rank}` : "--";
+
+  if (typeof dialog.showModal === "function") {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
+  }
+
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
+function closePlayerCardDialog() {
+  const dialog = $("#playerCardDialog");
+  if (!dialog?.open) {
+    return;
+  }
+  if (typeof dialog.close === "function") {
+    dialog.close();
+  } else {
+    dialog.removeAttribute("open");
+  }
 }
 
 function formatStreak(streak, streakDelta = 0) {
@@ -1952,6 +2013,17 @@ function bindEvents() {
     const scoreStepButton = target.closest("[data-score-step]");
     if (scoreStepButton) {
       stepScore(scoreStepButton.dataset.scoreStep, Number(scoreStepButton.dataset.scoreDelta));
+      return;
+    }
+
+    const playerCardButton = target.closest("[data-show-player-card]");
+    if (playerCardButton) {
+      openPlayerCardDialog(playerCardButton.dataset.showPlayerCard);
+      return;
+    }
+
+    if (target.closest("[data-close-player-card]") || target === $("#playerCardDialog")) {
+      closePlayerCardDialog();
       return;
     }
 
