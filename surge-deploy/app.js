@@ -1246,6 +1246,7 @@ function render() {
   renderRankings(standings);
   renderMyHistory();
   renderPartnerStats();
+  renderOpponentStats();
   renderHistory();
   renderPreview();
   renderAccess();
@@ -1667,6 +1668,56 @@ function partnerStatsForPlayer(ownPlayer) {
     });
 }
 
+function opponentStatsForPlayer(ownPlayer) {
+  const statsByOpponent = new Map();
+
+  sortedMatches().forEach((match) => {
+    const ownSide = match.teamA.includes(ownPlayer.id) ? "A" : match.teamB.includes(ownPlayer.id) ? "B" : "";
+    if (!ownSide) {
+      return;
+    }
+
+    const opponentIds = ownSide === "A" ? match.teamB : match.teamA;
+    const ownDelta = Number(match.changes.find((change) => change.id === ownPlayer.id)?.delta || 0);
+
+    opponentIds.forEach((opponentId) => {
+      const opponent = state.players.find((player) => player.id === opponentId);
+      if (!opponent) {
+        return;
+      }
+
+      const current = statsByOpponent.get(opponentId) || {
+        opponent,
+        wins: 0,
+        losses: 0,
+        totalDelta: 0,
+        lastPlayed: null,
+      };
+      current.wins += match.winner === ownSide ? 1 : 0;
+      current.losses += match.winner === ownSide ? 0 : 1;
+      current.totalDelta = round1(current.totalDelta + ownDelta);
+      current.lastPlayed = !current.lastPlayed || matchOrderTime(match) > new Date(current.lastPlayed).getTime()
+        ? matchPlayedAt(match)
+        : current.lastPlayed;
+      statsByOpponent.set(opponentId, current);
+    });
+  });
+
+  return [...statsByOpponent.values()]
+    .map((stat) => ({
+      ...stat,
+      games: stat.wins + stat.losses,
+      winRate: stat.wins + stat.losses ? stat.wins / (stat.wins + stat.losses) : 0,
+    }))
+    .sort((a, b) => {
+      if (b.totalDelta !== a.totalDelta) return b.totalDelta - a.totalDelta;
+      if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.games !== a.games) return b.games - a.games;
+      return a.opponent.name.localeCompare(b.opponent.name, "ko-KR");
+    });
+}
+
 function renderPartnerStats() {
   const list = $("#partnerStatsList");
   const empty = $("#partnerStatsEmpty");
@@ -1696,6 +1747,40 @@ function renderPartnerStats() {
     emptyText.textContent = "계정에 연결된 선수가 없습니다.";
   } else {
     emptyText.textContent = "아직 파트너별 기록이 없습니다.";
+  }
+
+  empty.classList.toggle("is-visible", stats.length === 0);
+}
+
+function renderOpponentStats() {
+  const list = $("#opponentStatsList");
+  const empty = $("#opponentStatsEmpty");
+  const emptyText = $("#opponentStatsEmptyText");
+  const ownPlayer = currentUserPlayer();
+  const stats = ownPlayer ? opponentStatsForPlayer(ownPlayer) : [];
+  const ownName = ownPlayer ? playerDisplayName(ownPlayer) : "";
+
+  list.innerHTML = stats
+    .map((stat, index) => {
+      const deltaClass = stat.totalDelta > 0 ? "partner-delta--win" : stat.totalDelta < 0 ? "partner-delta--loss" : "";
+      return `
+        <li class="partner-stat-item">
+          <span class="rank-pill">${index + 1}</span>
+          <div class="partner-stat-main">
+            <span class="partner-stat-line"><strong>${escapeHtml(ownName)} vs ${escapeHtml(playerDisplayName(stat.opponent))}</strong> ${stat.wins}승 ${stat.losses}패 <span class="partner-delta ${deltaClass}">(${formatSigned(stat.totalDelta)})</span></span>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+  list.scrollTop = 0;
+
+  if (!getCurrentUser()) {
+    emptyText.textContent = "로그인하면 상대별 기록을 볼 수 있습니다.";
+  } else if (!ownPlayer) {
+    emptyText.textContent = "계정에 연결된 선수가 없습니다.";
+  } else {
+    emptyText.textContent = "아직 상대별 기록이 없습니다.";
   }
 
   empty.classList.toggle("is-visible", stats.length === 0);

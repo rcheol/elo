@@ -237,6 +237,7 @@ h2 {
 .rankings-board,
 .my-history-board,
 .partner-stats-board,
+.opponent-stats-board,
 .history-board,
 .admin-users-board {
   grid-column: 1 / -1;
