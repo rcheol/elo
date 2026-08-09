@@ -788,6 +788,14 @@ const playerAssetProfiles = [
     cardTiers: ["s"],
   },
   {
+    identity: "eunjun-ko",
+    accountIds: ["yheejjko", "yheejj.ko"],
+    workdaySearchIds: ["yheejj.ko"],
+    nameIncludes: ["고은준"],
+    photo: "./assets/player-photos/eunjun-ko.jpg",
+    cardTiers: ["b"],
+  },
+  {
     identity: "seokki-hong",
     accountIds: ["seokki.hong"],
     workdaySearchIds: ["seokki.hong"],
