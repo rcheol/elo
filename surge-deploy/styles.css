@@ -431,6 +431,77 @@ textarea {
   resize: vertical;
 }
 
+.player-picker-native {
+  cursor: pointer;
+}
+
+.player-picker-native.is-player-picker-open {
+  border-color: rgba(19, 111, 82, 0.7);
+  box-shadow: 0 0 0 3px rgba(19, 111, 82, 0.14);
+}
+
+.player-picker-menu {
+  position: fixed;
+  z-index: 1000;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid rgba(29, 51, 42, 0.16);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(20, 34, 29, 0.2);
+  scrollbar-gutter: stable;
+}
+
+.player-picker-menu[hidden] {
+  display: none;
+}
+
+.player-picker-menu__group,
+.player-picker-menu__divider {
+  padding: 7px 9px 5px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.player-picker-menu__divider {
+  margin: 5px 2px;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  color: transparent;
+  font-size: 0;
+}
+
+.player-picker-menu__option {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.player-picker-menu__option:hover,
+.player-picker-menu__option:focus,
+.player-picker-menu__option.is-active {
+  outline: none;
+  background: #edf6f0;
+}
+
+.player-picker-menu__option.is-selected {
+  background: #e5f3eb;
+  box-shadow: inset 3px 0 0 var(--green);
+}
 input:focus,
 select:focus,
 textarea:focus {
