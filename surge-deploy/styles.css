@@ -199,6 +199,13 @@ h2 {
   min-width: 0;
 }
 
+.footer-toolbar {
+  width: min(1180px, calc(100% - 32px));
+  max-width: calc(100vw - 32px);
+  justify-content: flex-end;
+  margin: -28px auto 52px;
+}
+
 .workspace {
   width: min(1180px, calc(100% - 32px));
   max-width: calc(100vw - 32px);
@@ -1358,17 +1365,39 @@ tbody tr:last-child td {
 
 @media (max-width: 680px) {
   .hero {
-    min-height: 370px;
+    min-height: 285px;
   }
 
   .hero__inner,
-  .workspace {
+  .workspace,
+  .footer-toolbar {
     width: min(1180px, calc(100% - 24px));
     max-width: calc(100vw - 24px);
   }
 
+  .hero__inner {
+    padding-top: 18px;
+    padding-bottom: 72px;
+  }
+
+  .brand-row {
+    display: none;
+  }
+
+  .hero-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(118px, 38%);
+    align-items: end;
+    gap: 10px;
+    margin-top: 30px;
+  }
+
+  .eyebrow {
+    font-size: 0.62rem;
+  }
+
   h1 {
-    font-size: 2rem;
+    margin-top: 6px;
+    font-size: 1.72rem;
     line-height: 1.12;
   }
 
@@ -1382,7 +1411,9 @@ tbody tr:last-child td {
 
   .metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    align-self: end;
+    gap: 4px;
+    max-width: none;
   }
 
   .metric:nth-child(3),
@@ -1391,18 +1422,18 @@ tbody tr:last-child td {
   }
 
   .metric {
-    min-height: 64px;
-    padding: 10px 8px;
+    min-height: 50px;
+    padding: 7px 4px;
   }
 
   .metric__label {
-    font-size: 0.68rem;
+    font-size: 0.52rem;
     white-space: nowrap;
   }
 
   .metric strong {
-    margin-top: 7px;
-    font-size: 1.24rem;
+    margin-top: 5px;
+    font-size: 0.98rem;
   }
 
   .panel,
@@ -1413,6 +1444,10 @@ tbody tr:last-child td {
   .toolbar {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .footer-toolbar {
+    margin: -24px auto 28px;
   }
 
   .toolbar .button {
