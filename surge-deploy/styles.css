@@ -511,9 +511,9 @@ textarea:focus {
 
 .score-box {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: 10px;
   min-width: 0;
   max-width: 100%;
   min-height: 100%;
@@ -521,6 +521,14 @@ textarea:focus {
   border: 1px solid #d8e2dc;
   border-radius: var(--radius);
   background: #fbfcfb;
+}
+
+.score-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .score-field {
@@ -550,6 +558,42 @@ textarea:focus {
   font-size: 1.4rem;
   font-weight: 900;
   text-align: center;
+}
+
+.score-controls {
+  display: none;
+}
+
+.score-stepper {
+  min-width: 0;
+}
+
+.score-stepper__button {
+  display: inline-grid;
+  place-items: center;
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(19, 111, 82, 0.18);
+  border-radius: 7px;
+  background: #eef7f1;
+  color: var(--green-deep);
+  cursor: pointer;
+}
+
+.score-stepper__button:hover {
+  border-color: rgba(19, 111, 82, 0.34);
+  background: #e4f2e9;
+}
+
+.score-stepper__button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.score-stepper__button svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 3;
 }
 
 .form-footer {
@@ -1408,16 +1452,28 @@ tbody tr:last-child td {
   }
 
   .metrics {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .metric:nth-child(3),
+  .metric:nth-child(5) {
+    display: none;
   }
 
   .metric {
-    min-height: 74px;
-    padding: 12px 10px;
+    min-height: 64px;
+    padding: 10px 8px;
+  }
+
+  .metric__label {
+    font-size: 0.68rem;
+    white-space: nowrap;
   }
 
   .metric strong {
-    font-size: 1.45rem;
+    margin-top: 7px;
+    font-size: 1.24rem;
   }
 
   .panel,
@@ -1432,6 +1488,62 @@ tbody tr:last-child td {
 
   .toolbar .button {
     width: 100%;
+  }
+
+  .match-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .match-meta-grid label {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .match-meta-grid label span {
+    white-space: nowrap;
+  }
+
+  .match-form .score-box {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .score-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .score-divider {
+    display: none;
+  }
+
+  .score-field {
+    gap: 5px;
+    font-size: 0.68rem;
+  }
+
+  .score-field input {
+    height: 52px;
+    font-size: 1.32rem;
+  }
+
+  .match-form .score-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .score-stepper {
+    display: grid;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    min-height: 100%;
+  }
+
+  .score-stepper__button {
+    min-height: 28px;
+    padding: 0;
   }
 
   .form-footer,

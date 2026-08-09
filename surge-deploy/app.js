@@ -1029,6 +1029,18 @@ function validateMatch(teamA, teamB, scoreA, scoreB) {
   return "";
 }
 
+function stepScore(inputId, delta) {
+  const input = $(`#${inputId}`);
+  if (!input || input.disabled) return;
+
+  const min = Number.isFinite(Number(input.min)) ? Number(input.min) : 0;
+  const max = Number.isFinite(Number(input.max)) ? Number(input.max) : 99;
+  const current = Number(input.value);
+  const next = clampNumber((Number.isFinite(current) ? current : min) + delta, min, max);
+  input.value = String(next);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 async function recordMatch() {
   if (!requireLogin()) return;
 
@@ -1528,6 +1540,9 @@ function renderAccess() {
   });
   $("#scoreA").disabled = !loggedIn;
   $("#scoreB").disabled = !loggedIn;
+  $$("[data-score-step]").forEach((button) => {
+    button.disabled = !loggedIn;
+  });
   $("#matchPlayedAt").disabled = !loggedIn;
   $("#matchSubmitBtn").disabled = !canRecordMatch;
   $("#shuffleBtn").hidden = activePlayerCount < 4;
@@ -2056,6 +2071,11 @@ function bindEvents() {
       closePlayerPicker();
     }
 
+    const scoreStepButton = target.closest("[data-score-step]");
+    if (scoreStepButton) {
+      stepScore(scoreStepButton.dataset.scoreStep, Number(scoreStepButton.dataset.scoreDelta));
+      return;
+    }
 
     const deleteButton = target.closest("[data-delete-player]");
     if (deleteButton) {

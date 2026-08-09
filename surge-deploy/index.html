@@ -165,14 +165,34 @@
               </div>
 
               <div class="score-box" aria-label="점수">
-                <div class="score-field">
-                  <label for="scoreA">A</label>
-                  <input id="scoreA" inputmode="numeric" min="0" max="99" required type="number" value="21">
+                <div class="score-inputs">
+                  <div class="score-field">
+                    <label for="scoreA">A</label>
+                    <input id="scoreA" inputmode="numeric" min="0" max="99" required type="number" value="21">
+                  </div>
+                  <span class="score-divider">:</span>
+                  <div class="score-field">
+                    <label for="scoreB">B</label>
+                    <input id="scoreB" inputmode="numeric" min="0" max="99" required type="number" value="15">
+                  </div>
                 </div>
-                <span class="score-divider">:</span>
-                <div class="score-field">
-                  <label for="scoreB">B</label>
-                  <input id="scoreB" inputmode="numeric" min="0" max="99" required type="number" value="15">
+                <div class="score-controls" aria-label="점수 조정">
+                  <div class="score-stepper" aria-label="A팀 점수 조정">
+                    <button class="score-stepper__button" type="button" data-score-step="scoreA" data-score-delta="1" aria-label="A팀 점수 올리기" title="A팀 점수 올리기">
+                      <i data-lucide="chevron-up"></i>
+                    </button>
+                    <button class="score-stepper__button" type="button" data-score-step="scoreA" data-score-delta="-1" aria-label="A팀 점수 내리기" title="A팀 점수 내리기">
+                      <i data-lucide="chevron-down"></i>
+                    </button>
+                  </div>
+                  <div class="score-stepper" aria-label="B팀 점수 조정">
+                    <button class="score-stepper__button" type="button" data-score-step="scoreB" data-score-delta="1" aria-label="B팀 점수 올리기" title="B팀 점수 올리기">
+                      <i data-lucide="chevron-up"></i>
+                    </button>
+                    <button class="score-stepper__button" type="button" data-score-step="scoreB" data-score-delta="-1" aria-label="B팀 점수 내리기" title="B팀 점수 내리기">
+                      <i data-lucide="chevron-down"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -387,14 +407,16 @@
           </div>
 
           <div class="score-box" aria-label="수정 점수">
-            <div class="score-field">
-              <label for="editScoreA">A</label>
-              <input id="editScoreA" inputmode="numeric" min="0" max="99" required type="number">
-            </div>
-            <span class="score-divider">:</span>
-            <div class="score-field">
-              <label for="editScoreB">B</label>
-              <input id="editScoreB" inputmode="numeric" min="0" max="99" required type="number">
+            <div class="score-inputs">
+              <div class="score-field">
+                <label for="editScoreA">A</label>
+                <input id="editScoreA" inputmode="numeric" min="0" max="99" required type="number">
+              </div>
+              <span class="score-divider">:</span>
+              <div class="score-field">
+                <label for="editScoreB">B</label>
+                <input id="editScoreB" inputmode="numeric" min="0" max="99" required type="number">
+              </div>
             </div>
           </div>
 
