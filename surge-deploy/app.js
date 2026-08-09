@@ -674,56 +674,127 @@ function playerDisplayName(player, options = {}) {
   return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} ⭐` : displayName;
 }
 
-function playerCardIdentity(player) {
+const playerAssetProfiles = [
+  {
+    identity: "cheol-ryu",
+    accountIds: ["rcheol", "cheol.ryu"],
+    nameIncludes: ["류철"],
+    photo: "./assets/player-photos/cheol-ryu.png",
+    cardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "jiyeong-baek",
+    accountIds: ["ji0.baek", "jiyeong.baek"],
+    nameIncludes: ["백지영"],
+    photo: "./assets/player-photos/jiyeong-baek.jpg",
+    cardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "sangjun-park",
+    accountIds: ["sj-_-.park", "sangjun.park"],
+    nameIncludes: ["박상준"],
+    photo: "./assets/player-photos/sangjun-park.jpg",
+    cardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "hoseok-jung",
+    accountIds: ["hoseok5.jung", "hoseok.jung"],
+    nameIncludes: ["정호석"],
+    photo: "./assets/player-photos/hoseok-jung.jpg",
+    cardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "eungi-hong",
+    accountIds: ["eungi89.hong", "eungi.hong"],
+    nameIncludes: ["홍은기"],
+    photo: "./assets/player-photos/eungi-hong.jpg",
+    cardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "yeongseon-byun",
+    accountIds: ["yes.byun", "yeongseon.byun"],
+    nameIncludes: ["변영선"],
+    photo: "./assets/player-photos/yeongseon-byun.jpg",
+    cardTiers: ["b", "c"],
+  },
+  {
+    identity: "h-hyun",
+    accountIds: ["h.hyun"],
+    nameIncludes: ["현현영"],
+    photo: "./assets/player-photos/h-hyun.jpg",
+    cardTiers: ["c"],
+  },
+  {
+    identity: "hyungjin-son",
+    accountIds: ["hyungjin.son"],
+    nameIncludes: ["손형진"],
+    photo: "./assets/player-photos/hyungjin-son.jpg",
+    cardTiers: ["b"],
+  },
+  {
+    identity: "jh723-paek",
+    accountIds: ["jh723.paek"],
+    nameIncludes: ["박정훈"],
+    photo: "./assets/player-photos/jh723-paek.jpg",
+    cardTiers: ["b"],
+  },
+  {
+    identity: "kkook-kang",
+    accountIds: ["kkook.kang"],
+    nameIncludes: ["강경국"],
+    photo: "./assets/player-photos/kkook-kang.jpg",
+    cardTiers: ["s"],
+  },
+  {
+    identity: "seokki-hong",
+    accountIds: ["seokki.hong"],
+    nameIncludes: ["홍석기"],
+    photo: "./assets/player-photos/seokki-hong.jpg",
+    cardTiers: ["b"],
+  },
+  {
+    identity: "sooyeon-jin",
+    accountIds: ["sooyeon.jin"],
+    nameIncludes: ["진수연"],
+    photo: "./assets/player-photos/sooyeon-jin.jpg",
+    cardTiers: ["c"],
+  },
+  {
+    identity: "suyeon-lee",
+    accountIds: ["suyeon.lee"],
+    nameIncludes: ["이수연"],
+    photo: "./assets/player-photos/suyeon-lee.jpg",
+    cardTiers: ["c"],
+  },
+  {
+    identity: "yh5626-lee",
+    accountIds: ["yh5626.lee"],
+    nameIncludes: ["이영현"],
+    photo: "./assets/player-photos/yh5626-lee.jpg",
+    cardTiers: ["b"],
+  },
+];
+
+function playerCardProfile(player) {
   const accountId = playerAccountId(player);
   if (!player || !accountId) {
-    return "";
+    return null;
   }
 
   const normalizedAccountId = normalizeUsername(accountId);
   const normalizedName = String(player.name || "").toLocaleLowerCase();
-  if (["rcheol", "cheol.ryu"].includes(normalizedAccountId) || normalizedName.includes("류철")) {
-    return "cheol-ryu";
-  }
-  if (["ji0.baek", "jiyeong.baek"].includes(normalizedAccountId) || normalizedName.includes("백지영")) {
-    return "jiyeong-baek";
-  }
-  if (["sj-_-.park", "sangjun.park"].includes(normalizedAccountId) || normalizedName.includes("박상준")) {
-    return "sangjun-park";
-  }
-  if (["hoseok5.jung", "hoseok.jung"].includes(normalizedAccountId) || normalizedName.includes("정호석")) {
-    return "hoseok-jung";
-  }
-  if (["eungi89.hong", "eungi.hong"].includes(normalizedAccountId) || normalizedName.includes("홍은기")) {
-    return "eungi-hong";
-  }
-  if (["yes.byun", "yeongseon.byun"].includes(normalizedAccountId) || normalizedName.includes("변영선")) {
-    return "yeongseon-byun";
-  }
-  return "";
+  return playerAssetProfiles.find((profile) => (
+    profile.accountIds.includes(normalizedAccountId)
+    || profile.nameIncludes.some((name) => normalizedName.includes(name.toLocaleLowerCase()))
+  )) || null;
+}
+
+function playerCardIdentity(player) {
+  return playerCardProfile(player)?.identity || "";
 }
 
 function playerPhotoUrl(player) {
-  const identity = playerCardIdentity(player);
-  if (identity === "cheol-ryu") {
-    return "./assets/player-photos/cheol-ryu.png";
-  }
-  if (identity === "jiyeong-baek") {
-    return "./assets/player-photos/jiyeong-baek.jpg";
-  }
-  if (identity === "sangjun-park") {
-    return "./assets/player-photos/sangjun-park.jpg";
-  }
-  if (identity === "hoseok-jung") {
-    return "./assets/player-photos/hoseok-jung.jpg";
-  }
-  if (identity === "eungi-hong") {
-    return "./assets/player-photos/eungi-hong.jpg";
-  }
-  if (identity === "yeongseon-byun") {
-    return "./assets/player-photos/yeongseon-byun.jpg";
-  }
-  return "";
+  return playerCardProfile(player)?.photo || "";
 }
 
 function playerCardTier(player) {
@@ -748,22 +819,23 @@ function playerCardTier(player) {
 }
 
 function playerCardArtUrl(player, tier) {
-  const identity = playerCardIdentity(player);
-  if (!identity) {
+  const profile = playerCardProfile(player);
+  if (!profile) {
     return tier.art;
   }
 
   const cardTier = tier.key === "unranked" ? "c" : tier.key;
+  if (!profile.cardTiers.includes(cardTier)) {
+    return tier.art;
+  }
+
   const cardFinish = {
     s: "hologram",
     a: "gold",
     b: "silver",
     c: "bronze",
   }[cardTier];
-  if (identity === "yeongseon-byun" && cardTier !== "c") {
-    return tier.art;
-  }
-  return `./assets/player-cards/${identity}-${cardTier}-${cardFinish}.jpg`;
+  return `./assets/player-cards/${profile.identity}-${cardTier}-${cardFinish}.jpg`;
 }
 
 function playerName(id) {
