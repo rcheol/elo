@@ -10,7 +10,6 @@ const editSelectIds = ["editTeamA1", "editTeamA2", "editTeamB1", "editTeamB2"];
 let state = createDefaultState();
 let toastTimer = null;
 let editingMatchId = null;
-let activePlayerPickerSelect = null;
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -1259,8 +1258,6 @@ function renderSummary(standings) {
 }
 
 function renderSelects(standings) {
-  closePlayerPicker();
-
   const queueIds = queuedPlayerIdSet();
   const queuedPlayers = standings
     .filter((player) => queueIds.has(player.id))
@@ -1300,180 +1297,6 @@ function renderSelects(standings) {
   });
 }
 
-function playerPickerMenu() {
-  let menu = $("#playerPickerMenu");
-  if (!menu) {
-    menu = document.createElement("div");
-    menu.id = "playerPickerMenu";
-    menu.className = "player-picker-menu";
-    menu.hidden = true;
-    document.body.append(menu);
-  }
-  return menu;
-}
-
-function selectedPlayerPickerButton(menu) {
-  return $(".player-picker-menu__option.is-selected", menu);
-}
-
-function focusPlayerPickerButton(button) {
-  if (!button) return;
-  $$(".player-picker-menu__option.is-active").forEach((item) => item.classList.remove("is-active"));
-  button.classList.add("is-active");
-  button.focus({ preventScroll: true });
-  button.scrollIntoView({ block: "nearest" });
-}
-
-function closePlayerPicker() {
-  const menu = $("#playerPickerMenu");
-  if (activePlayerPickerSelect) {
-    activePlayerPickerSelect.classList.remove("is-player-picker-open");
-  }
-  activePlayerPickerSelect = null;
-  if (menu) {
-    menu.hidden = true;
-    menu.innerHTML = "";
-  }
-}
-
-function positionPlayerPicker(menu, select) {
-  const rect = select.getBoundingClientRect();
-  const gap = 6;
-  const edge = 8;
-  const below = window.innerHeight - rect.bottom - gap - edge;
-  const above = rect.top - gap - edge;
-  const openAbove = below < 220 && above > below;
-  const maxHeight = Math.max(180, Math.min(330, openAbove ? above : below));
-  const width = Math.max(240, rect.width);
-  const left = Math.max(edge, Math.min(rect.left, window.innerWidth - width - edge));
-
-  menu.style.left = `${left}px`;
-  menu.style.width = `${width}px`;
-  menu.style.maxHeight = `${maxHeight}px`;
-  if (openAbove) {
-    menu.style.top = "auto";
-    menu.style.bottom = `${window.innerHeight - rect.top + gap}px`;
-  } else {
-    menu.style.top = `${rect.bottom + gap}px`;
-    menu.style.bottom = "auto";
-  }
-}
-
-function appendPlayerPickerOption(menu, option) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "player-picker-menu__option";
-  button.dataset.value = option.value;
-  button.textContent = option.textContent;
-  if (option.selected) {
-    button.classList.add("is-selected");
-    button.setAttribute("aria-current", "true");
-  }
-  button.addEventListener("click", () => {
-    if (!activePlayerPickerSelect) return;
-    activePlayerPickerSelect.value = option.value;
-    activePlayerPickerSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    activePlayerPickerSelect.focus({ preventScroll: true });
-    closePlayerPicker();
-  });
-  menu.append(button);
-}
-
-function appendPlayerPickerChildren(menu, children) {
-  [...children].forEach((child) => {
-    if (child.tagName === "OPTGROUP") {
-      const label = document.createElement("div");
-      label.className = "player-picker-menu__group";
-      label.textContent = child.label;
-      menu.append(label);
-      appendPlayerPickerChildren(menu, child.children);
-      return;
-    }
-
-    if (child.tagName !== "OPTION") {
-      return;
-    }
-
-    if (child.disabled) {
-      const divider = document.createElement("div");
-      divider.className = "player-picker-menu__divider";
-      divider.textContent = child.textContent.replace(/[─\s]/g, "") || "선수명단";
-      menu.append(divider);
-      return;
-    }
-
-    appendPlayerPickerOption(menu, child);
-  });
-}
-
-function openPlayerPicker(select) {
-  if (!select || select.disabled) return;
-  const menu = playerPickerMenu();
-  if (activePlayerPickerSelect === select && !menu.hidden) {
-    closePlayerPicker();
-    return;
-  }
-
-  closePlayerPicker();
-  activePlayerPickerSelect = select;
-  select.classList.add("is-player-picker-open");
-  menu.innerHTML = "";
-  appendPlayerPickerChildren(menu, select.children);
-  positionPlayerPicker(menu, select);
-  menu.hidden = false;
-
-  requestAnimationFrame(() => {
-    const selectedButton = selectedPlayerPickerButton(menu) || $(".player-picker-menu__option", menu);
-    if (selectedButton) {
-      selectedButton.scrollIntoView({ block: "center" });
-      focusPlayerPickerButton(selectedButton);
-    }
-  });
-}
-
-function handlePlayerSelectPointer(event) {
-  const select = event.currentTarget;
-  if (select.disabled) return;
-  event.preventDefault();
-  select.focus({ preventScroll: true });
-  openPlayerPicker(select);
-}
-
-function handlePlayerSelectKeydown(event) {
-  if (!["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) {
-    return;
-  }
-  event.preventDefault();
-  openPlayerPicker(event.currentTarget);
-}
-
-function handlePlayerPickerKeydown(event) {
-  const menu = $("#playerPickerMenu");
-  if (!activePlayerPickerSelect || !menu || menu.hidden) return;
-
-  if (event.key === "Escape") {
-    event.preventDefault();
-    activePlayerPickerSelect.focus({ preventScroll: true });
-    closePlayerPicker();
-    return;
-  }
-
-  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-    return;
-  }
-
-  event.preventDefault();
-  const options = $$(".player-picker-menu__option", menu);
-  if (!options.length) return;
-  const activeIndex = Math.max(0, options.findIndex((option) => option.classList.contains("is-active")));
-  const nextIndex = {
-    ArrowDown: Math.min(options.length - 1, activeIndex + 1),
-    ArrowUp: Math.max(0, activeIndex - 1),
-    Home: 0,
-    End: options.length - 1,
-  }[event.key];
-  focusPlayerPickerButton(options[nextIndex]);
-}
 function renderEditSelects(match) {
   const options = state.players
     .slice()
@@ -2051,10 +1874,7 @@ function bindEvents() {
 
   selectIds.forEach((id) => {
     const select = $(`#${id}`);
-    select.classList.add("player-picker-native");
     select.addEventListener("change", renderPreview);
-    select.addEventListener("pointerdown", handlePlayerSelectPointer);
-    select.addEventListener("keydown", handlePlayerSelectKeydown);
   });
 
   $("#scoreA").addEventListener("input", renderPreview);
@@ -2074,16 +1894,9 @@ function bindEvents() {
     updateSettings({ marginBonus: event.target.checked });
   });
 
-  document.addEventListener("keydown", handlePlayerPickerKeydown);
-  window.addEventListener("resize", closePlayerPicker);
-
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
-
-    if (activePlayerPickerSelect && !target.closest(".player-picker-menu") && target !== activePlayerPickerSelect) {
-      closePlayerPicker();
-    }
 
     const scoreStepButton = target.closest("[data-score-step]");
     if (scoreStepButton) {
