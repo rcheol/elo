@@ -6,10 +6,25 @@ const defaultSettings = {
 
 const selectIds = ["teamA1", "teamA2", "teamB1", "teamB2"];
 const editSelectIds = ["editTeamA1", "editTeamA2", "editTeamB1", "editTeamB2"];
+const paginationPageSize = 20;
+const paginationPagerIds = {
+  myHistory: "myHistoryPager",
+  partnerStats: "partnerStatsPager",
+  opponentStats: "opponentStatsPager",
+  history: "historyPager",
+  users: "userPager",
+};
 
 let state = createDefaultState();
 let toastTimer = null;
 let editingMatchId = null;
+let paginationState = {
+  myHistory: 1,
+  partnerStats: 1,
+  opponentStats: 1,
+  history: 1,
+  users: 1,
+};
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
@@ -83,6 +98,59 @@ function clampNumber(value, min, max) {
 
 function round1(value) {
   return Math.round(value * 10) / 10;
+}
+
+function paginationFor(section, totalItems) {
+  const pageCount = Math.max(1, Math.ceil(totalItems / paginationPageSize));
+  const page = Math.min(
+    pageCount,
+    Math.max(1, Math.floor(Number(paginationState[section]) || 1)),
+  );
+  paginationState[section] = page;
+  return {
+    page,
+    pageCount,
+    start: (page - 1) * paginationPageSize,
+    end: page * paginationPageSize,
+  };
+}
+
+function paginatedItems(section, items) {
+  const pagination = paginationFor(section, items.length);
+  return {
+    ...pagination,
+    items: items.slice(pagination.start, pagination.end),
+  };
+}
+
+function renderPagination(section, totalItems) {
+  const pager = $(`#${paginationPagerIds[section]}`);
+  if (!pager) {
+    return;
+  }
+
+  const { page, pageCount } = paginationFor(section, totalItems);
+  const shouldShow = totalItems > paginationPageSize;
+  pager.hidden = !shouldShow;
+  if (!shouldShow) {
+    pager.innerHTML = "";
+    return;
+  }
+
+  pager.innerHTML = Array.from({ length: pageCount }, (_, index) => {
+    const pageNumber = index + 1;
+    const active = pageNumber === page;
+    return `
+      <button
+        class="pagination-button ${active ? "is-active" : ""}"
+        type="button"
+        data-pagination-section="${escapeHtml(section)}"
+        data-pagination-page="${pageNumber}"
+        ${active ? 'aria-current="page"' : ""}
+        aria-label="Page ${pageNumber}"
+      >${pageNumber}</button>
+    `;
+  }).join("");
 }
 
 function escapeHtml(value) {
@@ -1280,7 +1348,8 @@ function renderAuth(standings) {
   }
 
   const userList = $("#userList");
-  userList.innerHTML = state.users
+  const userPage = paginatedItems("users", state.users);
+  userList.innerHTML = userPage.items
     .map((entry) => {
       const isCurrent = entry.id === user?.id;
       const canDelete = isAdmin() && !isCurrent;
@@ -1317,6 +1386,7 @@ function renderAuth(standings) {
       `;
     })
     .join("");
+  renderPagination("users", isAdmin() ? state.users.length : 0);
 }
 
 function renderSummary(standings) {
@@ -1726,13 +1796,14 @@ function renderPartnerStats() {
   const ownPlayer = currentUserPlayer();
   const stats = ownPlayer ? partnerStatsForPlayer(ownPlayer) : [];
   const ownName = ownPlayer ? playerDisplayName(ownPlayer) : "";
+  const statPage = paginatedItems("partnerStats", stats);
 
-  list.innerHTML = stats
+  list.innerHTML = statPage.items
     .map((stat, index) => {
       const deltaClass = stat.totalDelta > 0 ? "partner-delta--win" : stat.totalDelta < 0 ? "partner-delta--loss" : "";
       return `
         <li class="partner-stat-item">
-          <span class="rank-pill">${index + 1}</span>
+          <span class="rank-pill">${statPage.start + index + 1}</span>
           <div class="partner-stat-main">
             <span class="partner-stat-line"><strong>${escapeHtml(ownName)} / ${escapeHtml(playerDisplayName(stat.partner))}</strong> ${stat.wins}승 ${stat.losses}패 <span class="partner-delta ${deltaClass}">(${formatSigned(stat.totalDelta)})</span></span>
           </div>
@@ -1741,6 +1812,7 @@ function renderPartnerStats() {
     })
     .join("");
   list.scrollTop = 0;
+  renderPagination("partnerStats", stats.length);
 
   if (!getCurrentUser()) {
     emptyText.textContent = "로그인하면 파트너별 기록을 볼 수 있습니다.";
@@ -1760,13 +1832,14 @@ function renderOpponentStats() {
   const ownPlayer = currentUserPlayer();
   const stats = ownPlayer ? opponentStatsForPlayer(ownPlayer) : [];
   const ownName = ownPlayer ? playerDisplayName(ownPlayer) : "";
+  const statPage = paginatedItems("opponentStats", stats);
 
-  list.innerHTML = stats
+  list.innerHTML = statPage.items
     .map((stat, index) => {
       const deltaClass = stat.totalDelta > 0 ? "partner-delta--win" : stat.totalDelta < 0 ? "partner-delta--loss" : "";
       return `
         <li class="partner-stat-item">
-          <span class="rank-pill">${index + 1}</span>
+          <span class="rank-pill">${statPage.start + index + 1}</span>
           <div class="partner-stat-main">
             <span class="partner-stat-line"><strong>${escapeHtml(ownName)} vs ${escapeHtml(playerDisplayName(stat.opponent))}</strong> ${stat.wins}승 ${stat.losses}패 <span class="partner-delta ${deltaClass}">(${formatSigned(stat.totalDelta)})</span></span>
           </div>
@@ -1775,6 +1848,7 @@ function renderOpponentStats() {
     })
     .join("");
   list.scrollTop = 0;
+  renderPagination("opponentStats", stats.length);
 
   if (!getCurrentUser()) {
     emptyText.textContent = "로그인하면 상대별 기록을 볼 수 있습니다.";
@@ -1829,9 +1903,11 @@ function renderMyHistory() {
   const myMatches = ownPlayer
     ? sortedMatches().filter((match) => [...match.teamA, ...match.teamB].includes(ownPlayer.id)).reverse()
     : [];
+  const matchPage = paginatedItems("myHistory", myMatches);
 
-  list.innerHTML = myMatches.map(renderHistoryItem).join("");
+  list.innerHTML = matchPage.items.map(renderHistoryItem).join("");
   list.scrollTop = 0;
+  renderPagination("myHistory", myMatches.length);
 
   if (!getCurrentUser()) {
     emptyText.textContent = "로그인하면 나의 경기 기록을 볼 수 있습니다.";
@@ -1847,9 +1923,12 @@ function renderMyHistory() {
 function renderHistory() {
   const list = $("#historyList");
   const empty = $("#historyEmpty");
+  const matches = sortedMatches().reverse();
+  const matchPage = paginatedItems("history", matches);
 
-  list.innerHTML = sortedMatches().reverse().map(renderHistoryItem).join("");
+  list.innerHTML = matchPage.items.map(renderHistoryItem).join("");
   list.scrollTop = 0;
+  renderPagination("history", matches.length);
 
   empty.classList.toggle("is-visible", state.matches.length === 0);
 }
@@ -2106,6 +2185,16 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+
+    const paginationButton = target.closest("[data-pagination-section][data-pagination-page]");
+    if (paginationButton) {
+      const section = paginationButton.dataset.paginationSection;
+      if (Object.hasOwn(paginationState, section)) {
+        paginationState[section] = Number(paginationButton.dataset.paginationPage);
+        render();
+      }
+      return;
+    }
 
     const scoreStepButton = target.closest("[data-score-step]");
     if (scoreStepButton) {

@@ -1495,6 +1495,41 @@ tbody tr:last-child td {
   font-weight: 800;
 }
 
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.pagination-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--green-deep);
+  font-size: 0.82rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.pagination-button:hover {
+  border-color: rgba(19, 111, 82, 0.42);
+  background: var(--surface-soft);
+}
+
+.pagination-button.is-active {
+  border-color: var(--green);
+  background: var(--green);
+  color: #ffffff;
+}
+
 .bulk-match-form {
   display: grid;
   gap: 14px;
@@ -1864,6 +1899,18 @@ tbody tr:last-child td {
   .history-list {
     max-height: min(360px, 44dvh);
     padding-right: 2px;
+  }
+
+  .pagination {
+    gap: 5px;
+    margin-top: 10px;
+  }
+
+  .pagination-button {
+    width: 30px;
+    height: 30px;
+    min-height: 30px;
+    font-size: 0.76rem;
   }
 
   .queue-item {
