@@ -817,19 +817,19 @@ function playerCardTier(player) {
     return {
       key: "unranked",
       label: "등록 대기",
-      art: "./assets/player-cards/c-bronze.jpg",
+      art: "./assets/player-cards/male-c-bronze.jpg",
     };
   }
   if (rating >= 1700) {
-    return { key: "s", label: "S CLASS", art: "./assets/player-cards/s-hologram.jpg" };
+    return { key: "s", label: "S CLASS", art: "./assets/player-cards/male-s-hologram.jpg" };
   }
   if (rating >= 1500) {
-    return { key: "a", label: "A CLASS", art: "./assets/player-cards/a-gold.jpg" };
+    return { key: "a", label: "A CLASS", art: "./assets/player-cards/male-a-gold.jpg" };
   }
   if (rating >= 1300) {
-    return { key: "b", label: "B CLASS", art: "./assets/player-cards/b-silver.jpg" };
+    return { key: "b", label: "B CLASS", art: "./assets/player-cards/male-b-silver.jpg" };
   }
-  return { key: "c", label: "C CLASS", art: "./assets/player-cards/c-bronze.jpg" };
+  return { key: "c", label: "C CLASS", art: "./assets/player-cards/male-c-bronze.jpg" };
 }
 
 function playerCardArtUrl(player, tier) {
