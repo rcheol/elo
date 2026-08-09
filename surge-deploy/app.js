@@ -724,6 +724,14 @@ const playerAssetProfiles = [
     cardTiers: ["s", "a", "b", "c"],
   },
   {
+    identity: "jonghyun-park",
+    accountIds: ["johpark97", "jjong97.park"],
+    workdaySearchIds: ["jjong97.park"],
+    nameIncludes: ["박종현"],
+    photo: "./assets/player-photos/jonghyun-park.jpg",
+    cardTiers: ["a"],
+  },
+  {
     identity: "hoseok-jung",
     accountIds: ["hoseok5.jung", "hoseok.jung"],
     workdaySearchIds: ["hoseok5.jung"],
