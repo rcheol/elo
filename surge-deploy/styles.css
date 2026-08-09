@@ -217,6 +217,7 @@ h2 {
   margin: -58px auto 52px;
   position: relative;
   z-index: 2;
+  overflow-y: clip;
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
   gap: 16px;
