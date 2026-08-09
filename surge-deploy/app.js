@@ -1800,11 +1800,14 @@ function renderHistoryItem(match) {
     : "";
   const actions = editButton || deleteButton
     ? `<div class="row-actions">${editButton}${deleteButton}</div>`
-    : `<span class="muted">-</span>`;
+    : "";
 
   return `
     <li class="history-item">
-      <time class="history-date" datetime="${escapeHtml(matchPlayedAt(match))}">${formatDate(matchPlayedAt(match))}</time>
+      <div class="history-date-group">
+        <time class="history-date" datetime="${escapeHtml(matchPlayedAt(match))}">${formatDate(matchPlayedAt(match))}</time>
+        ${actions ? `<div class="history-date-actions">${actions}</div>` : ""}
+      </div>
       <div class="history-main">
         <div class="teams-line">
           <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${escapeHtml(teamA)}</span>
@@ -1813,7 +1816,6 @@ function renderHistoryItem(match) {
         </div>
         <p class="history-sub">A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)} · 기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}% · 입력 ${escapeHtml(match.createdByName || "알 수 없음")}${editedText}</p>
       </div>
-      ${actions}
     </li>
   `;
 }
