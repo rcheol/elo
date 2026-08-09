@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>허니서브 동호회 랭킹</title>
+    <title>허니서브 랭킹</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
@@ -18,7 +18,7 @@
           <div class="hero-grid">
             <div class="title-block">
               <span class="eyebrow">Badminton Club Board</span>
-              <h1><span class="title-line">허니서브</span><span class="title-line">동호회 랭킹</span></h1>
+              <h1><span class="title-line">허니서브 랭킹</span></h1>
             </div>
             <div class="metrics" aria-label="요약">
               <div class="metric">
@@ -126,19 +126,21 @@
         </section>
 
         <section class="panel match-panel" aria-labelledby="matchTitle">
-          <div class="section-head">
-            <div>
+          <div class="section-head match-section-head">
+            <div class="match-title-group">
               <span class="section-kicker">Match</span>
-              <h2 id="matchTitle">경기 입력</h2>
+              <div class="match-title-row">
+                <h2 id="matchTitle">경기 입력</h2>
+                <p id="matchAuthNote" class="permission-note"></p>
+                <button class="icon-text-button" id="shuffleBtn" type="button">
+                  <i data-lucide="shuffle"></i>
+                  <span>팀 섞기</span>
+                </button>
+              </div>
             </div>
-            <button class="icon-text-button" id="shuffleBtn" type="button">
-              <i data-lucide="shuffle"></i>
-              <span>팀 섞기</span>
-            </button>
           </div>
 
           <form id="matchForm" class="match-form">
-            <p id="matchAuthNote" class="permission-note"></p>
             <div class="match-meta-grid">
               <label>
                 <span>경기 일시</span>
