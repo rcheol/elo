@@ -692,6 +692,14 @@ const playerAssetProfiles = [
     cardTiers: ["s"],
   },
   {
+    identity: "jinuk-kim",
+    accountIds: ["kjy9631", "jinuk03.kim"],
+    workdaySearchIds: ["jinuk03.kim"],
+    nameIncludes: ["김진욱 (kjy9631)"],
+    photo: "./assets/player-photos/jinuk-kim.jpg",
+    cardTiers: ["a"],
+  },
+  {
     identity: "jiyeong-baek",
     accountIds: ["ji0.baek", "jiyeong.baek"],
     workdaySearchIds: ["ji0.baek"],
