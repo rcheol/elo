@@ -715,7 +715,7 @@ const playerAssetProfiles = [
     accountIds: ["yes.byun", "yeongseon.byun"],
     nameIncludes: ["변영선"],
     photo: "./assets/player-photos/yeongseon-byun.jpg",
-    cardTiers: ["b", "c"],
+    cardTiers: ["a", "b", "c"],
   },
   {
     identity: "h-hyun",
@@ -729,14 +729,14 @@ const playerAssetProfiles = [
     accountIds: ["hyungjin.son"],
     nameIncludes: ["손형진"],
     photo: "./assets/player-photos/hyungjin-son.jpg",
-    cardTiers: ["b"],
+    cardTiers: ["a", "b"],
   },
   {
     identity: "jh723-paek",
     accountIds: ["jh723.paek"],
     nameIncludes: ["박정훈"],
     photo: "./assets/player-photos/jh723-paek.jpg",
-    cardTiers: ["b"],
+    cardTiers: ["a", "b"],
   },
   {
     identity: "kkook-kang",
@@ -750,28 +750,28 @@ const playerAssetProfiles = [
     accountIds: ["seokki.hong"],
     nameIncludes: ["홍석기"],
     photo: "./assets/player-photos/seokki-hong.jpg",
-    cardTiers: ["b"],
+    cardTiers: ["a", "b"],
   },
   {
     identity: "sooyeon-jin",
     accountIds: ["sooyeon.jin"],
     nameIncludes: ["진수연"],
     photo: "./assets/player-photos/sooyeon-jin.jpg",
-    cardTiers: ["c"],
+    cardTiers: ["b", "c"],
   },
   {
     identity: "suyeon-lee",
     accountIds: ["suyeon.lee"],
     nameIncludes: ["이수연"],
     photo: "./assets/player-photos/suyeon-lee.jpg",
-    cardTiers: ["c"],
+    cardTiers: ["b", "c"],
   },
   {
     identity: "yh5626-lee",
     accountIds: ["yh5626.lee"],
     nameIncludes: ["이영현"],
     photo: "./assets/player-photos/yh5626-lee.jpg",
-    cardTiers: ["b"],
+    cardTiers: ["a", "b"],
   },
 ];
 
@@ -806,13 +806,13 @@ function playerCardTier(player) {
       art: "./assets/player-cards/c-bronze.jpg",
     };
   }
-  if (rating >= 2000) {
+  if (rating >= 1700) {
     return { key: "s", label: "S CLASS", art: "./assets/player-cards/s-hologram.jpg" };
   }
-  if (rating >= 1700) {
+  if (rating >= 1500) {
     return { key: "a", label: "A CLASS", art: "./assets/player-cards/a-gold.jpg" };
   }
-  if (rating >= 1500) {
+  if (rating >= 1300) {
     return { key: "b", label: "B CLASS", art: "./assets/player-cards/b-silver.jpg" };
   }
   return { key: "c", label: "C CLASS", art: "./assets/player-cards/c-bronze.jpg" };
