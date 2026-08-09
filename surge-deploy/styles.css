@@ -1050,6 +1050,28 @@ tbody tr:last-child td {
   border: 1px solid rgba(5, 61, 44, 0.16);
 }
 
+.avatar-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.avatar-button:hover .avatar {
+  box-shadow: 0 0 0 3px rgba(23, 125, 83, 0.18);
+}
+
+.avatar-button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+
 .player-meta {
   min-width: 0;
 }

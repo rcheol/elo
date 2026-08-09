@@ -936,6 +936,15 @@ function renderRankingPlayerName(player, options = {}) {
   `;
 }
 
+function renderRankingPlayerAvatar(player) {
+  const displayName = playerDisplayName(player);
+  return `
+    <button class="avatar-button" type="button" data-show-player-card="${escapeHtml(player.id)}" aria-label="${escapeHtml(`${displayName} 선수 카드 보기`)}">
+      ${renderPlayerAvatar(player)}
+    </button>
+  `;
+}
+
 function renderPlayerAvatar(player) {
   const photoUrl = playerPhotoUrl(player);
   if (photoUrl) {
@@ -1488,7 +1497,7 @@ function renderRankings(standings) {
           <td><span class="${rankClass}">${rank}</span></td>
           <td>
             <div class="player-cell">
-              ${renderPlayerAvatar(player)}
+              ${renderRankingPlayerAvatar(player)}
               <div class="player-meta">
                 ${renderRankingPlayerName(player, { managerBadge: true })}
                 <span class="player-sub">${lastPlayed}</span>
@@ -1516,7 +1525,7 @@ function renderRankings(standings) {
             <td><span class="rank-pill">-</span></td>
             <td>
               <div class="player-cell">
-                ${renderPlayerAvatar(player)}
+                ${renderRankingPlayerAvatar(player)}
                 <div class="player-meta">
                   ${renderRankingPlayerName(player, { managerBadge: true })}
                   <span class="player-sub">승인 대기</span>
