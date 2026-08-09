@@ -971,6 +971,23 @@ textarea:focus {
   list-style: none;
 }
 
+.queue-list,
+.rankings-board .table-wrap,
+.partner-stats-list,
+.history-list {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.queue-list::-webkit-scrollbar,
+.rankings-board .table-wrap::-webkit-scrollbar,
+.partner-stats-list::-webkit-scrollbar,
+.history-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .queue-item {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
