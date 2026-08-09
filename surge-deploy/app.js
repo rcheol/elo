@@ -1054,6 +1054,17 @@ function stepScore(inputId, delta) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function resetMatchEntryDefaults() {
+  setDefaultMatchPlayedAt(true);
+  ["#scoreA", "#scoreB"].forEach((selector) => {
+    const input = $(selector);
+    if (input) {
+      input.value = "21";
+    }
+  });
+  renderPreview();
+}
+
 async function recordMatch() {
   if (!requireLogin()) return;
 
@@ -1081,7 +1092,7 @@ async function recordMatch() {
         body: { teamA, teamB, scoreA, scoreB, playedAt },
       }),
     );
-    setDefaultMatchPlayedAt(true);
+    resetMatchEntryDefaults();
     showToast("경기 결과를 저장했습니다.");
   } catch (apiError) {
     showApiError(apiError);
