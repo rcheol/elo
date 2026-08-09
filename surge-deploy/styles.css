@@ -27,8 +27,6 @@
 html {
   min-width: 320px;
   overflow-x: hidden;
-  overscroll-behavior-x: none;
-  overscroll-behavior-y: none;
 }
 
 body {
@@ -41,8 +39,6 @@ body {
   font-size: 16px;
   letter-spacing: 0;
   overflow-x: hidden;
-  overscroll-behavior-x: none;
-  overscroll-behavior-y: none;
 }
 
 button,
@@ -880,7 +876,6 @@ textarea:focus {
   gap: 8px;
   max-height: 420px;
   overflow-y: auto;
-  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   margin: 12px 0 0;
   padding: 0 4px 0 0;
@@ -973,7 +968,6 @@ textarea:focus {
   gap: 8px;
   max-height: 238px;
   overflow-y: auto;
-  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0 4px 0 0;
   scrollbar-gutter: stable;
@@ -1046,7 +1040,6 @@ textarea:focus {
 .rankings-board .table-wrap {
   max-height: 506px;
   overflow: auto;
-  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
 }
@@ -1114,13 +1107,14 @@ tbody tr:last-child td {
 
 .rank-pill--s {
   background:
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0) 18%),
-    linear-gradient(145deg, #071522 0%, #102f3c 38%, #2a2448 72%, #a8792a 100%);
-  color: #fff7d7;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    radial-gradient(circle at 24% 18%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0) 20%),
+    linear-gradient(145deg, #ffffff 0%, #dce9f5 28%, #f9fdff 48%, #acd0ec 72%, #f4f8ff 100%);
+  color: #263a4e;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 241, 188, 0.56),
-    0 5px 14px rgba(9, 22, 38, 0.2);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.92),
+    inset 0 -8px 14px rgba(92, 139, 176, 0.16),
+    0 5px 14px rgba(79, 120, 151, 0.18);
 }
 
 .rank-pill--a {
@@ -1338,7 +1332,6 @@ tbody tr:last-child td {
   gap: 8px;
   max-height: 280px;
   overflow-y: auto;
-  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0 4px 0 0;
   scrollbar-gutter: stable;
@@ -1393,7 +1386,6 @@ tbody tr:last-child td {
   gap: 10px;
   max-height: 482px;
   overflow-y: auto;
-  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0 4px 0 0;
   scrollbar-gutter: stable;
