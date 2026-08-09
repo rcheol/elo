@@ -150,29 +150,21 @@
             <div class="team-grid">
               <div class="team-box team-box--a" role="group" aria-labelledby="teamATitle">
                 <h3 id="teamATitle">A팀</h3>
-                <label>
-                  <span>선수 1</span>
-                  <select id="teamA1" required></select>
-                </label>
-                <label>
-                  <span>선수 2</span>
-                  <select id="teamA2" required></select>
-                </label>
-              </div>
-
-              <div class="score-box" aria-label="점수">
-                <div class="score-inputs">
+                <div class="team-player-selects">
+                  <label>
+                    <span>선수 1</span>
+                    <select id="teamA1" required></select>
+                  </label>
+                  <label>
+                    <span>선수 2</span>
+                    <select id="teamA2" required></select>
+                  </label>
+                </div>
+                <div class="team-score-control">
                   <div class="score-field">
-                    <label for="scoreA">A</label>
+                    <label for="scoreA">점수</label>
                     <input id="scoreA" inputmode="numeric" min="0" max="99" required type="number" value="21">
                   </div>
-                  <span class="score-divider">:</span>
-                  <div class="score-field">
-                    <label for="scoreB">B</label>
-                    <input id="scoreB" inputmode="numeric" min="0" max="99" required type="number" value="21">
-                  </div>
-                </div>
-                <div class="score-controls" aria-label="점수 조정">
                   <div class="score-stepper" aria-label="A팀 점수 조정">
                     <button class="score-stepper__button" type="button" data-score-step="scoreA" data-score-delta="1" aria-label="A팀 점수 올리기" title="A팀 점수 올리기">
                       <i data-lucide="chevron-up"></i>
@@ -180,6 +172,26 @@
                     <button class="score-stepper__button" type="button" data-score-step="scoreA" data-score-delta="-1" aria-label="A팀 점수 내리기" title="A팀 점수 내리기">
                       <i data-lucide="chevron-down"></i>
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="team-box team-box--b" role="group" aria-labelledby="teamBTitle">
+                <h3 id="teamBTitle">B팀</h3>
+                <div class="team-player-selects">
+                  <label>
+                    <span>선수 1</span>
+                    <select id="teamB1" required></select>
+                  </label>
+                  <label>
+                    <span>선수 2</span>
+                    <select id="teamB2" required></select>
+                  </label>
+                </div>
+                <div class="team-score-control">
+                  <div class="score-field">
+                    <label for="scoreB">점수</label>
+                    <input id="scoreB" inputmode="numeric" min="0" max="99" required type="number" value="21">
                   </div>
                   <div class="score-stepper" aria-label="B팀 점수 조정">
                     <button class="score-stepper__button" type="button" data-score-step="scoreB" data-score-delta="1" aria-label="B팀 점수 올리기" title="B팀 점수 올리기">
@@ -190,18 +202,6 @@
                     </button>
                   </div>
                 </div>
-              </div>
-
-              <div class="team-box team-box--b" role="group" aria-labelledby="teamBTitle">
-                <h3 id="teamBTitle">B팀</h3>
-                <label>
-                  <span>선수 1</span>
-                  <select id="teamB1" required></select>
-                </label>
-                <label>
-                  <span>선수 2</span>
-                  <select id="teamB2" required></select>
-                </label>
               </div>
             </div>
 
