@@ -1504,12 +1504,34 @@ tbody tr:last-child td {
   }
 
   .match-form .score-box {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr) 34px;
+    align-items: stretch;
+    gap: 6px;
     padding: 12px;
   }
 
-  .score-inputs {
+  .match-form .score-inputs,
+  .match-form .score-controls {
+    display: contents;
+  }
+
+  .match-form .score-field:first-child {
+    order: 1;
+  }
+
+  .match-form .score-stepper:first-child {
+    order: 2;
+  }
+
+  .match-form .score-field:last-child {
+    order: 3;
+  }
+
+  .match-form .score-stepper:last-child {
+    order: 4;
+  }
+
+  .match-edit-form .score-inputs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
@@ -1528,16 +1550,10 @@ tbody tr:last-child td {
     font-size: 1.32rem;
   }
 
-  .match-form .score-controls {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-
   .score-stepper {
     display: grid;
     grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 6px;
+    gap: 5px;
     min-height: 100%;
   }
 

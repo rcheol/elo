@@ -678,7 +678,8 @@ function playerDisplayName(player, options = {}) {
 const playerAssetProfiles = [
   {
     identity: "cheol-ryu",
-    accountIds: ["rcheol", "cheol.ryu"],
+    accountIds: ["rcheol"],
+    workdaySearchIds: ["cheol.ryu"],
     nameIncludes: ["류철"],
     photo: "./assets/player-photos/cheol-ryu.png",
     cardTiers: ["s", "a", "b", "c"],
@@ -686,6 +687,7 @@ const playerAssetProfiles = [
   {
     identity: "jiyeong-baek",
     accountIds: ["ji0.baek", "jiyeong.baek"],
+    workdaySearchIds: ["ji0.baek"],
     nameIncludes: ["백지영"],
     photo: "./assets/player-photos/jiyeong-baek.jpg",
     cardTiers: ["s", "a", "b", "c"],
@@ -693,6 +695,7 @@ const playerAssetProfiles = [
   {
     identity: "sangjun-park",
     accountIds: ["sj-_-.park", "sangjun.park"],
+    workdaySearchIds: ["sj-_-.park"],
     nameIncludes: ["박상준"],
     photo: "./assets/player-photos/sangjun-park.jpg",
     cardTiers: ["s", "a", "b", "c"],
@@ -700,6 +703,7 @@ const playerAssetProfiles = [
   {
     identity: "hoseok-jung",
     accountIds: ["hoseok5.jung", "hoseok.jung"],
+    workdaySearchIds: ["hoseok5.jung"],
     nameIncludes: ["정호석"],
     photo: "./assets/player-photos/hoseok-jung.jpg",
     cardTiers: ["s", "a", "b", "c"],
@@ -707,6 +711,7 @@ const playerAssetProfiles = [
   {
     identity: "eungi-hong",
     accountIds: ["eungi89.hong", "eungi.hong"],
+    workdaySearchIds: ["eungi89.hong"],
     nameIncludes: ["홍은기"],
     photo: "./assets/player-photos/eungi-hong.jpg",
     cardTiers: ["s", "a", "b", "c"],
@@ -714,6 +719,7 @@ const playerAssetProfiles = [
   {
     identity: "yeongseon-byun",
     accountIds: ["yes.byun", "yeongseon.byun"],
+    workdaySearchIds: ["yes.byun"],
     nameIncludes: ["변영선"],
     photo: "./assets/player-photos/yeongseon-byun.jpg",
     cardTiers: ["a", "b", "c"],
@@ -721,6 +727,7 @@ const playerAssetProfiles = [
   {
     identity: "h-hyun",
     accountIds: ["h.hyun"],
+    workdaySearchIds: ["h.hyun"],
     nameIncludes: ["현현영"],
     photo: "./assets/player-photos/h-hyun.jpg",
     cardTiers: ["c"],
@@ -728,6 +735,7 @@ const playerAssetProfiles = [
   {
     identity: "hyungjin-son",
     accountIds: ["hyungjin.son"],
+    workdaySearchIds: ["hyungjin.son"],
     nameIncludes: ["손형진"],
     photo: "./assets/player-photos/hyungjin-son.jpg",
     cardTiers: ["a", "b"],
@@ -735,6 +743,7 @@ const playerAssetProfiles = [
   {
     identity: "jh723-paek",
     accountIds: ["jh723.paek"],
+    workdaySearchIds: ["jh723.paek"],
     nameIncludes: ["박정훈"],
     photo: "./assets/player-photos/jh723-paek.jpg",
     cardTiers: ["a", "b"],
@@ -742,6 +751,7 @@ const playerAssetProfiles = [
   {
     identity: "kkook-kang",
     accountIds: ["kkook.kang"],
+    workdaySearchIds: ["kkook.kang"],
     nameIncludes: ["강경국"],
     photo: "./assets/player-photos/kkook-kang.jpg",
     cardTiers: ["s"],
@@ -749,6 +759,7 @@ const playerAssetProfiles = [
   {
     identity: "seokki-hong",
     accountIds: ["seokki.hong"],
+    workdaySearchIds: ["seokki.hong"],
     nameIncludes: ["홍석기"],
     photo: "./assets/player-photos/seokki-hong.jpg",
     cardTiers: ["a", "b"],
@@ -756,13 +767,15 @@ const playerAssetProfiles = [
   {
     identity: "sooyeon-jin",
     accountIds: ["sooyeon.jin"],
+    workdaySearchIds: ["sooyeon.jin"],
     nameIncludes: ["진수연"],
     photo: "./assets/player-photos/sooyeon-jin.jpg",
     cardTiers: ["b", "c"],
   },
   {
     identity: "suyeon-lee",
-    accountIds: ["suyeon.lee", "suyeon6.lee"],
+    accountIds: ["suyeon.lee"],
+    workdaySearchIds: ["suyeon6.lee"],
     nameIncludes: ["이수연"],
     photo: "./assets/player-photos/suyeon-lee.jpg",
     cardTiers: ["b", "c"],
@@ -770,6 +783,7 @@ const playerAssetProfiles = [
   {
     identity: "yh5626-lee",
     accountIds: ["yh5626.lee"],
+    workdaySearchIds: ["yh5626.lee"],
     nameIncludes: ["이영현"],
     photo: "./assets/player-photos/yh5626-lee.jpg",
     cardTiers: ["a", "b"],
