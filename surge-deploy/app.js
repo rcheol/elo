@@ -1474,7 +1474,8 @@ function renderRankings(standings) {
   const focusPlayerId = focusedRankingPlayerId(standings);
   const activeRows = standings.map((player, index) => {
       const rank = index + 1;
-      const rankClass = rank <= 3 ? "rank-pill rank-pill--podium" : "rank-pill";
+      const tier = playerCardTier(player);
+      const rankClass = `rank-pill rank-pill--${tier.key}`;
       const focusClass = player.id === focusPlayerId ? "is-ranking-focus" : "";
       const ariaCurrent = player.id === focusPlayerId ? ` aria-current="true"` : "";
       const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
