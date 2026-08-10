@@ -972,8 +972,8 @@ const playerAssetProfiles = [
   {
     identity: "yeseul-lee",
     gender: "female",
-    accountIds: ["yeseull.lee", "yeseul88.lee"],
-    workdaySearchIds: ["yeseul88.lee"],
+    accountIds: ["yeseull.lee"],
+    workdaySearchIds: ["yeseull.lee"],
     nameIncludes: ["이예슬"],
     photo: "./assets/player-photos/yeseul-lee.jpg",
     cardTiers: ["c"],
