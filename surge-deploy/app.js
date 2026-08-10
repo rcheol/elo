@@ -961,7 +961,7 @@ function defaultPlayerCardArtUrl(player, tierKey) {
   if (playerCardGender(player) === "female") {
     return `./assets/player-cards/female-${normalizedTier}-figure.jpg`;
   }
-  return `./assets/player-cards/male-${normalizedTier}-${cardFinishByTier[normalizedTier] || "bronze"}.jpg`;
+  return `./assets/player-cards/male-${normalizedTier}-figure.jpg`;
 }
 
 function playerCardTier(player) {
