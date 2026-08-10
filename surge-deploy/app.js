@@ -691,6 +691,10 @@ async function linkUserPlayer(userId) {
 }
 
 function getStandings(sourceState = state) {
+  const giantKillerRecord = {
+    gain: 0,
+    playerIds: [],
+  };
   const table = new Map(
     getActivePlayers(sourceState).map((player) => [
       player.id,
@@ -714,11 +718,19 @@ function getStandings(sourceState = state) {
 
   sortedMatches(sourceState.matches).forEach((match) => {
     const changeMap = new Map(match.changes.map((change) => [change.id, Number(change.delta || 0)]));
+    const bestMatchGain = Math.max(0, ...match.changes.map((change) => Number(change.delta || 0)));
+    if (bestMatchGain > giantKillerRecord.gain) {
+      giantKillerRecord.gain = round1(bestMatchGain);
+      giantKillerRecord.playerIds = match.changes
+        .filter((change) => Number(change.delta || 0) === bestMatchGain)
+        .map((change) => change.id);
+    }
 
     match.changes.forEach((change) => {
       const player = table.get(change.id);
       if (player) {
-        player.rating = round1(player.rating + Number(change.delta || 0));
+        const delta = Number(change.delta || 0);
+        player.rating = round1(player.rating + delta);
         if (player.peakRating == null || player.rating > Number(player.peakRating)) {
           player.peakRating = player.rating;
           player.peakRatingAt = matchPlayedAt(match);
@@ -746,7 +758,7 @@ function getStandings(sourceState = state) {
       return a.name.localeCompare(b.name, "ko-KR");
     });
 
-  return applyPlayerHonors(standings);
+  return applyPlayerHonors(standings, { giantKillerPlayerIds: giantKillerRecord.playerIds });
 }
 
 const playerHonorRules = [
@@ -799,13 +811,25 @@ const playerHonorRules = [
       return standings.filter((player) => Number(player.maxWinStreak || 0) === maxWinStreak);
     },
   },
+  {
+    key: "giantKiller",
+    label: "자이언트킬러",
+    className: "player-honor--giant-killer",
+    winners(standings, context) {
+      const ids = context?.giantKillerPlayerIds || [];
+      if (!ids.length) {
+        return [];
+      }
+      return standings.filter((player) => ids.includes(player.id));
+    },
+  },
 ];
 
-function applyPlayerHonors(standings) {
+function applyPlayerHonors(standings, context = {}) {
   const honorMap = new Map(standings.map((player) => [player.id, []]));
 
   playerHonorRules.forEach((rule) => {
-    rule.winners(standings).forEach((player) => {
+    rule.winners(standings, context).forEach((player) => {
       honorMap.get(player.id)?.push({
         key: rule.key,
         label: rule.label,

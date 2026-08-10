@@ -1309,6 +1309,10 @@ tbody tr:last-child td {
   color: #c75147;
 }
 
+.player-honor--giant-killer {
+  color: #8a5ad8;
+}
+
 .player-sub {
   display: block;
   margin-top: 2px;
