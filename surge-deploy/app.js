@@ -969,6 +969,16 @@ const playerAssetProfiles = [
     cardTiers: ["b"],
     figureCardTiers: ["b"],
   },
+  {
+    identity: "yeseul-lee",
+    gender: "female",
+    accountIds: ["yeseull.lee", "yeseul88.lee"],
+    workdaySearchIds: ["yeseul88.lee"],
+    nameIncludes: ["이예슬"],
+    photo: "./assets/player-photos/yeseul-lee.jpg",
+    cardTiers: ["c"],
+    figureCardTiers: ["c"],
+  },
 ];
 
 const cardFinishByTier = {
