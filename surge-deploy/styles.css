@@ -1285,9 +1285,10 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-.peak-rating strong,
-.peak-rating span {
-  display: block;
+.peak-rating-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
 }
 
 .peak-rating strong {
@@ -1296,7 +1297,21 @@ tbody tr:last-child td {
   font-weight: 900;
 }
 
-.peak-rating span {
+.peak-delta {
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.peak-delta--up {
+  color: var(--green);
+}
+
+.peak-delta--down {
+  color: var(--coral);
+}
+
+.peak-date {
+  display: block;
   margin-top: 2px;
   color: var(--muted);
   font-size: 0.72rem;

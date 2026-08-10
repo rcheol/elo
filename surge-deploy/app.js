@@ -1700,6 +1700,17 @@ function renderRankings(standings) {
       const hasPeakRating = player.peakRating != null && Number.isFinite(Number(player.peakRating));
       const peakRating = hasPeakRating ? Number(player.peakRating).toFixed(1) : "";
       const peakDate = hasPeakRating && player.peakRatingAt ? formatDateOnly(player.peakRatingAt) : "";
+      const peakDelta = hasPeakRating ? round1(player.rating - Number(player.peakRating)) : null;
+      const peakDeltaClass = peakDelta >= 0 ? "peak-delta--up" : "peak-delta--down";
+      const peakMarkup = hasPeakRating
+        ? `
+            <div class="peak-rating-line">
+              <strong>${peakRating}</strong>
+              <span class="peak-delta ${peakDeltaClass}">${formatSigned(peakDelta)}</span>
+            </div>
+            <span class="peak-date">${peakDate}</span>
+          `
+        : "";
       const streak = formatStreak(player.streak, player.streakDelta);
       const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
       const seedRating = isAdmin()
@@ -1736,8 +1747,7 @@ function renderRankings(standings) {
           <td class="record">${player.wins}승 ${player.losses}패</td>
           <td class="win-rate">${winRate}</td>
           <td class="peak-rating">
-            <strong>${peakRating}</strong>
-            <span>${peakDate}</span>
+            ${peakMarkup}
           </td>
           <td>${actions}</td>
         </tr>
