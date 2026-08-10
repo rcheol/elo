@@ -932,6 +932,16 @@ const playerAssetProfiles = [
     figureCardTiers: ["c"],
   },
   {
+    identity: "yehyang-jang",
+    gender: "female",
+    accountIds: ["sjg036813", "yhj.jang"],
+    workdaySearchIds: ["yhj.jang"],
+    nameIncludes: ["장예향"],
+    photo: "./assets/player-photos/yehyang-jang.jpg",
+    cardTiers: ["b"],
+    figureCardTiers: ["b"],
+  },
+  {
     identity: "suyeon-lee",
     gender: "female",
     accountIds: ["suyeon.lee"],
