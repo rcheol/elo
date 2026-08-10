@@ -693,6 +693,7 @@ function getStandings(sourceState = state) {
         lastPlayed: null,
         peakRating: null,
         peakRatingAt: null,
+        honors: [],
       },
     ]),
   );
@@ -715,7 +716,7 @@ function getStandings(sourceState = state) {
     applyMatchStats(table, match.teamB, match.winner === "B", matchPlayedAt(match), changeMap);
   });
 
-  return [...table.values()]
+  const standings = [...table.values()]
     .map((player) => ({
       ...player,
       rating: round1(player.rating),
@@ -729,6 +730,42 @@ function getStandings(sourceState = state) {
       if (b.games !== a.games) return b.games - a.games;
       return a.name.localeCompare(b.name, "ko-KR");
     });
+
+  return applyPlayerHonors(standings);
+}
+
+const playerHonorRules = [
+  {
+    key: "wins",
+    label: "다승왕",
+    className: "player-honor--wins",
+    winners(standings) {
+      const maxWins = Math.max(0, ...standings.map((player) => Number(player.wins || 0)));
+      if (maxWins <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.wins || 0) === maxWins);
+    },
+  },
+];
+
+function applyPlayerHonors(standings) {
+  const honorMap = new Map(standings.map((player) => [player.id, []]));
+
+  playerHonorRules.forEach((rule) => {
+    rule.winners(standings).forEach((player) => {
+      honorMap.get(player.id)?.push({
+        key: rule.key,
+        label: rule.label,
+        className: rule.className,
+      });
+    });
+  });
+
+  return standings.map((player) => ({
+    ...player,
+    honors: honorMap.get(player.id) || [],
+  }));
 }
 
 function applyMatchStats(table, ids, won, createdAt, changeMap) {
@@ -1135,16 +1172,52 @@ function renderPlayerName(player, options = {}) {
   return `<span class="player-name">${escapeHtml(playerDisplayName(player, options))}</span>`;
 }
 
-function renderRankingPlayerName(player, options = {}) {
-  const displayName = playerDisplayName(player, options);
-  if (!playerAccountId(player)) {
-    return `<span class="player-name">${escapeHtml(displayName)}</span>`;
+function renderPlayerHonorBadgeItems(honors = []) {
+  return honors.map((honor) => `
+    <span class="player-honor ${escapeHtml(honor.className || "")}">${escapeHtml(honor.label)}</span>
+  `).join("");
+}
+
+function renderPlayerHonorBadges(honors = []) {
+  if (!honors.length) {
+    return "";
   }
 
   return `
-    <button class="player-name-button" type="button" data-show-player-card="${escapeHtml(player.id)}" aria-label="${escapeHtml(`${displayName} 선수 카드 보기`)}">
-      ${escapeHtml(displayName)}
-    </button>
+    <span class="player-honor-list" aria-label="선수 칭호">
+      ${renderPlayerHonorBadgeItems(honors)}
+    </span>
+  `;
+}
+
+function setPlayerCardHonors(element, honors = []) {
+  if (!element) {
+    return;
+  }
+  element.innerHTML = renderPlayerHonorBadgeItems(honors);
+  element.hidden = !honors.length;
+}
+
+function renderRankingPlayerName(player, options = {}) {
+  const displayName = playerDisplayName(player, options);
+  const nameMarkup = playerAccountId(player)
+    ? `
+      <button class="player-name-button" type="button" data-show-player-card="${escapeHtml(player.id)}" aria-label="${escapeHtml(`${displayName} 선수 카드 보기`)}">
+        ${escapeHtml(displayName)}
+      </button>
+    `
+    : `<span class="player-name">${escapeHtml(displayName)}</span>`;
+  const honorMarkup = renderPlayerHonorBadges(player.honors);
+  const combinedMarkup = `${nameMarkup}${honorMarkup}`;
+
+  if (!playerAccountId(player)) {
+    return `<span class="player-name-with-honors">${combinedMarkup}</span>`;
+  }
+
+  return `
+    <span class="player-name-with-honors">
+      ${combinedMarkup}
+    </span>
   `;
 }
 
@@ -1491,6 +1564,7 @@ function renderAuth(standings) {
     $("#currentUserName").textContent = player?.name || user.displayName;
     $("#currentUserHandle").textContent = `@${user.username}`;
     $("#currentRoleBadge").textContent = roleLabel(user.role);
+    setPlayerCardHonors($("#currentHonorBadges"), player?.honors || []);
     $("#currentPlayerCardRating").textContent = player ? Math.round(player.rating).toLocaleString("ko-KR") : "--";
     $("#currentPlayerCardRank").textContent = rank ? `#${rank}` : "--";
   }
@@ -1824,6 +1898,7 @@ function openPlayerCardDialog(playerId) {
   $("#rankingPlayerCardHandle").textContent = accountId ? `@${accountId}` : "";
   roleBadge.textContent = role ? roleLabel(role) : "";
   roleBadge.hidden = !role;
+  setPlayerCardHonors($("#rankingPlayerCardHonorBadges"), player.honors || []);
   $("#rankingPlayerCardRating").textContent = Number.isFinite(rating) ? Math.round(rating).toLocaleString("ko-KR") : "--";
   $("#rankingPlayerCardRank").textContent = rank > 0 ? `#${rank}` : "--";
 
