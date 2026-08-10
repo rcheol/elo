@@ -798,6 +798,7 @@ const playerAssetProfiles = [
   },
   {
     identity: "jiyeong-baek",
+    gender: "female",
     accountIds: ["ji0.baek", "jiyeong.baek"],
     workdaySearchIds: ["ji0.baek"],
     nameIncludes: ["백지영"],
@@ -838,6 +839,7 @@ const playerAssetProfiles = [
   },
   {
     identity: "yeongseon-byun",
+    gender: "female",
     accountIds: ["yes.byun", "yeongseon.byun"],
     workdaySearchIds: ["yes.byun"],
     nameIncludes: ["변영선"],
@@ -846,6 +848,7 @@ const playerAssetProfiles = [
   },
   {
     identity: "h-hyun",
+    gender: "female",
     accountIds: ["h.hyun"],
     workdaySearchIds: ["h.hyun"],
     nameIncludes: ["현현영"],
@@ -894,6 +897,7 @@ const playerAssetProfiles = [
   },
   {
     identity: "sooyeon-jin",
+    gender: "female",
     accountIds: ["sooyeon.jin"],
     workdaySearchIds: ["sooyeon.jin"],
     nameIncludes: ["진수연"],
@@ -902,6 +906,7 @@ const playerAssetProfiles = [
   },
   {
     identity: "suyeon-lee",
+    gender: "female",
     accountIds: ["suyeon.lee"],
     workdaySearchIds: ["suyeon6.lee"],
     nameIncludes: ["이수연"],
@@ -917,6 +922,13 @@ const playerAssetProfiles = [
     cardTiers: ["a", "b"],
   },
 ];
+
+const cardFinishByTier = {
+  s: "hologram",
+  a: "gold",
+  b: "silver",
+  c: "bronze",
+};
 
 function playerCardProfile(player) {
   const accountId = playerAccountId(player);
@@ -940,25 +952,37 @@ function playerPhotoUrl(player) {
   return playerCardProfile(player)?.photo || "";
 }
 
+function playerCardGender(player) {
+  return playerCardProfile(player)?.gender || "male";
+}
+
+function defaultPlayerCardArtUrl(player, tierKey) {
+  const normalizedTier = tierKey === "unranked" ? "c" : tierKey;
+  if (playerCardGender(player) === "female") {
+    return `./assets/player-cards/female-${normalizedTier}-figure.jpg`;
+  }
+  return `./assets/player-cards/male-${normalizedTier}-${cardFinishByTier[normalizedTier] || "bronze"}.jpg`;
+}
+
 function playerCardTier(player) {
   const rating = Number(player?.rating ?? player?.seedRating);
   if (!Number.isFinite(rating)) {
     return {
       key: "unranked",
       label: "등록 대기",
-      art: "./assets/player-cards/male-c-bronze.jpg",
+      art: defaultPlayerCardArtUrl(player, "c"),
     };
   }
   if (rating >= 1700) {
-    return { key: "s", label: "S CLASS", art: "./assets/player-cards/male-s-hologram.jpg" };
+    return { key: "s", label: "S CLASS", art: defaultPlayerCardArtUrl(player, "s") };
   }
   if (rating >= 1500) {
-    return { key: "a", label: "A CLASS", art: "./assets/player-cards/male-a-gold.jpg" };
+    return { key: "a", label: "A CLASS", art: defaultPlayerCardArtUrl(player, "a") };
   }
   if (rating >= 1300) {
-    return { key: "b", label: "B CLASS", art: "./assets/player-cards/male-b-silver.jpg" };
+    return { key: "b", label: "B CLASS", art: defaultPlayerCardArtUrl(player, "b") };
   }
-  return { key: "c", label: "C CLASS", art: "./assets/player-cards/male-c-bronze.jpg" };
+  return { key: "c", label: "C CLASS", art: defaultPlayerCardArtUrl(player, "c") };
 }
 
 function playerCardArtUrl(player, tier) {
@@ -972,12 +996,7 @@ function playerCardArtUrl(player, tier) {
     return tier.art;
   }
 
-  const cardFinish = {
-    s: "hologram",
-    a: "gold",
-    b: "silver",
-    c: "bronze",
-  }[cardTier];
+  const cardFinish = cardFinishByTier[cardTier];
   return `./assets/player-cards/${profile.identity}-${cardTier}-${cardFinish}.jpg`;
 }
 
