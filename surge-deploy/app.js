@@ -691,10 +691,6 @@ async function linkUserPlayer(userId) {
 }
 
 function getStandings(sourceState = state) {
-  const giantKillerRecord = {
-    gain: 0,
-    playerIds: [],
-  };
   const table = new Map(
     getActivePlayers(sourceState).map((player) => [
       player.id,
@@ -718,13 +714,6 @@ function getStandings(sourceState = state) {
 
   sortedMatches(sourceState.matches).forEach((match) => {
     const changeMap = new Map(match.changes.map((change) => [change.id, Number(change.delta || 0)]));
-    const bestMatchGain = Math.max(0, ...match.changes.map((change) => Number(change.delta || 0)));
-    if (bestMatchGain > giantKillerRecord.gain) {
-      giantKillerRecord.gain = round1(bestMatchGain);
-      giantKillerRecord.playerIds = match.changes
-        .filter((change) => Number(change.delta || 0) === bestMatchGain)
-        .map((change) => change.id);
-    }
 
     match.changes.forEach((change) => {
       const player = table.get(change.id);
@@ -746,6 +735,8 @@ function getStandings(sourceState = state) {
     .map((player) => ({
       ...player,
       rating: round1(player.rating),
+      ratingGainFromSeed: round1(Number(player.rating || 0) - Number(player.seedRating || 0)),
+      recordMargin: Number(player.wins || 0) - Number(player.losses || 0),
       peakRating: player.peakRating == null ? null : round1(player.peakRating),
       attendanceDays: player.attendanceDays.size,
       streakDelta: round1(player.streakDelta),
@@ -758,7 +749,20 @@ function getStandings(sourceState = state) {
       return a.name.localeCompare(b.name, "ko-KR");
     });
 
-  return applyPlayerHonors(standings, { giantKillerPlayerIds: giantKillerRecord.playerIds });
+  return applyPlayerHonors(standings);
+}
+
+function playersWithBestRatio(standings, predicate, ratioValue) {
+  const candidates = standings
+    .map((player) => ({ player, ratio: ratioValue(player) }))
+    .filter((entry) => predicate(entry.player) && Number.isFinite(entry.ratio) && entry.ratio > 0);
+  const bestRatio = Math.max(0, ...candidates.map((entry) => entry.ratio));
+  if (bestRatio <= 0) {
+    return [];
+  }
+  return candidates
+    .filter((entry) => Math.abs(entry.ratio - bestRatio) < 0.000001)
+    .map((entry) => entry.player);
 }
 
 const playerHonorRules = [
@@ -815,12 +819,24 @@ const playerHonorRules = [
     key: "giantKiller",
     label: "자이언트킬러",
     className: "player-honor--giant-killer",
-    winners(standings, context) {
-      const ids = context?.giantKillerPlayerIds || [];
-      if (!ids.length) {
-        return [];
-      }
-      return standings.filter((player) => ids.includes(player.id));
+    winners(standings) {
+      return playersWithBestRatio(
+        standings,
+        (player) => Number(player.recordMargin || 0) < 0 && Number(player.ratingGainFromSeed || 0) > 0,
+        (player) => round1(Number(player.ratingGainFromSeed || 0)) / Math.abs(Number(player.recordMargin || 0)),
+      );
+    },
+  },
+  {
+    key: "weakKiller",
+    label: "약팀킬러",
+    className: "player-honor--weak-killer",
+    winners(standings) {
+      return playersWithBestRatio(
+        standings,
+        (player) => Number(player.recordMargin || 0) > 0 && Number(player.ratingGainFromSeed || 0) < 0,
+        (player) => Math.abs(round1(Number(player.ratingGainFromSeed || 0))) / Math.abs(Number(player.recordMargin || 0)),
+      );
     },
   },
   {
@@ -842,11 +858,11 @@ const playerHonorRules = [
   },
 ];
 
-function applyPlayerHonors(standings, context = {}) {
+function applyPlayerHonors(standings) {
   const honorMap = new Map(standings.map((player) => [player.id, []]));
 
   playerHonorRules.forEach((rule) => {
-    rule.winners(standings, context).forEach((player) => {
+    rule.winners(standings).forEach((player) => {
       honorMap.get(player.id)?.push({
         key: rule.key,
         label: rule.label,
