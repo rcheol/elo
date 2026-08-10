@@ -819,8 +819,9 @@ textarea:focus {
 }
 
 .player-card .player-honor {
-  background: transparent;
-  box-shadow: none;
+  background: rgba(9, 18, 16, 0.58);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(3px);
   text-shadow: 0 1px 5px rgba(0, 0, 0, 0.75);
 }
 
