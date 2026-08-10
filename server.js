@@ -2883,6 +2883,10 @@ function cacheControlFor(filePath) {
   if (["index.html", "app.js", "styles.css"].includes(fileName)) {
     return "no-store";
   }
+  const normalizedPath = filePath.split(path.sep).join("/");
+  if (normalizedPath.includes("/assets/player-cards/") || normalizedPath.includes("/assets/player-photos/")) {
+    return "no-store";
+  }
   return "public, max-age=3600";
 }
 
