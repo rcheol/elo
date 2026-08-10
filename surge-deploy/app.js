@@ -970,6 +970,16 @@ const playerAssetProfiles = [
     figureCardTiers: ["b"],
   },
   {
+    identity: "haeseul-jeong",
+    gender: "female",
+    accountIds: ["hae3.jeong"],
+    workdaySearchIds: [],
+    nameIncludes: ["정해슬"],
+    photo: "./assets/player-photos/haeseul-jeong.jpg",
+    cardTiers: ["b"],
+    figureCardTiers: ["b"],
+  },
+  {
     identity: "yeseul-lee",
     gender: "female",
     accountIds: ["yeseull.lee"],
