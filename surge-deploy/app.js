@@ -923,6 +923,15 @@ const playerAssetProfiles = [
     figureCardTiers: ["b"],
   },
   {
+    identity: "dohun-lee",
+    accountIds: ["dokun.lee"],
+    workdaySearchIds: ["dokun.lee"],
+    nameIncludes: ["이도훈"],
+    photo: "./assets/player-photos/dohun-lee.jpg",
+    cardTiers: ["c"],
+    figureCardTiers: ["c"],
+  },
+  {
     identity: "suyeon-lee",
     gender: "female",
     accountIds: ["suyeon.lee"],
