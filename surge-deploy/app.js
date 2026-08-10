@@ -747,7 +747,7 @@ function playerAccountRole(player) {
   return linkedUser?.role || "";
 }
 
-function playerDisplayName(player, options = {}) {
+function playerDisplayName(player) {
   if (!player) {
     return "알 수 없음";
   }
@@ -760,12 +760,7 @@ function playerDisplayName(player, options = {}) {
   const displayName = player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
     ? player.name
     : `${player.name} ${accountSuffix}`;
-  if (!options.managerBadge || playerAccountRole(player) !== "manager") {
-    return displayName;
-  }
-
-  const managerIcon = ["ji0.baek", "jiyeong.baek"].includes(normalizeUsername(accountId)) ? "⭐" : "📘";
-  return `${displayName} ${managerIcon}`;
+  return displayName;
 }
 
 const playerAssetProfiles = [
