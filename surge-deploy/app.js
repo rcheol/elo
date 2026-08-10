@@ -979,6 +979,15 @@ const playerAssetProfiles = [
     cardTiers: ["c"],
     figureCardTiers: ["c"],
   },
+  {
+    identity: "wonjoon-cho",
+    accountIds: ["june", "wonjoons.cho"],
+    workdaySearchIds: ["wonjoons.cho"],
+    nameIncludes: ["조원준"],
+    photo: "./assets/player-photos/wonjoon-cho.jpg",
+    cardTiers: ["b"],
+    figureCardTiers: ["b"],
+  },
 ];
 
 const cardFinishByTier = {
