@@ -1063,7 +1063,7 @@ textarea:focus {
 
 table {
   width: 100%;
-  min-width: 720px;
+  min-width: 790px;
   border-collapse: collapse;
 }
 
@@ -1276,8 +1276,31 @@ tbody tr:last-child td {
 
 .record,
 .win-rate,
+.peak-rating,
 .streak {
   font-variant-numeric: tabular-nums;
+}
+
+.peak-rating {
+  white-space: nowrap;
+}
+
+.peak-rating strong,
+.peak-rating span {
+  display: block;
+}
+
+.peak-rating strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.peak-rating span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .streak {
