@@ -760,7 +760,12 @@ function playerDisplayName(player, options = {}) {
   const displayName = player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
     ? player.name
     : `${player.name} ${accountSuffix}`;
-  return options.managerBadge && playerAccountRole(player) === "manager" ? `${displayName} ⭐` : displayName;
+  if (!options.managerBadge || playerAccountRole(player) !== "manager") {
+    return displayName;
+  }
+
+  const managerIcon = ["ji0.baek", "jiyeong.baek"].includes(normalizeUsername(accountId)) ? "⭐" : "📘";
+  return `${displayName} ${managerIcon}`;
 }
 
 const playerAssetProfiles = [
