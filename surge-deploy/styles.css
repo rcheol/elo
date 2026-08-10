@@ -1353,6 +1353,10 @@ tbody tr:last-child td {
   color: #8a5ad8;
 }
 
+.player-honor--effort {
+  color: #d06f1f;
+}
+
 .player-sub {
   display: block;
   margin-top: 2px;

@@ -823,6 +823,23 @@ const playerHonorRules = [
       return standings.filter((player) => ids.includes(player.id));
     },
   },
+  {
+    key: "effort",
+    label: "노력왕",
+    className: "player-honor--effort",
+    winners(standings) {
+      const maxGainFromSeed = Math.max(
+        0,
+        ...standings.map((player) => round1(Number(player.rating || 0) - Number(player.seedRating || 0))),
+      );
+      if (maxGainFromSeed <= 0) {
+        return [];
+      }
+      return standings.filter((player) => (
+        round1(Number(player.rating || 0) - Number(player.seedRating || 0)) === maxGainFromSeed
+      ));
+    },
+  },
 ];
 
 function applyPlayerHonors(standings, context = {}) {
