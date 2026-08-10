@@ -760,7 +760,8 @@ function playerDisplayName(player) {
   const displayName = player.name.toLocaleLowerCase().includes(accountSuffix.toLocaleLowerCase())
     ? player.name
     : `${player.name} ${accountSuffix}`;
-  return displayName;
+  const specialStarAccounts = ["ji0.baek", "jiyeong.baek"];
+  return specialStarAccounts.includes(normalizeUsername(accountId)) ? `${displayName} ⭐` : displayName;
 }
 
 const playerAssetProfiles = [
