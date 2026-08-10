@@ -796,26 +796,32 @@ textarea:focus {
   font-weight: 800;
 }
 
-.player-card .role-badge {
+.player-card__badges {
   order: 2;
-  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
   margin-top: 5px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.player-card .role-badge {
+  margin-top: 0;
   background: rgba(255, 255, 255, 0.9);
   color: #163a2c;
 }
 
 .player-card .player-honor-list {
-  order: 2;
   justify-content: flex-end;
-  margin-top: 4px;
 }
 
 .player-card .player-honor {
-  border-color: rgba(255, 224, 142, 0.92);
-  background:
-    linear-gradient(135deg, rgba(255, 246, 181, 0.98), rgba(214, 148, 28, 0.94) 54%, rgba(91, 54, 7, 0.94));
-  color: #2f1b03;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  background: transparent;
+  box-shadow: none;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.75);
 }
 
 .player-card__metrics {
@@ -1277,15 +1283,29 @@ tbody tr:last-child td {
   align-items: center;
   min-height: 19px;
   padding: 0 6px;
-  border: 1px solid rgba(209, 145, 33, 0.74);
+  border: 1px solid currentColor;
   border-radius: 5px;
-  background:
-    linear-gradient(135deg, rgba(255, 247, 209, 0.98), rgba(240, 181, 62, 0.94) 58%, rgba(167, 92, 21, 0.92));
-  color: #593100;
+  background: transparent;
   font-size: 0.66rem;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
+}
+
+.player-honor--wins {
+  color: #c68b16;
+}
+
+.player-honor--win-rate {
+  color: #18845f;
+}
+
+.player-honor--attendance {
+  color: #326fc7;
+}
+
+.player-honor--win-streak {
+  color: #c75147;
 }
 
 .player-sub {

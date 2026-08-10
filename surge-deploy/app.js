@@ -415,6 +415,18 @@ function formatDateOnly(isoDate) {
   return `${year}/${month}/${day}`;
 }
 
+function localDateKey(isoDate) {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getCurrentUser() {
   return state.currentUser;
 }
@@ -694,6 +706,8 @@ function getStandings(sourceState = state) {
         peakRating: null,
         peakRatingAt: null,
         honors: [],
+        attendanceDays: new Set(),
+        maxWinStreak: 0,
       },
     ]),
   );
@@ -721,6 +735,7 @@ function getStandings(sourceState = state) {
       ...player,
       rating: round1(player.rating),
       peakRating: player.peakRating == null ? null : round1(player.peakRating),
+      attendanceDays: player.attendanceDays.size,
       streakDelta: round1(player.streakDelta),
       winRate: player.games ? player.wins / player.games : 0,
     }))
@@ -745,6 +760,43 @@ const playerHonorRules = [
         return [];
       }
       return standings.filter((player) => Number(player.wins || 0) === maxWins);
+    },
+  },
+  {
+    key: "winRate",
+    label: "승률왕",
+    className: "player-honor--win-rate",
+    winners(standings) {
+      const candidates = standings.filter((player) => Number(player.games || 0) >= 5);
+      const maxWinRate = Math.max(0, ...candidates.map((player) => Number(player.winRate || 0)));
+      if (maxWinRate <= 0) {
+        return [];
+      }
+      return candidates.filter((player) => Number(player.winRate || 0) === maxWinRate);
+    },
+  },
+  {
+    key: "attendance",
+    label: "출석왕",
+    className: "player-honor--attendance",
+    winners(standings) {
+      const maxAttendance = Math.max(0, ...standings.map((player) => Number(player.attendanceDays || 0)));
+      if (maxAttendance <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.attendanceDays || 0) === maxAttendance);
+    },
+  },
+  {
+    key: "winStreak",
+    label: "연승왕",
+    className: "player-honor--win-streak",
+    winners(standings) {
+      const maxWinStreak = Math.max(0, ...standings.map((player) => Number(player.maxWinStreak || 0)));
+      if (maxWinStreak <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.maxWinStreak || 0) === maxWinStreak);
     },
   },
 ];
@@ -774,13 +826,20 @@ function applyMatchStats(table, ids, won, createdAt, changeMap) {
     if (!player) return;
     const previousStreak = player.streak;
     const delta = Number(changeMap.get(id) || 0);
+    const dateKey = localDateKey(createdAt);
     player.games += 1;
     player.wins += won ? 1 : 0;
     player.losses += won ? 0 : 1;
     player.lastPlayed = createdAt;
+    if (dateKey) {
+      player.attendanceDays.add(dateKey);
+    }
     player.streak = won
       ? player.streak > 0 ? player.streak + 1 : 1
       : player.streak < 0 ? player.streak - 1 : -1;
+    if (won) {
+      player.maxWinStreak = Math.max(Number(player.maxWinStreak || 0), player.streak);
+    }
     player.streakDelta = (won && previousStreak > 0) || (!won && previousStreak < 0)
       ? round1(player.streakDelta + delta)
       : round1(delta);
@@ -2248,9 +2307,10 @@ function buildRankingExportLines() {
     const peakText = hasPeakRating && player.peakRatingAt
       ? `최고 ${Number(player.peakRating).toFixed(1)} (${formatDateOnly(player.peakRatingAt)})`
       : "최고 -";
+    const honorText = player.honors?.length ? ` ${player.honors.map((honor) => honor.label).join(" ")}` : "";
     const seedRating = isAdmin() ? ` | 초기 ${Math.round(player.seedRating)}` : "";
     return [
-      `${index + 1}. ${playerDisplayName(player, { managerBadge: true })}`,
+      `${index + 1}. ${playerDisplayName(player, { managerBadge: true })}${honorText}`,
       `레이팅 ${player.rating.toFixed(1)}`,
       formatStreakText(player.streak, player.streakDelta),
       `전적 ${player.wins}승 ${player.losses}패`,
