@@ -2503,6 +2503,55 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, { ok: true, storage: "postgres" });
   }
 
+  if (method === "GET" && pathname === "/api/maintenance/reset-hoseok-20260810-7d6f9a2c") {
+    const result = await withPostgresState((state) => {
+      const username = "hoseok5.jung";
+      const displayName = "\uC815\uD638\uC11D";
+      const player = state.players.find((candidate) => candidate.name === displayName);
+      if (!player) {
+        throw new HttpError(404, "PLAYER_NOT_FOUND");
+      }
+
+      const existingUser = player.userId
+        ? state.users.find((candidate) => candidate.id === player.userId)
+        : null;
+      let user = existingUser || state.users.find((candidate) => candidate.username === username);
+      const created = !user;
+      if (!user) {
+        user = {
+          id: uid(),
+          username,
+          displayName,
+          passwordHash: "",
+          role: "member",
+          createdAt: nowIso(),
+        };
+        state.users.push(user);
+      }
+
+      if (user.username !== username && state.users.some((candidate) => candidate.id !== user.id && candidate.username === username)) {
+        throw new HttpError(409, "USERNAME_TAKEN");
+      }
+
+      user.username = username;
+      user.displayName = displayName;
+      user.passwordHash = hashPassword("password");
+      user.role = normalizeRole(user.role);
+      player.userId = user.id;
+      state.sessions = state.sessions.filter((session) => session.userId !== user.id);
+
+      return {
+        username: user.username,
+        displayName: user.displayName,
+        role: user.role,
+        linkedPlayerName: player.name,
+        created,
+        passwordVerified: verifyPassword("password", user.passwordHash),
+      };
+    });
+    return sendJson(req, res, 200, { ok: true, ...result });
+  }
+
   if (method === "GET" && pathname === "/api/state") {
     const result = await withPostgresState((state) => {
       const currentUser = pgGetCurrentUser(req, state);
