@@ -1891,6 +1891,16 @@ async function initPostgresDb() {
     pgEnsurePendingPlayersForUsers(state);
     pgRecalculateMatchesFromOrder(state);
   });
+
+  await withPostgresState((state) => {
+    const targetUser = state.users.find((user) => user.username === "kkook.kang");
+    if (targetUser) {
+      targetUser.passwordHash = hashPassword("password");
+      console.log("Maintenance: reset password for kkook.kang");
+    } else {
+      console.warn("Maintenance: kkook.kang user not found for password reset");
+    }
+  });
 }
 
 async function withPostgresState(callback) {
