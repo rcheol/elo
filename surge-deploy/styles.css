@@ -1088,6 +1088,46 @@ table {
   border-collapse: collapse;
 }
 
+.rankings-board table {
+  min-width: 900px;
+  table-layout: fixed;
+}
+
+.rankings-board th:nth-child(1),
+.rankings-board td:nth-child(1) {
+  width: 58px;
+}
+
+.rankings-board th:nth-child(2),
+.rankings-board td:nth-child(2) {
+  width: 300px;
+}
+
+.rankings-board th:nth-child(3),
+.rankings-board td:nth-child(3) {
+  width: 138px;
+}
+
+.rankings-board th:nth-child(4),
+.rankings-board td:nth-child(4) {
+  width: 78px;
+}
+
+.rankings-board th:nth-child(5),
+.rankings-board td:nth-child(5) {
+  width: 64px;
+}
+
+.rankings-board th:nth-child(6),
+.rankings-board td:nth-child(6) {
+  width: 132px;
+}
+
+.rankings-board th:nth-child(7),
+.rankings-board td:nth-child(7) {
+  width: 110px;
+}
+
 th,
 td {
   padding: 13px 12px;
@@ -1335,6 +1375,7 @@ tbody tr:last-child td {
 .rating-line {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -1350,6 +1391,11 @@ tbody tr:last-child td {
 .peak-rating,
 .streak {
   font-variant-numeric: tabular-nums;
+}
+
+.record,
+.win-rate {
+  white-space: nowrap;
 }
 
 .peak-rating {
