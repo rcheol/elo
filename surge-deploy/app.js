@@ -409,7 +409,7 @@ function formatDateOnly(isoDate) {
     return "-";
   }
 
-  const year = date.getFullYear();
+  const year = String(date.getFullYear()).slice(-2);
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}/${month}/${day}`;
@@ -691,8 +691,8 @@ function getStandings(sourceState = state) {
         streak: 0,
         streakDelta: 0,
         lastPlayed: null,
-        peakRating: player.seedRating,
-        peakRatingAt: player.createdAt,
+        peakRating: null,
+        peakRatingAt: null,
       },
     ]),
   );
@@ -704,7 +704,7 @@ function getStandings(sourceState = state) {
       const player = table.get(change.id);
       if (player) {
         player.rating = round1(player.rating + Number(change.delta || 0));
-        if (!Number.isFinite(Number(player.peakRating)) || player.rating > Number(player.peakRating)) {
+        if (player.peakRating == null || player.rating > Number(player.peakRating)) {
           player.peakRating = player.rating;
           player.peakRatingAt = matchPlayedAt(match);
         }
@@ -719,7 +719,7 @@ function getStandings(sourceState = state) {
     .map((player) => ({
       ...player,
       rating: round1(player.rating),
-      peakRating: round1(player.peakRating),
+      peakRating: player.peakRating == null ? null : round1(player.peakRating),
       streakDelta: round1(player.streakDelta),
       winRate: player.games ? player.wins / player.games : 0,
     }))
@@ -1697,8 +1697,9 @@ function renderRankings(standings) {
       const focusClass = player.id === focusPlayerId ? "is-ranking-focus" : "";
       const ariaCurrent = player.id === focusPlayerId ? ` aria-current="true"` : "";
       const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
-      const peakRating = Number.isFinite(Number(player.peakRating)) ? Number(player.peakRating).toFixed(1) : "-";
-      const peakDate = player.peakRatingAt ? formatDateOnly(player.peakRatingAt) : "-";
+      const hasPeakRating = player.peakRating != null && Number.isFinite(Number(player.peakRating));
+      const peakRating = hasPeakRating ? Number(player.peakRating).toFixed(1) : "";
+      const peakDate = hasPeakRating && player.peakRatingAt ? formatDateOnly(player.peakRatingAt) : "";
       const streak = formatStreak(player.streak, player.streakDelta);
       const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
       const seedRating = isAdmin()
@@ -2158,8 +2159,10 @@ function buildRankingExportLines() {
   const lines = standings.map((player, index) => {
     const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
     const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
-    const peakRating = Number.isFinite(Number(player.peakRating)) ? Number(player.peakRating).toFixed(1) : "-";
-    const peakDate = player.peakRatingAt ? formatDateOnly(player.peakRatingAt) : "-";
+    const hasPeakRating = player.peakRating != null && Number.isFinite(Number(player.peakRating));
+    const peakText = hasPeakRating && player.peakRatingAt
+      ? `최고 ${Number(player.peakRating).toFixed(1)} (${formatDateOnly(player.peakRatingAt)})`
+      : "최고 -";
     const seedRating = isAdmin() ? ` | 초기 ${Math.round(player.seedRating)}` : "";
     return [
       `${index + 1}. ${playerDisplayName(player, { managerBadge: true })}`,
@@ -2167,7 +2170,7 @@ function buildRankingExportLines() {
       formatStreakText(player.streak, player.streakDelta),
       `전적 ${player.wins}승 ${player.losses}패`,
       `승률 ${winRate}`,
-      `최고 ${peakRating} (${peakDate})`,
+      peakText,
       lastPlayed,
     ].join(" | ") + seedRating;
   });
