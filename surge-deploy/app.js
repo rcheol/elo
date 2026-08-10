@@ -960,6 +960,15 @@ const playerAssetProfiles = [
     cardTiers: ["a", "b"],
     figureCardTiers: ["a"],
   },
+  {
+    identity: "youngseo-lee",
+    accountIds: ["youngs2o.lee"],
+    workdaySearchIds: ["youngs2o.lee"],
+    nameIncludes: ["이영서"],
+    photo: "./assets/player-photos/youngseo-lee.jpg",
+    cardTiers: ["b"],
+    figureCardTiers: ["b"],
+  },
 ];
 
 const cardFinishByTier = {
