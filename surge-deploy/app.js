@@ -1108,6 +1108,10 @@ function renderPlayerName(player, options = {}) {
 
 function renderRankingPlayerName(player, options = {}) {
   const displayName = playerDisplayName(player, options);
+  if (!playerAccountId(player)) {
+    return `<span class="player-name">${escapeHtml(displayName)}</span>`;
+  }
+
   return `
     <button class="player-name-button" type="button" data-show-player-card="${escapeHtml(player.id)}" aria-label="${escapeHtml(`${displayName} 선수 카드 보기`)}">
       ${escapeHtml(displayName)}
@@ -1117,6 +1121,10 @@ function renderRankingPlayerName(player, options = {}) {
 
 function renderRankingPlayerAvatar(player) {
   const displayName = playerDisplayName(player);
+  if (!playerAccountId(player)) {
+    return renderPlayerAvatar(player);
+  }
+
   return `
     <button class="avatar-button" type="button" data-show-player-card="${escapeHtml(player.id)}" aria-label="${escapeHtml(`${displayName} 선수 카드 보기`)}">
       ${renderPlayerAvatar(player)}
@@ -1748,9 +1756,13 @@ function openPlayerCardDialog(playerId) {
     return;
   }
 
+  const accountId = playerAccountId(player);
+  if (!accountId) {
+    return;
+  }
+
   const tier = playerCardTier(player);
   const rank = standings.findIndex((entry) => entry.id === player.id) + 1;
-  const accountId = playerAccountId(player);
   const role = playerAccountRole(player);
   const rating = Number(player.rating ?? player.seedRating);
   const card = $("#rankingPlayerCard");
