@@ -1,0 +1,136 @@
+Honey Serve player card prompts
+Last updated: 2026-08-11
+
+This file keeps the reusable prompts for the Honey Serve player cards.
+The most successful current style is the personal 3D chibi / Nendoroid-style
+badminton figure card, generated from:
+
+1. A player profile photo
+2. The matching base figure card for the player's gender and current tier
+
+Tier rule:
+- S: 1700+
+- A: 1500+
+- B: 1300+
+- C: below 1300
+
+Tier visual language:
+- S: premium platinum / diamond / holographic finish
+- A: gold finish
+- B: silver finish
+- C: bronze finish
+
+Recommended source assets:
+- Male base cards:
+  - surge-deploy/assets/player-cards/male-s-figure.jpg
+  - surge-deploy/assets/player-cards/male-a-figure.jpg
+  - surge-deploy/assets/player-cards/male-b-figure.jpg
+  - surge-deploy/assets/player-cards/male-c-figure.jpg
+- Female base cards:
+  - surge-deploy/assets/player-cards/female-s-figure.jpg
+  - surge-deploy/assets/player-cards/female-a-figure.jpg
+  - surge-deploy/assets/player-cards/female-b-figure.jpg
+  - surge-deploy/assets/player-cards/female-c-figure.jpg
+
+
+Personal figure card prompt
+===========================
+
+Use this prompt when making an individual player card from a profile photo.
+Provide two reference images:
+
+1. The player's profile photo
+2. The correct base figure card, for example female-b-figure.jpg or male-s-figure.jpg
+
+Prompt:
+
+Create a polished Honey Serve badminton player card by transforming the person
+in the profile photo into a collectible 3D chibi / Nendoroid-style badminton
+figure on the provided base card.
+
+Keep the base card's full composition, tier color, frame, background, lighting,
+badminton court mood, outfit concept, racket, pose, scale, and vertical card
+aspect ratio. The result should still clearly look like the same Honey Serve
+base card, only personalized with this player's face.
+
+Use the profile photo only as the identity reference. Preserve the recognizable
+facial identity: face shape, eyes, nose, mouth, smile line, jaw impression, and
+overall likeness. Do not copy the photo literally and do not paste a realistic
+face onto the figure. Convert the likeness into the same smooth toy-like 3D
+figure style as the base card.
+
+Make the person look attractive, polished, and slightly cooler than the source
+photo while still recognizable. The expression should be calm, focused, and
+confident, suitable for Korean badminton club members in their 30s. Avoid a
+childish, overly cute, overly cheerful, teenage, or idol-like feeling.
+
+The face should be naturally integrated into the Nendoroid-style figure. Match
+the base figure's head size and body proportions; do not make the face too big.
+Keep the head/face scale consistent with the base card. Hair style may be
+adjusted if needed for the card style, but the facial identity must remain
+recognizable.
+
+For female players, keep the outfit sporty and practical. Prefer shorts or
+athletic pants over skirts unless the base card explicitly needs otherwise.
+For male players, keep the outfit sporty, clean, and competitive.
+
+Do not add new text, logos, names, watermarks, captions, borders, UI elements,
+or extra badges. Do not change the player's tier design. Do not crop the card.
+Output one complete vertical player-card image.
+
+Negative prompt / avoid:
+
+- realistic pasted face
+- oversized face
+- distorted eyes
+- baby face
+- childish expression
+- overly glamorous idol portrait
+- heavy makeup
+- wrong gender presentation
+- changed card frame
+- changed tier color
+- extra text
+- watermark
+- blurry face
+- duplicate rackets
+- broken hands
+- missing racket
+- cropped body
+- cropped card edges
+
+
+Base figure card prompt
+=======================
+
+Use this prompt only when creating a new blank base card for a gender/tier.
+No real profile photo is needed.
+
+Prompt:
+
+Create a vertical premium badminton trading card base image for a Honey Serve
+club player. The card should feature a full-body collectible 3D chibi /
+Nendoroid-style badminton figure in an energetic badminton pose, with a racket,
+sporty outfit, and a clean premium card background.
+
+Make the figure look like a high-quality collectible sports figurine: toy-like
+3D surface, smooth skin, clean lighting, crisp details, polished product-card
+rendering, and a badminton court atmosphere.
+
+The character should feel like a Korean adult club badminton player in their
+30s, not a child. Use a focused and confident expression. Keep the pose distinct
+from the other tiers so S, A, B, and C cards do not look identical.
+
+Use the tier finish:
+- S: platinum / diamond / holographic premium finish, most elite and dramatic
+- A: gold premium finish, strong and stylish
+- B: silver finish, balanced and athletic
+- C: bronze finish, simple but still polished
+
+For female base cards, use sporty athletic shorts or pants, not a skirt. Keep
+the body sporty but not overly muscular. For male base cards, use clean athletic
+badminton styling.
+
+Do not include any text, logos, names, watermarks, UI elements, or badges. Leave
+space for the website overlay to add player information later. Output one
+complete vertical card image.
