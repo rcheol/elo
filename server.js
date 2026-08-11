@@ -23,6 +23,29 @@ const defaultSettings = {
   marginBonus: true,
 };
 const validRoles = new Set(["admin", "manager", "member"]);
+const playerCardStickerIds = [
+  "shuttle",
+  "racket",
+  "sparkle",
+  "star",
+  "fire",
+  "crown",
+  "trophy",
+  "medal",
+  "diamond",
+  "heart-gold",
+  "heart-green",
+  "bolt",
+  "target",
+  "hundred",
+  "ribbon",
+  "rainbow",
+  "honey",
+  "clover",
+  "sun",
+  "moon",
+];
+const playerCardStickerIdSet = new Set(playerCardStickerIds);
 
 let db = null;
 let pgPool = null;
@@ -134,9 +157,23 @@ function initDb() {
       PRIMARY KEY (match_id, voter_user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS card_stickers (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sticker_id TEXT NOT NULL,
+      player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      rotation REAL NOT NULL,
+      scale REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, sticker_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_matches_sequence ON matches(sequence);
     CREATE INDEX IF NOT EXISTS idx_manner_votes_target ON manner_votes(target_player_id);
+    CREATE INDEX IF NOT EXISTS idx_card_stickers_player ON card_stickers(player_id);
   `);
 
   migrateUsersTable();
@@ -621,12 +658,50 @@ function getMannerVotes() {
     .map(mannerVoteFromRow);
 }
 
+function cardStickerFromRow(row, currentUser = null) {
+  return {
+    userId: row.user_id,
+    stickerId: row.sticker_id,
+    playerId: row.player_id,
+    x: clampNumber(Number(row.x), 0, 100),
+    y: clampNumber(Number(row.y), 0, 100),
+    rotation: clampNumber(Number(row.rotation), -35, 35),
+    scale: clampNumber(Number(row.scale), 0.7, 1.35),
+    ownedByCurrentUser: Boolean(currentUser && row.user_id === currentUser.id),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function getCardStickers(currentUser = null) {
+  return db
+    .prepare(`
+      SELECT card_stickers.user_id,
+             card_stickers.sticker_id,
+             card_stickers.player_id,
+             card_stickers.x,
+             card_stickers.y,
+             card_stickers.rotation,
+             card_stickers.scale,
+             card_stickers.created_at,
+             card_stickers.updated_at
+      FROM card_stickers
+      JOIN users ON users.id = card_stickers.user_id
+      JOIN players ON players.id = card_stickers.player_id
+      WHERE players.seed_rating IS NOT NULL
+      ORDER BY card_stickers.created_at ASC
+    `)
+    .all()
+    .map((row) => cardStickerFromRow(row, currentUser));
+}
+
 function getStatePayload(currentUser) {
   const includePendingPlayers = currentUser?.role === "admin";
   return {
     players: getPlayers({ includePending: includePendingPlayers }),
     matches: getMatches(),
     mannerVotes: getMannerVotes(),
+    cardStickers: getCardStickers(currentUser),
     settings: getSettings(),
     visitorStats: getVisitorStats(),
     queuePlayerIds: getQueuePlayerIds(),
@@ -1119,6 +1194,68 @@ function pruneMannerVotesForMatch(matchId, participantIds) {
         db.prepare("DELETE FROM manner_votes WHERE match_id = ? AND voter_user_id = ?").run(vote.match_id, vote.voter_user_id);
       }
     });
+}
+
+function normalizeStickerId(value) {
+  const stickerId = String(value || "").trim();
+  if (!playerCardStickerIdSet.has(stickerId)) {
+    throw new HttpError(400, "STICKER_INVALID", "스티커를 확인하세요.");
+  }
+  return stickerId;
+}
+
+function normalizeStickerPlacement(input) {
+  return {
+    x: round1(clampNumber(Number(input?.x), 0, 100)),
+    y: round1(clampNumber(Number(input?.y), 0, 100)),
+    rotation: round1(clampNumber(Number(input?.rotation ?? 0), -35, 35)),
+    scale: round1(clampNumber(Number(input?.scale ?? 1), 0.7, 1.35)),
+  };
+}
+
+function saveCardSticker(playerId, stickerIdValue, input, currentUser) {
+  const stickerId = normalizeStickerId(stickerIdValue);
+  const player = db.prepare("SELECT id FROM players WHERE id = ? AND seed_rating IS NOT NULL").get(playerId);
+  if (!player) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+
+  const existing = db
+    .prepare("SELECT player_id FROM card_stickers WHERE user_id = ? AND sticker_id = ?")
+    .get(currentUser.id, stickerId);
+  if (existing && existing.player_id !== playerId) {
+    throw new HttpError(409, "STICKER_ALREADY_USED", "이미 다른 선수 카드에 붙인 스티커입니다.");
+  }
+
+  const placement = normalizeStickerPlacement(input);
+  const now = nowIso();
+  db.prepare(`
+    INSERT INTO card_stickers (user_id, sticker_id, player_id, x, y, rotation, scale, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, sticker_id) DO UPDATE SET
+      player_id = excluded.player_id,
+      x = excluded.x,
+      y = excluded.y,
+      rotation = excluded.rotation,
+      scale = excluded.scale,
+      updated_at = excluded.updated_at
+  `).run(
+    currentUser.id,
+    stickerId,
+    playerId,
+    placement.x,
+    placement.y,
+    placement.rotation,
+    placement.scale,
+    now,
+    now,
+  );
+}
+
+function deleteCardSticker(playerId, stickerIdValue, currentUser) {
+  const stickerId = normalizeStickerId(stickerIdValue);
+  db.prepare("DELETE FROM card_stickers WHERE user_id = ? AND sticker_id = ? AND player_id = ?")
+    .run(currentUser.id, stickerId, playerId);
 }
 
 function updateMatch(matchId, input, currentUser) {
@@ -1674,6 +1811,7 @@ function replaceData(input, currentUser) {
     marginBonus: input?.settings?.marginBonus !== false,
   };
 
+  db.prepare("DELETE FROM card_stickers").run();
   db.prepare("DELETE FROM manner_votes").run();
   db.prepare("DELETE FROM matches").run();
   db.prepare("DELETE FROM queue_players").run();
@@ -1735,6 +1873,7 @@ function replaceData(input, currentUser) {
 }
 
 function resetData() {
+  db.prepare("DELETE FROM card_stickers").run();
   db.prepare("DELETE FROM manner_votes").run();
   db.prepare("DELETE FROM matches").run();
   db.prepare("DELETE FROM queue_players").run();
@@ -1827,6 +1966,7 @@ function createDefaultPostgresState() {
     players: [],
     matches: [],
     mannerVotes: [],
+    cardStickers: [],
     settings: cloneSettings(defaultSettings),
     visitorStats: createDefaultVisitorStats(),
     queuePlayerIds: [],
@@ -1944,6 +2084,36 @@ function normalizeStoredMannerVote(vote, matchMap, activeUserIds, seenKeys) {
   };
 }
 
+function normalizeStoredCardSticker(sticker, activeUserIds, activePlayerIds, seenKeys) {
+  const userId = String(sticker?.userId ?? sticker?.user_id ?? "");
+  const stickerId = String(sticker?.stickerId ?? sticker?.sticker_id ?? "");
+  const playerId = String(sticker?.playerId ?? sticker?.player_id ?? "");
+  const key = `${userId}:${stickerId}`;
+
+  if (
+    !activeUserIds.has(userId) ||
+    !playerCardStickerIdSet.has(stickerId) ||
+    !activePlayerIds.has(playerId) ||
+    seenKeys.has(key)
+  ) {
+    return null;
+  }
+
+  seenKeys.add(key);
+  const createdAt = safeIsoDate(sticker?.createdAt ?? sticker?.created_at, nowIso());
+  return {
+    userId,
+    stickerId,
+    playerId,
+    x: round1(clampNumber(Number(sticker?.x), 0, 100)),
+    y: round1(clampNumber(Number(sticker?.y), 0, 100)),
+    rotation: round1(clampNumber(Number(sticker?.rotation ?? 0), -35, 35)),
+    scale: round1(clampNumber(Number(sticker?.scale ?? 1), 0.7, 1.35)),
+    createdAt,
+    updatedAt: safeIsoDate(sticker?.updatedAt ?? sticker?.updated_at, createdAt),
+  };
+}
+
 function normalizePostgresState(value) {
   const source = value && typeof value === "object" ? value : {};
   const state = {
@@ -1953,6 +2123,7 @@ function normalizePostgresState(value) {
     players: [],
     matches: [],
     mannerVotes: [],
+    cardStickers: [],
     settings: cloneSettings(source.settings),
     visitorStats: normalizeVisitorStats(source.visitorStats),
     queuePlayerIds: [],
@@ -2006,6 +2177,13 @@ function normalizePostgresState(value) {
   const voteKeys = new Set();
   state.mannerVotes = (Array.isArray(source.mannerVotes) ? source.mannerVotes : [])
     .map((vote) => normalizeStoredMannerVote(vote, matchMap, activeUserIds, voteKeys))
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+  const activePlayerIdsForStickers = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+  const stickerKeys = new Set();
+  state.cardStickers = (Array.isArray(source.cardStickers) ? source.cardStickers : [])
+    .map((sticker) => normalizeStoredCardSticker(sticker, activeUserIds, activePlayerIdsForStickers, stickerKeys))
     .filter(Boolean)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 
@@ -2150,6 +2328,28 @@ function pgGetMannerVotes(state) {
   return state.mannerVotes.map(pgMannerVoteFromStored);
 }
 
+function pgCardStickerFromStored(sticker, currentUser = null) {
+  return {
+    userId: sticker.userId,
+    stickerId: sticker.stickerId,
+    playerId: sticker.playerId,
+    x: clampNumber(Number(sticker.x), 0, 100),
+    y: clampNumber(Number(sticker.y), 0, 100),
+    rotation: clampNumber(Number(sticker.rotation), -35, 35),
+    scale: clampNumber(Number(sticker.scale), 0.7, 1.35),
+    ownedByCurrentUser: Boolean(currentUser && sticker.userId === currentUser.id),
+    createdAt: sticker.createdAt,
+    updatedAt: sticker.updatedAt,
+  };
+}
+
+function pgGetCardStickers(state, currentUser = null) {
+  const activePlayerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+  return state.cardStickers
+    .filter((sticker) => activePlayerIds.has(sticker.playerId))
+    .map((sticker) => pgCardStickerFromStored(sticker, currentUser));
+}
+
 function pgRecordVisitorVisit(state, req) {
   state.visitorStats = normalizeVisitorStats(state.visitorStats);
   const cookies = parseCookies(req.headers.cookie);
@@ -2192,6 +2392,7 @@ function pgGetStatePayload(state, currentUser) {
     players: pgGetPlayers(state, { includePending: includePendingPlayers }),
     matches: pgGetMatches(state),
     mannerVotes: pgGetMannerVotes(state),
+    cardStickers: pgGetCardStickers(state, currentUser),
     settings: cloneSettings(state.settings),
     visitorStats: publicVisitorStats(state.visitorStats),
     queuePlayerIds: [...state.queuePlayerIds],
@@ -2422,6 +2623,52 @@ function pgSaveMannerVote(state, matchId, input, currentUser) {
   });
 }
 
+function pgSaveCardSticker(state, playerId, stickerIdValue, input, currentUser) {
+  const stickerId = normalizeStickerId(stickerIdValue);
+  const player = state.players.find((candidate) => candidate.id === playerId && candidate.seedRating != null);
+  if (!player) {
+    throw new HttpError(404, "PLAYER_NOT_FOUND");
+  }
+
+  const existing = state.cardStickers.find((sticker) => sticker.userId === currentUser.id && sticker.stickerId === stickerId);
+  if (existing && existing.playerId !== playerId) {
+    throw new HttpError(409, "STICKER_ALREADY_USED", "이미 다른 선수 카드에 붙인 스티커입니다.");
+  }
+
+  const placement = normalizeStickerPlacement(input);
+  const now = nowIso();
+  if (existing) {
+    existing.playerId = playerId;
+    existing.x = placement.x;
+    existing.y = placement.y;
+    existing.rotation = placement.rotation;
+    existing.scale = placement.scale;
+    existing.updatedAt = now;
+    return;
+  }
+
+  state.cardStickers.push({
+    userId: currentUser.id,
+    stickerId,
+    playerId,
+    x: placement.x,
+    y: placement.y,
+    rotation: placement.rotation,
+    scale: placement.scale,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function pgDeleteCardSticker(state, playerId, stickerIdValue, currentUser) {
+  const stickerId = normalizeStickerId(stickerIdValue);
+  state.cardStickers = state.cardStickers.filter((sticker) => !(
+    sticker.userId === currentUser.id &&
+    sticker.stickerId === stickerId &&
+    sticker.playerId === playerId
+  ));
+}
+
 function pgCountPlayerGames(state, playerId) {
   return state.matches.filter((match) => [...match.teamA, ...match.teamB].includes(playerId)).length;
 }
@@ -2472,6 +2719,7 @@ function pgDeletePlayer(state, playerId) {
   const originalLength = state.players.length;
   state.players = state.players.filter((player) => player.id !== playerId);
   state.queuePlayerIds = state.queuePlayerIds.filter((id) => id !== playerId);
+  state.cardStickers = state.cardStickers.filter((sticker) => sticker.playerId !== playerId);
   if (state.players.length === originalLength) {
     throw new HttpError(404, "PLAYER_NOT_FOUND");
   }
@@ -2651,6 +2899,7 @@ function pgDeleteUser(state, targetUserId, currentUser) {
 
   state.sessions = state.sessions.filter((session) => session.userId !== targetUserId);
   state.users = state.users.filter((user) => user.id !== targetUserId);
+  state.cardStickers = state.cardStickers.filter((sticker) => sticker.userId !== targetUserId);
 }
 
 function pgSaveSettings(state, partialSettings = {}) {
@@ -2687,6 +2936,7 @@ function pgReplaceData(state, input, currentUser) {
   }));
   state.matches = [];
   state.mannerVotes = [];
+  state.cardStickers = [];
   state.settings = cloneSettings(settings);
   state.queuePlayerIds = [];
 
@@ -2706,6 +2956,7 @@ function pgResetData(state) {
   state.players = [];
   state.matches = [];
   state.mannerVotes = [];
+  state.cardStickers = [];
   state.settings = cloneSettings(defaultSettings);
   state.queuePlayerIds = [];
   pgEnsurePendingPlayersForUsers(state);
@@ -2778,6 +3029,37 @@ async function handleApiPostgres(req, res, url) {
     const payload = await withPostgresState((state) => {
       const currentUser = pgRequireUser(req, state);
       pgSaveQueuePlayerIds(state, body);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  const playerStickerMatch = pathname.match(/^\/api\/players\/([^/]+)\/stickers\/([^/]+)$/);
+  if (method === "PUT" && playerStickerMatch) {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      pgSaveCardSticker(
+        state,
+        decodeURIComponent(playerStickerMatch[1]),
+        decodeURIComponent(playerStickerMatch[2]),
+        body,
+        currentUser,
+      );
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "DELETE" && playerStickerMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      pgDeleteCardSticker(
+        state,
+        decodeURIComponent(playerStickerMatch[1]),
+        decodeURIComponent(playerStickerMatch[2]),
+        currentUser,
+      );
       return pgGetStatePayload(state, currentUser);
     });
     return sendJson(req, res, 200, payload);
@@ -2987,6 +3269,29 @@ async function handleApi(req, res, url) {
     const currentUser = requireUser(req);
     const body = await readJsonBody(req);
     runInTransaction(() => saveQueuePlayerIds(body, currentUser));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
+  }
+
+  const playerStickerMatch = pathname.match(/^\/api\/players\/([^/]+)\/stickers\/([^/]+)$/);
+  if (method === "PUT" && playerStickerMatch) {
+    const currentUser = requireUser(req);
+    const body = await readJsonBody(req);
+    runInTransaction(() => saveCardSticker(
+      decodeURIComponent(playerStickerMatch[1]),
+      decodeURIComponent(playerStickerMatch[2]),
+      body,
+      currentUser,
+    ));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
+  }
+
+  if (method === "DELETE" && playerStickerMatch) {
+    const currentUser = requireUser(req);
+    runInTransaction(() => deleteCardSticker(
+      decodeURIComponent(playerStickerMatch[1]),
+      decodeURIComponent(playerStickerMatch[2]),
+      currentUser,
+    ));
     return sendJson(req, res, 200, getStatePayload(currentUser));
   }
 

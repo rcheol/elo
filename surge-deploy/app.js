@@ -14,10 +14,35 @@ const paginationPagerIds = {
   history: "historyPager",
   users: "userPager",
 };
+const playerStickerCatalog = [
+  { id: "shuttle", emoji: "🏸", label: "셔틀콕" },
+  { id: "racket", emoji: "💥", label: "스매시" },
+  { id: "sparkle", emoji: "✨", label: "반짝" },
+  { id: "star", emoji: "🌟", label: "스타" },
+  { id: "fire", emoji: "🔥", label: "불꽃" },
+  { id: "crown", emoji: "👑", label: "왕관" },
+  { id: "trophy", emoji: "🏆", label: "트로피" },
+  { id: "medal", emoji: "🥇", label: "금메달" },
+  { id: "diamond", emoji: "💎", label: "다이아" },
+  { id: "heart-gold", emoji: "💛", label: "골드 하트" },
+  { id: "heart-green", emoji: "💚", label: "그린 하트" },
+  { id: "bolt", emoji: "⚡", label: "번개" },
+  { id: "target", emoji: "🎯", label: "타깃" },
+  { id: "hundred", emoji: "💯", label: "백점" },
+  { id: "ribbon", emoji: "🎀", label: "리본" },
+  { id: "rainbow", emoji: "🌈", label: "무지개" },
+  { id: "honey", emoji: "🍯", label: "허니" },
+  { id: "clover", emoji: "🍀", label: "행운" },
+  { id: "sun", emoji: "☀️", label: "태양" },
+  { id: "moon", emoji: "🌙", label: "달" },
+];
+const playerStickerById = new Map(playerStickerCatalog.map((sticker) => [sticker.id, sticker]));
 
 let state = createDefaultState();
 let toastTimer = null;
 let editingMatchId = null;
+let openCardPlayerId = "";
+let stickerDrag = null;
 let paginationState = {
   myHistory: 1,
   partnerStats: 1,
@@ -67,6 +92,8 @@ const errorMessages = {
   QUEUE_UNKNOWN_PLAYER: "등록된 선수를 선택하세요.",
   REQUEST_TOO_LARGE: "파일이 너무 큽니다.",
   SERVER_ERROR: "서버 처리 중 문제가 생겼습니다.",
+  STICKER_ALREADY_USED: "이미 다른 선수 카드에 붙인 스티커입니다.",
+  STICKER_INVALID: "스티커를 확인하세요.",
   UNAUTHORIZED: "로그인이 필요합니다.",
   USER_NOT_FOUND: "계정을 찾을 수 없습니다.",
   USER_PLAYER_REQUIRED: "연결할 선수를 선택하세요.",
@@ -79,6 +106,7 @@ function createDefaultState() {
     players: [],
     matches: [],
     mannerVotes: [],
+    cardStickers: [],
     users: [],
     currentUser: null,
     settings: { ...defaultSettings },
@@ -327,11 +355,41 @@ function normalizeState(input) {
           return true;
         })
     : [];
+  const stickerKeys = new Set();
+  const cardStickers = Array.isArray(input?.cardStickers)
+    ? input.cardStickers
+        .map((sticker) => ({
+          userId: String(sticker?.userId ?? sticker?.user_id ?? ""),
+          stickerId: String(sticker?.stickerId ?? sticker?.sticker_id ?? ""),
+          playerId: String(sticker?.playerId ?? sticker?.player_id ?? ""),
+          x: round1(clampNumber(Number(sticker?.x), 0, 100)),
+          y: round1(clampNumber(Number(sticker?.y), 0, 100)),
+          rotation: round1(clampNumber(Number(sticker?.rotation ?? 0), -35, 35)),
+          scale: round1(clampNumber(Number(sticker?.scale ?? 1), 0.7, 1.35)),
+          ownedByCurrentUser: Boolean(sticker?.ownedByCurrentUser),
+          createdAt: safeIsoDate(sticker?.createdAt ?? sticker?.created_at),
+          updatedAt: safeIsoDate(sticker?.updatedAt ?? sticker?.updated_at ?? sticker?.createdAt ?? sticker?.created_at),
+        }))
+        .filter((sticker) => {
+          const key = `${sticker.userId}:${sticker.stickerId}`;
+          if (
+            !sticker.userId ||
+            !playerStickerById.has(sticker.stickerId) ||
+            !activePlayerIds.has(sticker.playerId) ||
+            stickerKeys.has(key)
+          ) {
+            return false;
+          }
+          stickerKeys.add(key);
+          return true;
+        })
+    : [];
 
   return {
     players,
     matches,
     mannerVotes,
+    cardStickers,
     users: Array.isArray(input?.users) ? input.users.map(normalizeUser).filter(Boolean) : [],
     currentUser: normalizeUser(input?.currentUser),
     visitorStats: {
@@ -406,8 +464,13 @@ async function apiFetch(path, options = {}) {
 }
 
 function applyServerState(payload) {
+  const dialogPlayerId = openCardPlayerId;
   state = normalizeState(payload);
   render();
+  if (dialogPlayerId && $("#playerCardDialog")?.open) {
+    openCardPlayerId = dialogPlayerId;
+    renderPlayerCardStickerUi(currentOpenCardPlayer());
+  }
 }
 
 async function refreshState() {
@@ -1443,6 +1506,250 @@ function renderPlayerAvatar(player) {
   return `<span class="avatar">${escapeHtml(player?.name?.slice(0, 1) || "?")}</span>`;
 }
 
+function cardStickersForPlayer(playerId) {
+  return state.cardStickers.filter((sticker) => sticker.playerId === playerId);
+}
+
+function ownCardStickers() {
+  return state.cardStickers.filter((sticker) => sticker.ownedByCurrentUser);
+}
+
+function ownStickerPlacement(stickerId) {
+  return ownCardStickers().find((sticker) => sticker.stickerId === stickerId) || null;
+}
+
+function defaultStickerRotation(stickerId) {
+  const index = playerStickerCatalog.findIndex((sticker) => sticker.id === stickerId);
+  const rotations = [-12, 9, -5, 14, -16, 7, -9, 12, -4, 10];
+  return rotations[Math.max(0, index) % rotations.length];
+}
+
+function renderPlayerCardStickers(playerId) {
+  const layer = $("#rankingPlayerStickerLayer");
+  if (!layer) {
+    return;
+  }
+
+  layer.innerHTML = cardStickersForPlayer(playerId).map((placement) => {
+    const sticker = playerStickerById.get(placement.stickerId);
+    if (!sticker) {
+      return "";
+    }
+    const ownClass = placement.ownedByCurrentUser ? " is-own" : "";
+    const removeButton = placement.ownedByCurrentUser
+      ? `
+        <button
+          class="card-sticker__remove"
+          type="button"
+          data-remove-card-sticker="${escapeHtml(placement.stickerId)}"
+          aria-label="${escapeHtml(sticker.label)} 스티커 떼기"
+          title="떼기"
+        >×</button>
+      `
+      : "";
+
+    return `
+      <div
+        class="card-sticker${ownClass}"
+        data-card-sticker-id="${escapeHtml(placement.stickerId)}"
+        style="left: ${placement.x}%; top: ${placement.y}%; --sticker-rotation: ${placement.rotation}deg; --sticker-scale: ${placement.scale};"
+        title="${escapeHtml(sticker.label)}"
+      >
+        <span class="card-sticker__emoji">${escapeHtml(sticker.emoji)}</span>
+        ${removeButton}
+      </div>
+    `;
+  }).join("");
+}
+
+function renderStickerPanel(player) {
+  const panel = $("#playerStickerPanel");
+  if (!panel) {
+    return;
+  }
+
+  const user = getCurrentUser();
+  panel.hidden = !player || !user;
+  if (!player || !user) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  const usedCount = ownCardStickers().length;
+  panel.innerHTML = `
+    <div class="player-sticker-panel__head">
+      <strong>내 스티커</strong>
+      <span>${playerStickerCatalog.length - usedCount}/${playerStickerCatalog.length}</span>
+    </div>
+    <div class="player-sticker-grid">
+      ${playerStickerCatalog.map((sticker) => {
+        const placement = ownStickerPlacement(sticker.id);
+        const usedOnThisCard = placement?.playerId === player.id;
+        const unavailable = placement && !usedOnThisCard;
+        const stateText = usedOnThisCard ? "붙임" : unavailable ? "사용중" : "";
+        return `
+          <button
+            class="sticker-tile${placement ? " is-used" : ""}${usedOnThisCard ? " is-on-current-card" : ""}"
+            type="button"
+            data-sticker-drag="${escapeHtml(sticker.id)}"
+            ${unavailable || usedOnThisCard ? "disabled" : ""}
+            aria-label="${escapeHtml(sticker.label)} 스티커"
+            title="${escapeHtml(stateText || `${player.name} 카드에 드래그`)}"
+          >
+            <span>${escapeHtml(sticker.emoji)}</span>
+            ${stateText ? `<small>${escapeHtml(stateText)}</small>` : ""}
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderPlayerCardStickerUi(player) {
+  renderPlayerCardStickers(player?.id || "");
+  renderStickerPanel(player);
+}
+
+function currentOpenCardPlayer() {
+  if (!openCardPlayerId) {
+    return null;
+  }
+  const standings = getStandings();
+  return standings.find((player) => player.id === openCardPlayerId)
+    || state.players.find((player) => player.id === openCardPlayerId)
+    || null;
+}
+
+function cardStickerDropPosition(event) {
+  const card = $("#rankingPlayerCard");
+  if (!card) {
+    return null;
+  }
+  const rect = card.getBoundingClientRect();
+  if (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  ) {
+    return null;
+  }
+  return {
+    x: round1(clampNumber(((event.clientX - rect.left) / rect.width) * 100, 0, 100)),
+    y: round1(clampNumber(((event.clientY - rect.top) / rect.height) * 100, 0, 100)),
+  };
+}
+
+function createStickerGhost(stickerId, event) {
+  const sticker = playerStickerById.get(stickerId);
+  if (!sticker) {
+    return null;
+  }
+  const ghost = document.createElement("div");
+  ghost.className = "sticker-drag-ghost";
+  ghost.textContent = sticker.emoji;
+  document.body.appendChild(ghost);
+  moveStickerGhost(ghost, event);
+  return ghost;
+}
+
+function moveStickerGhost(ghost, event) {
+  ghost.style.left = `${event.clientX}px`;
+  ghost.style.top = `${event.clientY}px`;
+}
+
+function cancelStickerDrag() {
+  if (stickerDrag?.ghost) {
+    stickerDrag.ghost.remove();
+  }
+  stickerDrag = null;
+  document.removeEventListener("pointermove", moveStickerDrag);
+  document.removeEventListener("pointerup", finishStickerDrag);
+  document.removeEventListener("pointercancel", cancelStickerDrag);
+}
+
+function moveStickerDrag(event) {
+  if (!stickerDrag || event.pointerId !== stickerDrag.pointerId) {
+    return;
+  }
+  moveStickerGhost(stickerDrag.ghost, event);
+}
+
+function finishStickerDrag(event) {
+  if (!stickerDrag || event.pointerId !== stickerDrag.pointerId) {
+    return;
+  }
+
+  const drag = stickerDrag;
+  const position = cardStickerDropPosition(event);
+  cancelStickerDrag();
+  if (!position || !openCardPlayerId) {
+    return;
+  }
+
+  const existing = ownStickerPlacement(drag.stickerId);
+  savePlayerCardSticker(openCardPlayerId, drag.stickerId, {
+    ...position,
+    rotation: existing?.rotation ?? defaultStickerRotation(drag.stickerId),
+    scale: existing?.scale ?? 1,
+  }).catch(showApiError);
+}
+
+function startStickerDrag(stickerId, event) {
+  if (!getCurrentUser() || !openCardPlayerId || !playerStickerById.has(stickerId)) {
+    return;
+  }
+  if (event.pointerType === "mouse" && event.button !== 0) {
+    return;
+  }
+
+  const existing = ownStickerPlacement(stickerId);
+  if (existing && existing.playerId !== openCardPlayerId) {
+    showToast("이미 다른 선수 카드에 붙인 스티커입니다.");
+    return;
+  }
+
+  event.preventDefault();
+  cancelStickerDrag();
+  stickerDrag = {
+    stickerId,
+    pointerId: event.pointerId,
+    ghost: createStickerGhost(stickerId, event),
+  };
+  document.addEventListener("pointermove", moveStickerDrag);
+  document.addEventListener("pointerup", finishStickerDrag);
+  document.addEventListener("pointercancel", cancelStickerDrag);
+}
+
+async function savePlayerCardSticker(playerId, stickerId, placement) {
+  if (!requireLogin()) {
+    return;
+  }
+  applyServerState(
+    await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
+      method: "PUT",
+      body: placement,
+    }),
+  );
+  showToast("스티커를 붙였습니다.");
+}
+
+async function deletePlayerCardSticker(playerId, stickerId) {
+  if (!requireLogin()) {
+    return;
+  }
+  try {
+    applyServerState(
+      await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
+        method: "DELETE",
+      }),
+    );
+    showToast("스티커를 뗐습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
 async function addPlayer(name, rating) {
   if (!requirePlayerRegistrar()) return false;
 
@@ -2104,6 +2411,8 @@ function openPlayerCardDialog(playerId) {
   $("#rankingPlayerCardRating").textContent = Number.isFinite(rating) ? Math.round(rating).toLocaleString("ko-KR") : "--";
   $("#rankingPlayerCardRank").textContent = rank > 0 ? `#${rank}` : "--";
   $("#rankingPlayerCardManner").textContent = Number(player.mannerVotes || 0).toLocaleString("ko-KR");
+  openCardPlayerId = player.id;
+  renderPlayerCardStickerUi(player);
 
   if (typeof dialog.showModal === "function") {
     dialog.showModal();
@@ -2126,6 +2435,9 @@ function closePlayerCardDialog() {
   } else {
     dialog.removeAttribute("open");
   }
+  openCardPlayerId = "";
+  cancelStickerDrag();
+  renderPlayerCardStickerUi(null);
 }
 
 function formatStreak(streak, streakDelta = 0) {
@@ -2755,6 +3067,14 @@ function bindEvents() {
       return;
     }
 
+    const removeCardStickerButton = target.closest("[data-remove-card-sticker]");
+    if (removeCardStickerButton) {
+      if (openCardPlayerId) {
+        deletePlayerCardSticker(openCardPlayerId, removeCardStickerButton.dataset.removeCardSticker);
+      }
+      return;
+    }
+
     if (target.closest("[data-close-player-card]") || target === $("#playerCardDialog")) {
       closePlayerCardDialog();
       return;
@@ -2817,6 +3137,24 @@ function bindEvents() {
     const linkUserPlayerButton = target.closest("[data-link-user-player]");
     if (linkUserPlayerButton) {
       linkUserPlayer(linkUserPlayerButton.dataset.linkUserPlayer);
+    }
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || target.closest("[data-remove-card-sticker]")) {
+      return;
+    }
+
+    const paletteSticker = target.closest("[data-sticker-drag]");
+    if (paletteSticker && !paletteSticker.disabled) {
+      startStickerDrag(paletteSticker.dataset.stickerDrag, event);
+      return;
+    }
+
+    const placedSticker = target.closest("[data-card-sticker-id].is-own");
+    if (placedSticker) {
+      startStickerDrag(placedSticker.dataset.cardStickerId, event);
     }
   });
 }

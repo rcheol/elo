@@ -728,6 +728,7 @@ textarea:focus {
 
 .player-card__content {
   position: relative;
+  z-index: 2;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -736,6 +737,63 @@ textarea:focus {
   min-width: 0;
   padding: 18px;
   color: #ffffff;
+  pointer-events: none;
+}
+
+.player-card__sticker-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.card-sticker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  transform: translate(-50%, -50%) rotate(var(--sticker-rotation, 0deg)) scale(var(--sticker-scale, 1));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+  cursor: default;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.card-sticker.is-own {
+  cursor: grab;
+}
+
+.card-sticker.is-own:active {
+  cursor: grabbing;
+}
+
+.card-sticker__emoji {
+  font-size: 1.75rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
+}
+
+.card-sticker__remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 999px;
+  background: rgba(18, 22, 24, 0.9);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .player-card__topline,
@@ -1474,8 +1532,8 @@ tbody tr:last-child td {
 }
 
 .player-card-dialog {
-  width: min(92vw, 390px);
-  max-width: 390px;
+  width: min(96vw, 720px);
+  max-width: 720px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1490,7 +1548,10 @@ tbody tr:last-child td {
 .player-card-dialog__shell {
   position: relative;
   display: grid;
-  place-items: center;
+  grid-template-columns: minmax(0, 320px) minmax(176px, 220px);
+  align-items: start;
+  justify-content: center;
+  gap: 14px;
   min-width: 0;
   padding: 42px 14px 14px;
 }
@@ -1509,6 +1570,133 @@ tbody tr:last-child td {
 .player-card-dialog .player-card {
   width: min(100%, 320px);
   max-height: min(78vh, 520px);
+}
+
+.player-sticker-panel {
+  width: min(100%, 220px);
+  max-height: min(78vh, 520px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(12, 22, 18, 0.82);
+  color: #ffffff;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+}
+
+.player-sticker-panel[hidden] {
+  display: none;
+}
+
+.player-sticker-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.player-sticker-panel__head strong {
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.player-sticker-panel__head span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.player-sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.sticker-tile {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  min-width: 0;
+  aspect-ratio: 1;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.13);
+  color: #ffffff;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.sticker-tile:active {
+  cursor: grabbing;
+}
+
+.sticker-tile span {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.sticker-tile small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.56rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.sticker-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.sticker-tile.is-on-current-card {
+  opacity: 0.74;
+}
+
+.sticker-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 1.9rem;
+  pointer-events: none;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.36));
+}
+
+@media (max-width: 720px) {
+  .player-card-dialog {
+    width: min(94vw, 390px);
+    max-width: 390px;
+  }
+
+  .player-card-dialog__shell {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 10px;
+    padding-top: 40px;
+  }
+
+  .player-sticker-panel {
+    width: min(86vw, 320px);
+    max-height: 168px;
+  }
+
+  .player-sticker-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .sticker-tile {
+    min-height: 42px;
+  }
 }
 
 .partner-stats-list {
