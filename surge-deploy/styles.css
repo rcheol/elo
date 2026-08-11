@@ -1876,25 +1876,14 @@ tbody tr:last-child td {
 }
 
 .teams-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
+  gap: 4px 8px;
   min-width: 0;
-  flex-wrap: wrap;
+  font-size: 0.9rem;
   font-weight: 900;
-}
-
-.history-team {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 1 auto;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.history-team .team-name {
-  flex: 1 1 auto;
+  line-height: 1.32;
 }
 
 .team-name {
@@ -1968,16 +1957,12 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
-.score-divider-inline {
-  color: var(--muted);
-  font-weight: 900;
-}
-
 .score-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+  justify-self: end;
   min-width: 32px;
   min-height: 24px;
   padding: 0 7px;
