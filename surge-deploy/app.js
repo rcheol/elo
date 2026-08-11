@@ -195,6 +195,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function normalizeUsername(value) {
   return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g, "");
 }
@@ -1053,6 +1057,15 @@ function playerDisplayName(player) {
     : `${player.name} ${accountSuffix}`;
   const specialStarAccounts = ["ji0.baek", "jiyeong.baek"];
   return specialStarAccounts.includes(normalizeUsername(accountId)) ? `${displayName} ⭐` : displayName;
+}
+
+function playerCardDisplayName(player) {
+  const name = String(player?.name || "").trim();
+  const accountId = playerAccountId(player);
+  if (!name || !accountId) {
+    return name;
+  }
+  return name.replace(new RegExp(`\\s*\\(${escapeRegExp(accountId)}\\)\\s*$`, "i"), "").trim() || name;
 }
 
 const playerAssetProfiles = [
@@ -2403,7 +2416,7 @@ function openPlayerCardDialog(playerId) {
   cardArt.src = playerCardArtUrl(player, tier);
   cardArt.alt = `${tier.label} 배드민턴 선수 카드 아트`;
   $("#rankingPlayerCardTier").textContent = tier.label;
-  $("#rankingPlayerCardName").textContent = player.name;
+  $("#rankingPlayerCardName").textContent = playerCardDisplayName(player);
   $("#rankingPlayerCardHandle").textContent = accountId ? `@${accountId}` : "";
   roleBadge.textContent = role ? roleLabel(role) : "";
   roleBadge.hidden = !role;
