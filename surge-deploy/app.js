@@ -1669,6 +1669,9 @@ function createStickerGhost(stickerId, event) {
   }
   const ghost = document.createElement("div");
   ghost.className = "sticker-drag-ghost";
+  if (event.pointerType === "touch") {
+    ghost.classList.add("is-touch");
+  }
   ghost.textContent = sticker.emoji;
   ($("#playerCardDialog") || document.body).appendChild(ghost);
   moveStickerGhost(ghost, event);
@@ -1676,8 +1679,9 @@ function createStickerGhost(stickerId, event) {
 }
 
 function moveStickerGhost(ghost, event) {
+  const isTouch = ghost.classList.contains("is-touch");
   ghost.style.left = `${event.clientX}px`;
-  ghost.style.top = `${event.clientY}px`;
+  ghost.style.top = `${isTouch ? Math.max(28, event.clientY - 58) : event.clientY}px`;
 }
 
 function cancelStickerDrag() {
