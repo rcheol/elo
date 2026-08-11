@@ -967,32 +967,53 @@ textarea:focus {
 
 .user-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px) auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 54px;
-  padding: 10px 12px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-soft);
 }
 
-.user-row-main {
+.user-row-line {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.user-row-line--primary {
+  grid-template-columns: minmax(84px, 0.45fr) minmax(220px, 1fr);
+}
+
+.user-row-line--secondary {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.user-row-name,
+.user-row-meta {
   min-width: 0;
 }
 
-.user-row strong {
-  display: block;
+.user-row-name {
+  display: inline-block;
+  overflow-wrap: anywhere;
   font-size: 0.94rem;
   font-weight: 900;
+  line-height: 1.25;
 }
 
-.user-row span {
+.user-row-meta {
   display: block;
-  margin-top: 2px;
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
+  overflow: hidden;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-player-link {
@@ -1003,9 +1024,34 @@ textarea:focus {
 }
 
 .user-player-select {
-  min-height: 36px;
+  min-height: 32px;
   padding: 0 8px;
   font-size: 0.82rem;
+}
+
+.user-row .user-player-link .icon-button,
+.user-row-actions .icon-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+
+.user-row-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.user-row-actions .icon-text-button {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 0.72rem;
+}
+
+.user-row-actions .icon-button svg,
+.user-row-actions .icon-text-button svg,
+.user-row .user-player-link .icon-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .row-actions {
@@ -2454,6 +2500,26 @@ tbody tr:last-child td {
 
   .row-actions .icon-text-button {
     flex: 1 1 auto;
+  }
+
+  .user-row-line--primary {
+    grid-template-columns: minmax(72px, 0.4fr) minmax(0, 1fr);
+  }
+
+  .user-row-line--secondary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .user-row .user-player-link {
+    align-items: center;
+  }
+
+  .user-row .row-actions {
+    width: auto;
+  }
+
+  .user-row .row-actions .icon-text-button {
+    flex: 0 0 auto;
   }
 
   .history-item {

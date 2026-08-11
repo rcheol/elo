@@ -2146,24 +2146,26 @@ function renderAuth(standings) {
           : "선수 없음";
       return `
         <li class="user-row">
-          <div class="user-row-main">
-            <strong>${escapeHtml(entry.displayName)}</strong>
-            <span>${escapeHtml(entry.username)} · ${roleLabel(entry.role)} · ${playerInfo}${isCurrent ? " · 현재" : ""}</span>
+          <div class="user-row-line user-row-line--primary">
+            <strong class="user-row-name">${escapeHtml(entry.displayName)}</strong>
+            ${renderUserPlayerLink(entry)}
           </div>
-          ${renderUserPlayerLink(entry)}
-          <div class="row-actions">
-            <button class="icon-text-button" type="button" data-toggle-admin="${escapeHtml(entry.id)}" ${canToggle ? "" : "disabled"}>
-              <i data-lucide="shield"></i>
-              <span>${entry.role === "admin" ? "해제" : "admin"}</span>
-            </button>
-            <button class="icon-text-button" type="button" data-toggle-manager="${escapeHtml(entry.id)}" ${canToggleManager ? "" : "disabled"}>
-              <i data-lucide="compass"></i>
-              <span>${entry.role === "manager" ? "member" : "manager"}</span>
-            </button>
-            <button class="icon-button" type="button" data-delete-user="${escapeHtml(entry.id)}" ${canDelete ? "" : "disabled"} aria-label="${escapeHtml(entry.displayName)} 삭제" title="삭제">
-              <i data-lucide="x"></i>
-              <span class="visually-hidden">삭제</span>
-            </button>
+          <div class="user-row-line user-row-line--secondary">
+            <span class="user-row-meta">${escapeHtml(entry.username)} · ${roleLabel(entry.role)} · ${playerInfo}${isCurrent ? " · 현재" : ""}</span>
+            <div class="row-actions user-row-actions">
+              <button class="icon-text-button" type="button" data-toggle-admin="${escapeHtml(entry.id)}" ${canToggle ? "" : "disabled"}>
+                <i data-lucide="shield"></i>
+                <span>${entry.role === "admin" ? "해제" : "admin"}</span>
+              </button>
+              <button class="icon-text-button" type="button" data-toggle-manager="${escapeHtml(entry.id)}" ${canToggleManager ? "" : "disabled"}>
+                <i data-lucide="compass"></i>
+                <span>${entry.role === "manager" ? "member" : "manager"}</span>
+              </button>
+              <button class="icon-button" type="button" data-delete-user="${escapeHtml(entry.id)}" ${canDelete ? "" : "disabled"} aria-label="${escapeHtml(entry.displayName)} 삭제" title="삭제">
+                <i data-lucide="x"></i>
+                <span class="visually-hidden">삭제</span>
+              </button>
+            </div>
           </div>
         </li>
       `;
