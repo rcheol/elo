@@ -58,24 +58,32 @@ badminton court mood, outfit concept, racket, pose, scale, and vertical card
 aspect ratio. The result should still clearly look like the same Honey Serve
 base card, only personalized with this player's face.
 
-Use the profile photo only as an identity reference, not as a face texture.
-Extract only the key facial characteristics: face shape, eye spacing, eyebrow
-impression, nose/mouth shape, smile line, jaw impression, and overall likeness.
-Rebuild those traits as a smooth toy-like Nendoroid-style face that belongs to
-the figure. Do not copy the source face literally, do not preserve realistic
-skin texture, and do not paste a realistic face onto the figure.
+Use the base card as the primary image. Treat the profile photo only as a loose
+identity clue, not as a face to merge or paste. Start from the base card's
+existing Nendoroid-style face and gently adjust only the simplified toy-like
+features so they hint at the profile photo: general face silhouette, eyebrow
+impression, eye spacing, nose/mouth impression, smile line, jaw impression, and
+overall mood. The result should feel like the base card figure was customized
+for this person, not like the real photo was inserted.
+
+Keep the face clearly Nendoroid / collectible figurine style: simplified,
+smooth, toy-like, softly rounded, stylized, with no realistic skin pores,
+photo-realistic facial planes, or passport-photo look. Identity likeness should
+come from subtle stylized cues only. Do not copy the source face literally, do
+not preserve realistic skin texture, and do not paste or blend a realistic human
+face onto the figure.
 
 Make the person look attractive, polished, and slightly cooler than the source
 photo while still recognizable. The expression should be calm, focused, and
 confident, suitable for Korean badminton club members in their 30s. Avoid a
 childish, overly cute, overly cheerful, teenage, or idol-like feeling.
 
-The face should be naturally integrated into the Nendoroid-style figure, with
-simplified stylized features, soft toy-like skin, and the same 3D collectible
-finish as the base card. Match the base figure's head size and body proportions;
-do not make the face too big. Keep the head/face scale consistent with the base
-card. Hair style may be adjusted if needed for the card style, but the facial
-identity must remain recognizable.
+The face should look like it was sculpted as part of the original Nendoroid-style
+figure, with simplified stylized features, soft toy-like skin, and the same 3D
+collectible finish as the base card. Keep the base card's head size, cheek
+roundness, eye scale, and body proportions; do not make the face too big or too
+realistic. Hair style may be adjusted if needed for the card style, but keep it
+within the same toy-figure rendering.
 
 For female players, keep the outfit sporty and practical. Prefer shorts or
 athletic pants over skirts unless the base card explicitly needs otherwise.
@@ -90,6 +98,9 @@ Negative prompt / avoid:
 - realistic pasted face
 - realistic skin texture
 - photo-like portrait face
+- realistic human facial planes
+- passport-photo face
+- literal face copy
 - oversized face
 - distorted eyes
 - baby face
