@@ -1575,7 +1575,8 @@ tbody tr:last-child td {
 .player-sticker-panel {
   width: min(100%, 220px);
   max-height: min(78vh, 520px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -1629,7 +1630,7 @@ tbody tr:last-child td {
   background: rgba(255, 255, 255, 0.13);
   color: #ffffff;
   cursor: grab;
-  touch-action: pan-y;
+  touch-action: none;
   user-select: none;
 }
 
