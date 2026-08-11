@@ -20,6 +20,11 @@ Tier visual language:
 - B: silver finish
 - C: bronze finish
 
+Workday profile photo lookup rule:
+- If the user gives a specific Workday/search id with the person's name, search
+  Workday by that id first.
+- If the user only gives the person's name, search Workday by the name.
+
 Recommended source assets:
 - Male base cards:
   - surge-deploy/assets/player-cards/male-s-figure.jpg

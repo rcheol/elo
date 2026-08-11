@@ -1313,6 +1313,15 @@ const playerAssetProfiles = [
     figureCardTiers: ["b"],
   },
   {
+    identity: "sehwan-ki",
+    accountIds: ["sehwan"],
+    workdaySearchIds: ["sehwan"],
+    nameIncludes: [],
+    photo: "./assets/player-photos/sehwan-ki.jpg",
+    cardTiers: ["s"],
+    figureCardTiers: ["s"],
+  },
+  {
     identity: "hanseul-jeon",
     gender: "female",
     accountIds: ["hanseul.jeon"],
