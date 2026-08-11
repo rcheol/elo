@@ -37,6 +37,16 @@ const playerStickerCatalog = [
   { id: "moon", emoji: "🌙", label: "달" },
 ];
 const playerStickerById = new Map(playerStickerCatalog.map((sticker) => [sticker.id, sticker]));
+const scrollSnapshotSelectors = [
+  ".rankings-board .table-wrap",
+  "#queueList",
+  "#myHistoryList",
+  "#partnerStatsList",
+  "#opponentStatsList",
+  "#historyList",
+  "#userList",
+  "#playerStickerPanel",
+];
 
 let state = createDefaultState();
 let toastTimer = null;
@@ -467,25 +477,43 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-function captureRankingScroll() {
-  const wrap = $(".rankings-board .table-wrap");
+function shouldPreserveScroll(options = {}) {
+  return Boolean(options.preserveScroll || options.preserveRankingScroll);
+}
+
+function captureAppScroll() {
   return {
     pageX: window.scrollX,
     pageY: window.scrollY,
-    rankingTop: wrap ? wrap.scrollTop : null,
+    elements: scrollSnapshotSelectors.map((selector) => {
+      const element = $(selector);
+      return {
+        selector,
+        scrollLeft: element ? element.scrollLeft : null,
+        scrollTop: element ? element.scrollTop : null,
+      };
+    }),
   };
 }
 
-function restoreRankingScroll(snapshot) {
+function restoreAppScroll(snapshot) {
   if (!snapshot) {
     return;
   }
 
   const restore = () => {
-    const wrap = $(".rankings-board .table-wrap");
-    if (wrap && Number.isFinite(snapshot.rankingTop)) {
-      wrap.scrollTop = snapshot.rankingTop;
-    }
+    (snapshot.elements || []).forEach((entry) => {
+      const element = $(entry.selector);
+      if (!element) {
+        return;
+      }
+      if (Number.isFinite(entry.scrollTop)) {
+        element.scrollTop = entry.scrollTop;
+      }
+      if (Number.isFinite(entry.scrollLeft)) {
+        element.scrollLeft = entry.scrollLeft;
+      }
+    });
     window.scrollTo(snapshot.pageX, snapshot.pageY);
   };
 
@@ -498,24 +526,24 @@ function restoreRankingScroll(snapshot) {
 
 function applyServerState(payload, options = {}) {
   const dialogPlayerId = openCardPlayerId;
-  const rankingScroll = options.preserveRankingScroll ? captureRankingScroll() : null;
+  const scrollSnapshot = shouldPreserveScroll(options) ? captureAppScroll() : null;
   state = normalizeState(payload);
   render(options);
-  restoreRankingScroll(rankingScroll);
+  restoreAppScroll(scrollSnapshot);
   if (dialogPlayerId && $("#playerCardDialog")?.open) {
     openCardPlayerId = dialogPlayerId;
     renderPlayerCardStickerUi(currentOpenCardPlayer());
   }
 }
 
-function applyStickerServerState(payload, rankingScroll = captureRankingScroll()) {
+function applyStickerServerState(payload, scrollSnapshot = captureAppScroll()) {
   const dialogPlayerId = openCardPlayerId;
   state = normalizeState(payload);
   if (dialogPlayerId && $("#playerCardDialog")?.open) {
     openCardPlayerId = dialogPlayerId;
     renderPlayerCardStickerUi(currentOpenCardPlayer());
   }
-  restoreRankingScroll(rankingScroll);
+  restoreAppScroll(scrollSnapshot);
 }
 
 async function refreshState() {
@@ -739,7 +767,7 @@ async function logout() {
 async function toggleUserRole(userId) {
   if (!requireAdmin()) return;
   try {
-    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-admin`, { method: "PATCH" }));
+    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-admin`, { method: "PATCH" }), { preserveScroll: true });
     showToast("계정 권한을 변경했습니다.");
   } catch (error) {
     showApiError(error);
@@ -749,7 +777,7 @@ async function toggleUserRole(userId) {
 async function toggleManagerRole(userId) {
   if (!requireAdmin()) return;
   try {
-    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-manager`, { method: "PATCH" }));
+    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}/toggle-manager`, { method: "PATCH" }), { preserveScroll: true });
     showToast("manager 권한을 변경했습니다.");
   } catch (error) {
     showApiError(error);
@@ -769,7 +797,7 @@ async function deleteUser(userId) {
   }
 
   try {
-    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" }));
+    applyServerState(await apiFetch(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" }), { preserveScroll: true });
     showToast("계정을 삭제했습니다.");
   } catch (error) {
     showApiError(error);
@@ -825,6 +853,7 @@ async function linkUserPlayer(userId) {
         method: "PATCH",
         body: { playerId },
       }),
+      { preserveScroll: true },
     );
     showToast("계정과 선수를 연결했습니다.");
   } catch (error) {
@@ -1791,14 +1820,14 @@ async function savePlayerCardSticker(playerId, stickerId, placement) {
   if (!requireLogin()) {
     return;
   }
-  const rankingScroll = captureRankingScroll();
+  const scrollSnapshot = captureAppScroll();
   try {
     applyStickerServerState(
       await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
         method: "PUT",
         body: placement,
       }),
-      rankingScroll,
+      scrollSnapshot,
     );
     showToast("스티커를 붙였습니다.");
   } catch (error) {
@@ -1810,13 +1839,13 @@ async function deletePlayerCardSticker(playerId, stickerId) {
   if (!requireLogin()) {
     return;
   }
-  const rankingScroll = captureRankingScroll();
+  const scrollSnapshot = captureAppScroll();
   try {
     applyStickerServerState(
       await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
         method: "DELETE",
       }),
-      rankingScroll,
+      scrollSnapshot,
     );
     showToast("스티커를 뗐습니다.");
   } catch (error) {
@@ -1839,6 +1868,7 @@ async function addPlayer(name, rating) {
         method: "POST",
         body: { name: normalizedName, seedRating: Number(rating || state.settings.baseRating) },
       }),
+      { preserveScroll: true },
     );
     showToast(`${normalizedName} 선수를 추가했습니다.`);
     return true;
@@ -1857,6 +1887,7 @@ async function saveQueue(playerIds) {
         method: "PUT",
         body: { playerIds },
       }),
+      { preserveScroll: true },
     );
     return true;
   } catch (error) {
@@ -1895,7 +1926,7 @@ async function deletePlayer(playerId) {
   }
 
   try {
-    applyServerState(await apiFetch(`/api/players/${encodeURIComponent(playerId)}`, { method: "DELETE" }));
+    applyServerState(await apiFetch(`/api/players/${encodeURIComponent(playerId)}`, { method: "DELETE" }), { preserveScroll: true });
     showToast("선수를 삭제했습니다.");
   } catch (error) {
     showApiError(error);
@@ -1918,6 +1949,7 @@ async function updatePlayerSeedRating(playerId) {
         method: "PATCH",
         body: { seedRating },
       }),
+      { preserveScroll: true },
     );
     showToast("초기 ELO를 저장했습니다.");
   } catch (error) {
@@ -1934,7 +1966,7 @@ async function deleteMatch(matchId) {
   }
 
   try {
-    applyServerState(await apiFetch(`/api/matches/${encodeURIComponent(matchId)}`, { method: "DELETE" }));
+    applyServerState(await apiFetch(`/api/matches/${encodeURIComponent(matchId)}`, { method: "DELETE" }), { preserveScroll: true });
     showToast("경기 기록을 삭제하고 이후 ELO를 다시 계산했습니다.");
   } catch (error) {
     showApiError(error);
@@ -2075,6 +2107,7 @@ async function saveEditedMatch() {
         method: "PUT",
         body: { teamA, teamB, scoreA, scoreB, playedAt },
       }),
+      { preserveScroll: true },
     );
     showToast("경기 기록을 수정했고 이후 ELO를 다시 계산했습니다.");
   } catch (apiError) {
@@ -2113,12 +2146,12 @@ function render(options = {}) {
   renderSummary(standings);
   renderSelects(standings);
   renderSettings();
-  renderQueue();
+  renderQueue(options);
   renderRankings(standings, options);
-  renderMyHistory();
-  renderPartnerStats();
-  renderOpponentStats();
-  renderHistory();
+  renderMyHistory(options);
+  renderPartnerStats(options);
+  renderOpponentStats(options);
+  renderHistory(options);
   renderPreview();
   renderAccess();
   if (window.lucide) {
@@ -2450,7 +2483,7 @@ function renderRankings(standings, options = {}) {
   body.innerHTML = [...activeRows, ...pendingRows].join("");
 
   empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
-  if (!options.preserveRankingScroll) {
+  if (!shouldPreserveScroll(options)) {
     scrollRankingToFocus(focusPlayerId);
   }
 }
@@ -2627,7 +2660,7 @@ function opponentStatsForPlayer(ownPlayer) {
     });
 }
 
-function renderPartnerStats() {
+function renderPartnerStats(options = {}) {
   const list = $("#partnerStatsList");
   const empty = $("#partnerStatsEmpty");
   const emptyText = $("#partnerStatsEmptyText");
@@ -2649,7 +2682,9 @@ function renderPartnerStats() {
       `;
     })
     .join("");
-  list.scrollTop = 0;
+  if (!shouldPreserveScroll(options)) {
+    list.scrollTop = 0;
+  }
   renderPagination("partnerStats", stats.length);
 
   if (!getCurrentUser()) {
@@ -2663,7 +2698,7 @@ function renderPartnerStats() {
   empty.classList.toggle("is-visible", stats.length === 0);
 }
 
-function renderOpponentStats() {
+function renderOpponentStats(options = {}) {
   const list = $("#opponentStatsList");
   const empty = $("#opponentStatsEmpty");
   const emptyText = $("#opponentStatsEmptyText");
@@ -2685,7 +2720,9 @@ function renderOpponentStats() {
       `;
     })
     .join("");
-  list.scrollTop = 0;
+  if (!shouldPreserveScroll(options)) {
+    list.scrollTop = 0;
+  }
   renderPagination("opponentStats", stats.length);
 
   if (!getCurrentUser()) {
@@ -2784,6 +2821,7 @@ async function toggleMannerVote(matchId, targetPlayerId) {
         method: "PUT",
         body: { targetPlayerId },
       }),
+      { preserveScroll: true },
     );
     showToast(currentVote?.targetPlayerId === targetPlayerId ? "매너 투표를 취소했습니다." : "매너 투표를 반영했습니다.");
   } catch (error) {
@@ -2826,7 +2864,7 @@ function renderHistoryItem(match) {
   `;
 }
 
-function renderMyHistory() {
+function renderMyHistory(options = {}) {
   const list = $("#myHistoryList");
   const empty = $("#myHistoryEmpty");
   const emptyText = $("#myHistoryEmptyText");
@@ -2837,7 +2875,9 @@ function renderMyHistory() {
   const matchPage = paginatedItems("myHistory", myMatches);
 
   list.innerHTML = matchPage.items.map(renderHistoryItem).join("");
-  list.scrollTop = 0;
+  if (!shouldPreserveScroll(options)) {
+    list.scrollTop = 0;
+  }
   renderPagination("myHistory", myMatches.length);
 
   if (!getCurrentUser()) {
@@ -2851,14 +2891,16 @@ function renderMyHistory() {
   empty.classList.toggle("is-visible", myMatches.length === 0);
 }
 
-function renderHistory() {
+function renderHistory(options = {}) {
   const list = $("#historyList");
   const empty = $("#historyEmpty");
   const matches = sortedMatches().reverse();
   const matchPage = paginatedItems("history", matches);
 
   list.innerHTML = matchPage.items.map(renderHistoryItem).join("");
-  list.scrollTop = 0;
+  if (!shouldPreserveScroll(options)) {
+    list.scrollTop = 0;
+  }
   renderPagination("history", matches.length);
 
   empty.classList.toggle("is-visible", state.matches.length === 0);
@@ -3021,6 +3063,7 @@ async function updateSettings(patch) {
         method: "PATCH",
         body: patch,
       }),
+      { preserveScroll: true },
     );
     showToast("설정을 저장했습니다.");
   } catch (error) {
