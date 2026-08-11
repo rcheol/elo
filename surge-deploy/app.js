@@ -1218,6 +1218,15 @@ const playerAssetProfiles = [
     figureCardTiers: ["c"],
   },
   {
+    identity: "kyungtae-kim",
+    accountIds: ["akpk.kim"],
+    workdaySearchIds: ["akpk.kim"],
+    nameIncludes: ["김경태"],
+    photo: "./assets/player-photos/kyungtae-kim.jpg",
+    cardTiers: ["b"],
+    figureCardTiers: ["b"],
+  },
+  {
     identity: "hanseul-jeon",
     gender: "female",
     accountIds: ["hanseul.jeon"],
