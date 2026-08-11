@@ -43,6 +43,7 @@ let toastTimer = null;
 let editingMatchId = null;
 let openCardPlayerId = "";
 let stickerDrag = null;
+let stickerPress = null;
 let paginationState = {
   myHistory: 1,
   partnerStats: 1,
@@ -1668,10 +1669,40 @@ function cancelStickerDrag() {
   document.removeEventListener("pointercancel", cancelStickerDrag);
 }
 
+function cancelStickerPress() {
+  if (stickerPress?.timer) {
+    window.clearTimeout(stickerPress.timer);
+  }
+  stickerPress = null;
+  document.removeEventListener("pointermove", moveStickerPress);
+  document.removeEventListener("pointerup", finishStickerPress);
+  document.removeEventListener("pointercancel", cancelStickerPress);
+}
+
+function moveStickerPress(event) {
+  if (!stickerPress || event.pointerId !== stickerPress.pointerId) {
+    return;
+  }
+
+  stickerPress.lastEvent = event;
+  const dx = event.clientX - stickerPress.startX;
+  const dy = event.clientY - stickerPress.startY;
+  if (Math.hypot(dx, dy) > 8) {
+    cancelStickerPress();
+  }
+}
+
+function finishStickerPress(event) {
+  if (stickerPress && event.pointerId === stickerPress.pointerId) {
+    cancelStickerPress();
+  }
+}
+
 function moveStickerDrag(event) {
   if (!stickerDrag || event.pointerId !== stickerDrag.pointerId) {
     return;
   }
+  event.preventDefault();
   moveStickerGhost(stickerDrag.ghost, event);
 }
 
@@ -1719,6 +1750,42 @@ function startStickerDrag(stickerId, event) {
   document.addEventListener("pointermove", moveStickerDrag);
   document.addEventListener("pointerup", finishStickerDrag);
   document.addEventListener("pointercancel", cancelStickerDrag);
+}
+
+function startStickerPress(stickerId, event) {
+  if (!getCurrentUser() || !openCardPlayerId || !playerStickerById.has(stickerId)) {
+    return;
+  }
+  if (event.pointerType === "mouse") {
+    startStickerDrag(stickerId, event);
+    return;
+  }
+
+  const existing = ownStickerPlacement(stickerId);
+  if (existing && existing.playerId !== openCardPlayerId) {
+    showToast("?대? ?ㅻⅨ ?좎닔 移대뱶??遺숈씤 ?ㅽ떚而ㅼ엯?덈떎.");
+    return;
+  }
+
+  cancelStickerPress();
+  stickerPress = {
+    stickerId,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastEvent: event,
+    timer: window.setTimeout(() => {
+      if (!stickerPress || stickerPress.pointerId !== event.pointerId) {
+        return;
+      }
+      const dragEvent = stickerPress.lastEvent || event;
+      cancelStickerPress();
+      startStickerDrag(stickerId, dragEvent);
+    }, 220),
+  };
+  document.addEventListener("pointermove", moveStickerPress);
+  document.addEventListener("pointerup", finishStickerPress);
+  document.addEventListener("pointercancel", cancelStickerPress);
 }
 
 async function savePlayerCardSticker(playerId, stickerId, placement) {
@@ -2436,6 +2503,7 @@ function closePlayerCardDialog() {
     dialog.removeAttribute("open");
   }
   openCardPlayerId = "";
+  cancelStickerPress();
   cancelStickerDrag();
   renderPlayerCardStickerUi(null);
 }
@@ -3148,7 +3216,7 @@ function bindEvents() {
 
     const paletteSticker = target.closest("[data-sticker-drag]");
     if (paletteSticker && !paletteSticker.disabled) {
-      startStickerDrag(paletteSticker.dataset.stickerDrag, event);
+      startStickerPress(paletteSticker.dataset.stickerDrag, event);
       return;
     }
 
