@@ -467,10 +467,35 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-function applyServerState(payload) {
+function captureRankingScroll() {
+  const wrap = $(".rankings-board .table-wrap");
+  return {
+    pageX: window.scrollX,
+    pageY: window.scrollY,
+    rankingTop: wrap ? wrap.scrollTop : null,
+  };
+}
+
+function restoreRankingScroll(snapshot) {
+  if (!snapshot) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    const wrap = $(".rankings-board .table-wrap");
+    if (wrap && Number.isFinite(snapshot.rankingTop)) {
+      wrap.scrollTop = snapshot.rankingTop;
+    }
+    window.scrollTo(snapshot.pageX, snapshot.pageY);
+  });
+}
+
+function applyServerState(payload, options = {}) {
   const dialogPlayerId = openCardPlayerId;
+  const rankingScroll = options.preserveRankingScroll ? captureRankingScroll() : null;
   state = normalizeState(payload);
-  render();
+  render(options);
+  restoreRankingScroll(rankingScroll);
   if (dialogPlayerId && $("#playerCardDialog")?.open) {
     openCardPlayerId = dialogPlayerId;
     renderPlayerCardStickerUi(currentOpenCardPlayer());
@@ -1755,6 +1780,7 @@ async function savePlayerCardSticker(playerId, stickerId, placement) {
       method: "PUT",
       body: placement,
     }),
+    { preserveRankingScroll: true },
   );
   showToast("스티커를 붙였습니다.");
 }
@@ -1768,6 +1794,7 @@ async function deletePlayerCardSticker(playerId, stickerId) {
       await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
         method: "DELETE",
       }),
+      { preserveRankingScroll: true },
     );
     showToast("스티커를 뗐습니다.");
   } catch (error) {
@@ -2058,14 +2085,14 @@ async function importBulkMatchesFromText() {
   }
 }
 
-function render() {
+function render(options = {}) {
   const standings = getStandings();
   renderAuth(standings);
   renderSummary(standings);
   renderSelects(standings);
   renderSettings();
   renderQueue();
-  renderRankings(standings);
+  renderRankings(standings, options);
   renderMyHistory();
   renderPartnerStats();
   renderOpponentStats();
@@ -2294,7 +2321,7 @@ function renderAccess() {
   $("#bulkMatchSubmitBtn").disabled = !admin;
 }
 
-function renderRankings(standings) {
+function renderRankings(standings, options = {}) {
   const body = $("#rankingBody");
   const empty = $("#rankingEmpty");
   const focusPlayerId = focusedRankingPlayerId(standings);
@@ -2399,7 +2426,9 @@ function renderRankings(standings) {
   body.innerHTML = [...activeRows, ...pendingRows].join("");
 
   empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
-  scrollRankingToFocus(focusPlayerId);
+  if (!options.preserveRankingScroll) {
+    scrollRankingToFocus(focusPlayerId);
+  }
 }
 
 function openPlayerCardDialog(playerId) {
