@@ -1345,6 +1345,10 @@ tbody tr:last-child td {
   color: #326fc7;
 }
 
+.player-honor--manner {
+  color: #d14f7c;
+}
+
 .player-honor--win-streak {
   color: #c75147;
 }

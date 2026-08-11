@@ -848,6 +848,18 @@ const playerHonorRules = [
     },
   },
   {
+    key: "manner",
+    label: "매너왕",
+    className: "player-honor--manner",
+    winners(standings) {
+      const maxMannerVotes = Math.max(0, ...standings.map((player) => Number(player.mannerVotes || 0)));
+      if (maxMannerVotes <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.mannerVotes || 0) === maxMannerVotes);
+    },
+  },
+  {
     key: "winStreak",
     label: "연승왕",
     className: "player-honor--win-streak",
