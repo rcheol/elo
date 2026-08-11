@@ -124,8 +124,19 @@ function initDb() {
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS manner_votes (
+      match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+      voter_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      voter_player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      target_player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (match_id, voter_user_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_matches_sequence ON matches(sequence);
+    CREATE INDEX IF NOT EXISTS idx_manner_votes_target ON manner_votes(target_player_id);
   `);
 
   migrateUsersTable();
@@ -593,11 +604,29 @@ function getMatches() {
     .map(matchFromRow);
 }
 
+function mannerVoteFromRow(row) {
+  return {
+    matchId: row.match_id,
+    voterPlayerId: row.voter_player_id,
+    targetPlayerId: row.target_player_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function getMannerVotes() {
+  return db
+    .prepare("SELECT match_id, voter_player_id, target_player_id, created_at, updated_at FROM manner_votes ORDER BY created_at ASC")
+    .all()
+    .map(mannerVoteFromRow);
+}
+
 function getStatePayload(currentUser) {
   const includePendingPlayers = currentUser?.role === "admin";
   return {
     players: getPlayers({ includePending: includePendingPlayers }),
     matches: getMatches(),
+    mannerVotes: getMannerVotes(),
     settings: getSettings(),
     visitorStats: getVisitorStats(),
     queuePlayerIds: getQueuePlayerIds(),
@@ -1028,6 +1057,70 @@ function ensureCanEditMatch(match, currentUser) {
   throw new HttpError(403, "MATCH_EDIT_FORBIDDEN", "이 경기 기록은 입력자 또는 admin만 수정할 수 있습니다.");
 }
 
+function getActivePlayerForUser(userId) {
+  return db
+    .prepare("SELECT * FROM players WHERE user_id = ? AND seed_rating IS NOT NULL")
+    .get(userId);
+}
+
+function saveMannerVote(matchId, input, currentUser) {
+  const row = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId);
+  if (!row) {
+    throw new HttpError(404, "MATCH_NOT_FOUND");
+  }
+
+  const match = matchFromRow(row);
+  const participants = [...match.teamA, ...match.teamB];
+  const voterPlayer = getActivePlayerForUser(currentUser.id);
+  if (!voterPlayer) {
+    throw new HttpError(403, "MANNER_VOTE_PLAYER_REQUIRED", "계정에 연결된 선수만 매너 투표를 할 수 있습니다.");
+  }
+  if (!participants.includes(voterPlayer.id)) {
+    throw new HttpError(403, "MANNER_VOTE_FORBIDDEN", "해당 경기 참여자만 매너 투표를 할 수 있습니다.");
+  }
+
+  const targetPlayerId = String(input?.targetPlayerId || input?.target_player_id || "").trim();
+  if (!targetPlayerId) {
+    throw new HttpError(400, "MANNER_VOTE_TARGET_REQUIRED", "매너 투표할 선수를 선택하세요.");
+  }
+  if (!participants.includes(targetPlayerId) || targetPlayerId === voterPlayer.id) {
+    throw new HttpError(400, "MANNER_VOTE_TARGET_INVALID", "자신을 제외한 경기 참여자에게만 투표할 수 있습니다.");
+  }
+
+  const existing = db
+    .prepare("SELECT target_player_id FROM manner_votes WHERE match_id = ? AND voter_user_id = ?")
+    .get(match.id, currentUser.id);
+  if (existing?.target_player_id === targetPlayerId) {
+    db.prepare("DELETE FROM manner_votes WHERE match_id = ? AND voter_user_id = ?").run(match.id, currentUser.id);
+    return;
+  }
+
+  const now = nowIso();
+  db.prepare(`
+    INSERT INTO manner_votes (match_id, voter_user_id, voter_player_id, target_player_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(match_id, voter_user_id) DO UPDATE SET
+      voter_player_id = excluded.voter_player_id,
+      target_player_id = excluded.target_player_id,
+      updated_at = excluded.updated_at
+  `).run(match.id, currentUser.id, voterPlayer.id, targetPlayerId, now, now);
+}
+
+function pruneMannerVotesForMatch(matchId, participantIds) {
+  const participants = new Set(participantIds);
+  db.prepare("SELECT match_id, voter_user_id, voter_player_id, target_player_id FROM manner_votes WHERE match_id = ?")
+    .all(matchId)
+    .forEach((vote) => {
+      if (
+        !participants.has(vote.voter_player_id) ||
+        !participants.has(vote.target_player_id) ||
+        vote.voter_player_id === vote.target_player_id
+      ) {
+        db.prepare("DELETE FROM manner_votes WHERE match_id = ? AND voter_user_id = ?").run(vote.match_id, vote.voter_user_id);
+      }
+    });
+}
+
 function updateMatch(matchId, input, currentUser) {
   const existing = db.prepare("SELECT * FROM matches WHERE id = ?").get(matchId);
   if (!existing) {
@@ -1062,6 +1155,7 @@ function updateMatch(matchId, input, currentUser) {
     current.id,
   );
 
+  pruneMannerVotesForMatch(current.id, [...teamA, ...teamB]);
   recalculateMatchesFromOrder(recalculateFrom);
 }
 
@@ -1200,6 +1294,7 @@ function deleteMatch(matchId) {
   }
 
   const match = matchFromRow(existing);
+  db.prepare("DELETE FROM manner_votes WHERE match_id = ?").run(match.id);
   db.prepare("DELETE FROM matches WHERE id = ?").run(match.id);
   recalculateMatchesFromOrder(match);
 }
@@ -1579,6 +1674,7 @@ function replaceData(input, currentUser) {
     marginBonus: input?.settings?.marginBonus !== false,
   };
 
+  db.prepare("DELETE FROM manner_votes").run();
   db.prepare("DELETE FROM matches").run();
   db.prepare("DELETE FROM queue_players").run();
   db.prepare("DELETE FROM players").run();
@@ -1639,6 +1735,7 @@ function replaceData(input, currentUser) {
 }
 
 function resetData() {
+  db.prepare("DELETE FROM manner_votes").run();
   db.prepare("DELETE FROM matches").run();
   db.prepare("DELETE FROM queue_players").run();
   db.prepare("DELETE FROM players").run();
@@ -1729,6 +1826,7 @@ function createDefaultPostgresState() {
     sessions: [],
     players: [],
     matches: [],
+    mannerVotes: [],
     settings: cloneSettings(defaultSettings),
     visitorStats: createDefaultVisitorStats(),
     queuePlayerIds: [],
@@ -1814,6 +1912,38 @@ function normalizeStoredMatch(match, index, seenIds) {
   };
 }
 
+function normalizeStoredMannerVote(vote, matchMap, activeUserIds, seenKeys) {
+  const matchId = String(vote?.matchId ?? vote?.match_id ?? "");
+  const voterUserId = String(vote?.voterUserId ?? vote?.voter_user_id ?? "");
+  const voterPlayerId = String(vote?.voterPlayerId ?? vote?.voter_player_id ?? "");
+  const targetPlayerId = String(vote?.targetPlayerId ?? vote?.target_player_id ?? "");
+  const match = matchMap.get(matchId);
+  const participants = match ? [...match.teamA, ...match.teamB] : [];
+  const key = `${matchId}:${voterUserId}`;
+
+  if (
+    !match ||
+    !activeUserIds.has(voterUserId) ||
+    !participants.includes(voterPlayerId) ||
+    !participants.includes(targetPlayerId) ||
+    voterPlayerId === targetPlayerId ||
+    seenKeys.has(key)
+  ) {
+    return null;
+  }
+
+  seenKeys.add(key);
+  const createdAt = safeIsoDate(vote?.createdAt ?? vote?.created_at, nowIso());
+  return {
+    matchId,
+    voterUserId,
+    voterPlayerId,
+    targetPlayerId,
+    createdAt,
+    updatedAt: safeIsoDate(vote?.updatedAt ?? vote?.updated_at, createdAt),
+  };
+}
+
 function normalizePostgresState(value) {
   const source = value && typeof value === "object" ? value : {};
   const state = {
@@ -1822,6 +1952,7 @@ function normalizePostgresState(value) {
     sessions: [],
     players: [],
     matches: [],
+    mannerVotes: [],
     settings: cloneSettings(source.settings),
     visitorStats: normalizeVisitorStats(source.visitorStats),
     queuePlayerIds: [],
@@ -1870,6 +2001,13 @@ function normalizePostgresState(value) {
     .map((match, index) => normalizeStoredMatch(match, index, matchIds))
     .filter(Boolean)
     .sort(compareMatchOrder);
+
+  const matchMap = new Map(state.matches.map((match) => [match.id, match]));
+  const voteKeys = new Set();
+  state.mannerVotes = (Array.isArray(source.mannerVotes) ? source.mannerVotes : [])
+    .map((vote) => normalizeStoredMannerVote(vote, matchMap, activeUserIds, voteKeys))
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 
   return state;
 }
@@ -1998,6 +2136,20 @@ function pgGetMatches(state) {
   return sortMatchesByPlayOrder(state.matches).map(pgMatchFromStored);
 }
 
+function pgMannerVoteFromStored(vote) {
+  return {
+    matchId: vote.matchId,
+    voterPlayerId: vote.voterPlayerId,
+    targetPlayerId: vote.targetPlayerId,
+    createdAt: vote.createdAt,
+    updatedAt: vote.updatedAt,
+  };
+}
+
+function pgGetMannerVotes(state) {
+  return state.mannerVotes.map(pgMannerVoteFromStored);
+}
+
 function pgRecordVisitorVisit(state, req) {
   state.visitorStats = normalizeVisitorStats(state.visitorStats);
   const cookies = parseCookies(req.headers.cookie);
@@ -2039,6 +2191,7 @@ function pgGetStatePayload(state, currentUser) {
   return {
     players: pgGetPlayers(state, { includePending: includePendingPlayers }),
     matches: pgGetMatches(state),
+    mannerVotes: pgGetMannerVotes(state),
     settings: cloneSettings(state.settings),
     visitorStats: publicVisitorStats(state.visitorStats),
     queuePlayerIds: [...state.queuePlayerIds],
@@ -2206,7 +2359,67 @@ function pgUpdateMatch(state, matchId, input, currentUser) {
     updatedByName: currentUser.displayName,
     updatedAt: nowIso(),
   });
+  pgPruneMannerVotesForMatch(state, match.id, [...teamA, ...teamB]);
   pgRecalculateMatchesFromOrder(state, recalculateFrom);
+}
+
+function pgPruneMannerVotesForMatch(state, matchId, participantIds) {
+  const participants = new Set(participantIds);
+  state.mannerVotes = state.mannerVotes.filter((vote) => (
+    vote.matchId !== matchId ||
+    (
+      participants.has(vote.voterPlayerId) &&
+      participants.has(vote.targetPlayerId) &&
+      vote.voterPlayerId !== vote.targetPlayerId
+    )
+  ));
+}
+
+function pgSaveMannerVote(state, matchId, input, currentUser) {
+  const match = state.matches.find((candidate) => candidate.id === matchId);
+  if (!match) {
+    throw new HttpError(404, "MATCH_NOT_FOUND");
+  }
+
+  const participants = [...match.teamA, ...match.teamB];
+  const voterPlayer = state.players.find((player) => player.userId === currentUser.id && player.seedRating != null);
+  if (!voterPlayer) {
+    throw new HttpError(403, "MANNER_VOTE_PLAYER_REQUIRED", "계정에 연결된 선수만 매너 투표를 할 수 있습니다.");
+  }
+  if (!participants.includes(voterPlayer.id)) {
+    throw new HttpError(403, "MANNER_VOTE_FORBIDDEN", "해당 경기 참여자만 매너 투표를 할 수 있습니다.");
+  }
+
+  const targetPlayerId = String(input?.targetPlayerId || input?.target_player_id || "").trim();
+  if (!targetPlayerId) {
+    throw new HttpError(400, "MANNER_VOTE_TARGET_REQUIRED", "매너 투표할 선수를 선택하세요.");
+  }
+  if (!participants.includes(targetPlayerId) || targetPlayerId === voterPlayer.id) {
+    throw new HttpError(400, "MANNER_VOTE_TARGET_INVALID", "자신을 제외한 경기 참여자에게만 투표할 수 있습니다.");
+  }
+
+  const existing = state.mannerVotes.find((vote) => vote.matchId === match.id && vote.voterUserId === currentUser.id);
+  if (existing?.targetPlayerId === targetPlayerId) {
+    state.mannerVotes = state.mannerVotes.filter((vote) => !(vote.matchId === match.id && vote.voterUserId === currentUser.id));
+    return;
+  }
+
+  const now = nowIso();
+  if (existing) {
+    existing.voterPlayerId = voterPlayer.id;
+    existing.targetPlayerId = targetPlayerId;
+    existing.updatedAt = now;
+    return;
+  }
+
+  state.mannerVotes.push({
+    matchId: match.id,
+    voterUserId: currentUser.id,
+    voterPlayerId: voterPlayer.id,
+    targetPlayerId,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 function pgCountPlayerGames(state, playerId) {
@@ -2341,6 +2554,7 @@ function pgDeleteMatch(state, matchId) {
   }
 
   state.matches = state.matches.filter((candidate) => candidate.id !== matchId);
+  state.mannerVotes = state.mannerVotes.filter((vote) => vote.matchId !== matchId);
   pgRecalculateMatchesFromOrder(state, match);
 }
 
@@ -2472,6 +2686,7 @@ function pgReplaceData(state, input, currentUser) {
     createdAt: player.createdAt,
   }));
   state.matches = [];
+  state.mannerVotes = [];
   state.settings = cloneSettings(settings);
   state.queuePlayerIds = [];
 
@@ -2490,6 +2705,7 @@ function pgReplaceData(state, input, currentUser) {
 function pgResetData(state) {
   state.players = [];
   state.matches = [];
+  state.mannerVotes = [];
   state.settings = cloneSettings(defaultSettings);
   state.queuePlayerIds = [];
   pgEnsurePendingPlayersForUsers(state);
@@ -2608,6 +2824,17 @@ async function handleApiPostgres(req, res, url) {
   }
 
   const matchMatch = pathname.match(/^\/api\/matches\/([^/]+)$/);
+  const mannerVoteMatch = pathname.match(/^\/api\/matches\/([^/]+)\/manner-vote$/);
+  if (method === "PUT" && mannerVoteMatch) {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      pgSaveMannerVote(state, decodeURIComponent(mannerVoteMatch[1]), body, currentUser);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
   if (method === "PUT" && matchMatch) {
     const body = await readJsonBody(req);
     const payload = await withPostgresState((state) => {
@@ -2795,6 +3022,14 @@ async function handleApi(req, res, url) {
   }
 
   const matchMatch = pathname.match(/^\/api\/matches\/([^/]+)$/);
+  const mannerVoteMatch = pathname.match(/^\/api\/matches\/([^/]+)\/manner-vote$/);
+  if (method === "PUT" && mannerVoteMatch) {
+    const currentUser = requireUser(req);
+    const body = await readJsonBody(req);
+    runInTransaction(() => saveMannerVote(decodeURIComponent(mannerVoteMatch[1]), body, currentUser));
+    return sendJson(req, res, 200, getStatePayload(currentUser));
+  }
+
   if (method === "PUT" && matchMatch) {
     const currentUser = requireUser(req);
     const body = await readJsonBody(req);

@@ -1640,6 +1640,66 @@ tbody tr:last-child td {
   color: var(--green-deep);
 }
 
+.history-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  overflow-wrap: anywhere;
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.manner-vote-button {
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.manner-vote-button:hover,
+.manner-vote-button:focus-visible,
+.manner-vote-button.is-selected {
+  color: var(--green-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.manner-thumbs {
+  display: inline-flex;
+  align-items: center;
+  min-width: 17px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.manner-thumb {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  margin-left: calc(var(--thumb-index) * -7px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  filter: drop-shadow(0 1px 2px rgba(3, 38, 27, 0.18));
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.manner-thumbs.is-selected .manner-thumb {
+  background: rgba(207, 245, 222, 0.96);
+}
+
+.team-separator {
+  margin: 0 4px;
+  color: var(--muted);
+}
+
 .score-badge {
   display: inline-flex;
   align-items: center;

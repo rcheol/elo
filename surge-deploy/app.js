@@ -59,6 +59,10 @@ const errorMessages = {
   PLAYER_NOT_FOUND: "선수를 찾을 수 없습니다.",
   PLAYER_REGISTER_FORBIDDEN: "manager 또는 admin 권한이 필요합니다.",
   PLAYER_RATING_REQUIRED: "초기 ELO를 입력하세요.",
+  MANNER_VOTE_FORBIDDEN: "해당 경기 참여자만 매너 투표를 할 수 있습니다.",
+  MANNER_VOTE_PLAYER_REQUIRED: "계정에 연결된 선수만 매너 투표를 할 수 있습니다.",
+  MANNER_VOTE_TARGET_INVALID: "자신을 제외한 경기 참여자에게만 투표할 수 있습니다.",
+  MANNER_VOTE_TARGET_REQUIRED: "매너 투표할 선수를 선택하세요.",
   QUEUE_PLAYER_REQUIRED: "대기열에 추가할 선수를 선택하세요.",
   QUEUE_UNKNOWN_PLAYER: "등록된 선수를 선택하세요.",
   REQUEST_TOO_LARGE: "파일이 너무 큽니다.",
@@ -74,6 +78,7 @@ function createDefaultState() {
   return {
     players: [],
     matches: [],
+    mannerVotes: [],
     users: [],
     currentUser: null,
     settings: { ...defaultSettings },
@@ -294,10 +299,39 @@ function normalizeState(input) {
         }))
         .sort(compareMatchOrder)
     : [];
+  const matchById = new Map(matches.map((match) => [match.id, match]));
+  const mannerVoteKeys = new Set();
+  const mannerVotes = Array.isArray(input?.mannerVotes)
+    ? input.mannerVotes
+        .map((vote) => ({
+          matchId: String(vote?.matchId ?? vote?.match_id ?? ""),
+          voterPlayerId: String(vote?.voterPlayerId ?? vote?.voter_player_id ?? ""),
+          targetPlayerId: String(vote?.targetPlayerId ?? vote?.target_player_id ?? ""),
+          createdAt: safeIsoDate(vote?.createdAt ?? vote?.created_at),
+          updatedAt: safeIsoDate(vote?.updatedAt ?? vote?.updated_at ?? vote?.createdAt ?? vote?.created_at),
+        }))
+        .filter((vote) => {
+          const match = matchById.get(vote.matchId);
+          const participants = match ? [...match.teamA, ...match.teamB] : [];
+          const key = `${vote.matchId}:${vote.voterPlayerId}`;
+          if (
+            !match ||
+            !participants.includes(vote.voterPlayerId) ||
+            !participants.includes(vote.targetPlayerId) ||
+            vote.voterPlayerId === vote.targetPlayerId ||
+            mannerVoteKeys.has(key)
+          ) {
+            return false;
+          }
+          mannerVoteKeys.add(key);
+          return true;
+        })
+    : [];
 
   return {
     players,
     matches,
+    mannerVotes,
     users: Array.isArray(input?.users) ? input.users.map(normalizeUser).filter(Boolean) : [],
     currentUser: normalizeUser(input?.currentUser),
     visitorStats: {
@@ -690,7 +724,16 @@ async function linkUserPlayer(userId) {
   }
 }
 
+function getMannerVoteCountsByPlayer(sourceState = state) {
+  const counts = new Map();
+  (sourceState.mannerVotes || []).forEach((vote) => {
+    counts.set(vote.targetPlayerId, (counts.get(vote.targetPlayerId) || 0) + 1);
+  });
+  return counts;
+}
+
 function getStandings(sourceState = state) {
+  const mannerVoteCounts = getMannerVoteCountsByPlayer(sourceState);
   const table = new Map(
     getActivePlayers(sourceState).map((player) => [
       player.id,
@@ -708,6 +751,7 @@ function getStandings(sourceState = state) {
         honors: [],
         attendanceDays: new Set(),
         maxWinStreak: 0,
+        mannerVotes: mannerVoteCounts.get(player.id) || 0,
       },
     ]),
   );
@@ -1683,6 +1727,7 @@ function renderAuth(standings) {
     setPlayerCardHonors($("#currentHonorBadges"), player?.honors || []);
     $("#currentPlayerCardRating").textContent = player ? Math.round(player.rating).toLocaleString("ko-KR") : "--";
     $("#currentPlayerCardRank").textContent = rank ? `#${rank}` : "--";
+    $("#currentPlayerCardManner").textContent = player ? Number(player.mannerVotes || 0).toLocaleString("ko-KR") : "0";
   }
 
   const userList = $("#userList");
@@ -2017,6 +2062,7 @@ function openPlayerCardDialog(playerId) {
   setPlayerCardHonors($("#rankingPlayerCardHonorBadges"), player.honors || []);
   $("#rankingPlayerCardRating").textContent = Number.isFinite(rating) ? Math.round(rating).toLocaleString("ko-KR") : "--";
   $("#rankingPlayerCardRank").textContent = rank > 0 ? `#${rank}` : "--";
+  $("#rankingPlayerCardManner").textContent = Number(player.mannerVotes || 0).toLocaleString("ko-KR");
 
   if (typeof dialog.showModal === "function") {
     dialog.showModal();
@@ -2222,9 +2268,101 @@ function renderOpponentStats() {
   empty.classList.toggle("is-visible", stats.length === 0);
 }
 
+function matchParticipantIds(match) {
+  return [...(match.teamA || []), ...(match.teamB || [])];
+}
+
+function mannerVotesForMatch(matchId) {
+  return state.mannerVotes.filter((vote) => vote.matchId === matchId);
+}
+
+function mannerVoteCountForPlayer(matchId, playerId) {
+  return mannerVotesForMatch(matchId).filter((vote) => vote.targetPlayerId === playerId).length;
+}
+
+function currentMannerVoteForMatch(match) {
+  const ownPlayer = currentUserPlayer();
+  if (!ownPlayer) {
+    return null;
+  }
+  return mannerVotesForMatch(match.id).find((vote) => vote.voterPlayerId === ownPlayer.id) || null;
+}
+
+function canVoteForMannerTarget(match, playerId) {
+  const ownPlayer = currentUserPlayer();
+  const participants = matchParticipantIds(match);
+  return Boolean(
+    getCurrentUser()
+    && ownPlayer
+    && participants.includes(ownPlayer.id)
+    && participants.includes(playerId)
+    && ownPlayer.id !== playerId,
+  );
+}
+
+function renderMannerThumbs(count, selected = false) {
+  if (!count) {
+    return "";
+  }
+
+  const visibleCount = Math.min(3, count);
+  const thumbs = Array.from({ length: visibleCount }, (_, index) => (
+    `<span class="manner-thumb" aria-hidden="true" style="--thumb-index: ${index}">👍</span>`
+  )).join("");
+  return `
+    <span class="manner-thumbs ${selected ? "is-selected" : ""}" aria-label="매너 투표 ${count}개">
+      ${thumbs}
+    </span>
+  `;
+}
+
+function renderHistoryPlayer(match, playerId) {
+  const player = state.players.find((entry) => entry.id === playerId);
+  const name = playerDisplayName(player);
+  const voteCount = mannerVoteCountForPlayer(match.id, playerId);
+  const currentVote = currentMannerVoteForMatch(match);
+  const selected = currentVote?.targetPlayerId === playerId;
+  const thumbs = renderMannerThumbs(voteCount, selected);
+
+  if (!canVoteForMannerTarget(match, playerId)) {
+    return `<span class="history-player-name">${escapeHtml(name)}${thumbs}</span>`;
+  }
+
+  return `
+    <button
+      class="history-player-name manner-vote-button ${selected ? "is-selected" : ""}"
+      type="button"
+      data-manner-vote-match="${escapeHtml(match.id)}"
+      data-manner-vote-target="${escapeHtml(playerId)}"
+      aria-label="${escapeHtml(`${name}에게 매너 투표`)}"
+    >${escapeHtml(name)}${thumbs}</button>
+  `;
+}
+
+function renderHistoryTeam(match, playerIds) {
+  return playerIds.map((playerId) => renderHistoryPlayer(match, playerId)).join('<span class="team-separator">/</span>');
+}
+
+async function toggleMannerVote(matchId, targetPlayerId) {
+  if (!requireLogin()) return;
+  const match = state.matches.find((entry) => entry.id === matchId);
+  const currentVote = match ? currentMannerVoteForMatch(match) : null;
+  try {
+    applyServerState(
+      await apiFetch(`/api/matches/${encodeURIComponent(matchId)}/manner-vote`, {
+        method: "PUT",
+        body: { targetPlayerId },
+      }),
+    );
+    showToast(currentVote?.targetPlayerId === targetPlayerId ? "매너 투표를 취소했습니다." : "매너 투표를 반영했습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
+}
+
 function renderHistoryItem(match) {
-  const teamA = match.teamA.map(playerName).join(" / ");
-  const teamB = match.teamB.map(playerName).join(" / ");
+  const teamA = renderHistoryTeam(match, match.teamA);
+  const teamB = renderHistoryTeam(match, match.teamB);
   const deltaA = match.changes.find((change) => match.teamA.includes(change.id))?.delta || 0;
   const deltaB = match.changes.find((change) => match.teamB.includes(change.id))?.delta || 0;
   const editedText = match.updatedAt ? ` · 수정 ${escapeHtml(match.updatedByName || "알 수 없음")} ${formatDate(match.updatedAt)}` : "";
@@ -2246,9 +2384,9 @@ function renderHistoryItem(match) {
       </div>
       <div class="history-main">
         <div class="teams-line">
-          <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${escapeHtml(teamA)}</span>
+          <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${teamA}</span>
           <span class="score-badge">${match.scoreA} : ${match.scoreB}</span>
-          <span class="team-name ${match.winner === "B" ? "team-name--winner" : ""}">${escapeHtml(teamB)}</span>
+          <span class="team-name ${match.winner === "B" ? "team-name--winner" : ""}">${teamB}</span>
         </div>
         <p class="history-sub">A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)} · 기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}% · 입력 ${escapeHtml(match.createdByName || "알 수 없음")}${editedText}</p>
       </div>
@@ -2372,6 +2510,7 @@ function buildRankingExportLines() {
       formatStreakText(player.streak, player.streakDelta),
       `전적 ${player.wins}승 ${player.losses}패`,
       `승률 ${winRate}`,
+      `매너 ${Number(player.mannerVotes || 0)}`,
       peakText,
       lastPlayed,
     ].join(" | ") + seedRating;
@@ -2607,6 +2746,12 @@ function bindEvents() {
     const deleteMatchButton = target.closest("[data-delete-match]");
     if (deleteMatchButton) {
       deleteMatch(deleteMatchButton.dataset.deleteMatch);
+      return;
+    }
+
+    const mannerVoteButton = target.closest("[data-manner-vote-match][data-manner-vote-target]");
+    if (mannerVoteButton) {
+      toggleMannerVote(mannerVoteButton.dataset.mannerVoteMatch, mannerVoteButton.dataset.mannerVoteTarget);
       return;
     }
 
