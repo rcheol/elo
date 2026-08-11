@@ -1218,6 +1218,16 @@ const playerAssetProfiles = [
     figureCardTiers: ["c"],
   },
   {
+    identity: "hanseul-jeon",
+    gender: "female",
+    accountIds: ["hanseul.jeon"],
+    workdaySearchIds: ["hanseul.jeon"],
+    nameIncludes: ["전한슬"],
+    photo: "./assets/player-photos/hanseul-jeon.jpg",
+    cardTiers: ["c"],
+    figureCardTiers: ["c"],
+  },
+  {
     identity: "wonjoon-cho",
     accountIds: ["june", "wonjoons.cho"],
     workdaySearchIds: ["wonjoons.cho"],
