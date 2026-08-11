@@ -1689,12 +1689,13 @@ tbody tr:last-child td {
 
   .player-sticker-panel {
     width: min(86vw, 320px);
-    max-height: min(42vh, 300px);
+    max-height: 178px;
   }
 
   .player-sticker-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
+    padding-right: 46px;
   }
 
   .sticker-tile {
