@@ -2793,9 +2793,15 @@ function renderHistoryItem(match) {
       </div>
       <div class="history-main">
         <div class="teams-line">
-          <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${teamA}</span>
-          <span class="score-badge">${match.scoreA} : ${match.scoreB}</span>
-          <span class="team-name ${match.winner === "B" ? "team-name--winner" : ""}">${teamB}</span>
+          <span class="history-team">
+            <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${teamA}</span>
+            <span class="score-badge">${match.scoreA}</span>
+          </span>
+          <span class="score-divider-inline">:</span>
+          <span class="history-team">
+            <span class="team-name ${match.winner === "B" ? "team-name--winner" : ""}">${teamB}</span>
+            <span class="score-badge">${match.scoreB}</span>
+          </span>
         </div>
         <p class="history-sub">A ${formatSigned(deltaA)} / B ${formatSigned(deltaB)} · 기대승률 ${Math.round(match.expectedA * 100)}% : ${Math.round(match.expectedB * 100)}% · 입력 ${escapeHtml(match.createdByName || "알 수 없음")}${editedText}</p>
       </div>
