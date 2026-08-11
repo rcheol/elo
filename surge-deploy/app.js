@@ -1670,7 +1670,7 @@ function createStickerGhost(stickerId, event) {
   const ghost = document.createElement("div");
   ghost.className = "sticker-drag-ghost";
   ghost.textContent = sticker.emoji;
-  document.body.appendChild(ghost);
+  ($("#playerCardDialog") || document.body).appendChild(ghost);
   moveStickerGhost(ghost, event);
   return ghost;
 }
