@@ -481,12 +481,18 @@ function restoreRankingScroll(snapshot) {
     return;
   }
 
-  window.requestAnimationFrame(() => {
+  const restore = () => {
     const wrap = $(".rankings-board .table-wrap");
     if (wrap && Number.isFinite(snapshot.rankingTop)) {
       wrap.scrollTop = snapshot.rankingTop;
     }
     window.scrollTo(snapshot.pageX, snapshot.pageY);
+  };
+
+  window.requestAnimationFrame(() => {
+    restore();
+    window.requestAnimationFrame(restore);
+    window.setTimeout(restore, 60);
   });
 }
 
@@ -500,6 +506,16 @@ function applyServerState(payload, options = {}) {
     openCardPlayerId = dialogPlayerId;
     renderPlayerCardStickerUi(currentOpenCardPlayer());
   }
+}
+
+function applyStickerServerState(payload, rankingScroll = captureRankingScroll()) {
+  const dialogPlayerId = openCardPlayerId;
+  state = normalizeState(payload);
+  if (dialogPlayerId && $("#playerCardDialog")?.open) {
+    openCardPlayerId = dialogPlayerId;
+    renderPlayerCardStickerUi(currentOpenCardPlayer());
+  }
+  restoreRankingScroll(rankingScroll);
 }
 
 async function refreshState() {
@@ -1775,26 +1791,32 @@ async function savePlayerCardSticker(playerId, stickerId, placement) {
   if (!requireLogin()) {
     return;
   }
-  applyServerState(
-    await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
-      method: "PUT",
-      body: placement,
-    }),
-    { preserveRankingScroll: true },
-  );
-  showToast("스티커를 붙였습니다.");
+  const rankingScroll = captureRankingScroll();
+  try {
+    applyStickerServerState(
+      await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
+        method: "PUT",
+        body: placement,
+      }),
+      rankingScroll,
+    );
+    showToast("스티커를 붙였습니다.");
+  } catch (error) {
+    showApiError(error);
+  }
 }
 
 async function deletePlayerCardSticker(playerId, stickerId) {
   if (!requireLogin()) {
     return;
   }
+  const rankingScroll = captureRankingScroll();
   try {
-    applyServerState(
+    applyStickerServerState(
       await apiFetch(`/api/players/${encodeURIComponent(playerId)}/stickers/${encodeURIComponent(stickerId)}`, {
         method: "DELETE",
       }),
-      { preserveRankingScroll: true },
+      rankingScroll,
     );
     showToast("스티커를 뗐습니다.");
   } catch (error) {
