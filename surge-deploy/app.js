@@ -2748,9 +2748,8 @@ function renderHistoryPlayer(match, playerId) {
   `;
 }
 
-function renderHistoryTeam(match, playerIds, options = {}) {
-  const separator = options.hideTeamSeparator ? '<span class="team-separator team-separator--blank"></span>' : '<span class="team-separator">/</span>';
-  return playerIds.map((playerId) => renderHistoryPlayer(match, playerId)).join(separator);
+function renderHistoryTeam(match, playerIds) {
+  return playerIds.map((playerId) => renderHistoryPlayer(match, playerId)).join("");
 }
 
 async function toggleMannerVote(matchId, targetPlayerId) {
@@ -2770,9 +2769,9 @@ async function toggleMannerVote(matchId, targetPlayerId) {
   }
 }
 
-function renderHistoryItem(match, options = {}) {
-  const teamA = renderHistoryTeam(match, match.teamA, options);
-  const teamB = renderHistoryTeam(match, match.teamB, options);
+function renderHistoryItem(match) {
+  const teamA = renderHistoryTeam(match, match.teamA);
+  const teamB = renderHistoryTeam(match, match.teamB);
   const deltaA = match.changes.find((change) => match.teamA.includes(change.id))?.delta || 0;
   const deltaB = match.changes.find((change) => match.teamB.includes(change.id))?.delta || 0;
   const editedText = match.updatedAt ? ` · 수정 ${escapeHtml(match.updatedByName || "알 수 없음")} ${formatDate(match.updatedAt)}` : "";
@@ -2815,7 +2814,7 @@ function renderMyHistory() {
     : [];
   const matchPage = paginatedItems("myHistory", myMatches);
 
-  list.innerHTML = matchPage.items.map((match) => renderHistoryItem(match, { hideTeamSeparator: true })).join("");
+  list.innerHTML = matchPage.items.map(renderHistoryItem).join("");
   list.scrollTop = 0;
   renderPagination("myHistory", myMatches.length);
 

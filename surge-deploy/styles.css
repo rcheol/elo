@@ -1952,17 +1952,6 @@ tbody tr:last-child td {
   background: rgba(207, 245, 222, 0.96);
 }
 
-.team-separator {
-  margin: 0 4px;
-  color: var(--muted);
-}
-
-.team-separator--blank {
-  display: inline-block;
-  width: 6px;
-  margin: 0 2px;
-}
-
 .score-badge {
   display: inline-flex;
   align-items: center;
