@@ -1096,6 +1096,16 @@ const playerAssetProfiles = [
     figureCardTiers: ["c"],
   },
   {
+    identity: "hwasun-lee",
+    gender: "female",
+    accountIds: ["hwasun.lee"],
+    workdaySearchIds: ["hwasun.lee"],
+    nameIncludes: ["이화선"],
+    photo: "./assets/player-photos/hwasun-lee.jpg",
+    cardTiers: ["c"],
+    figureCardTiers: ["c"],
+  },
+  {
     identity: "hyungjin-son",
     accountIds: ["hyungjin.son"],
     workdaySearchIds: ["hyungjin.son"],
