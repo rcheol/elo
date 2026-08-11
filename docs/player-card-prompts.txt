@@ -58,22 +58,24 @@ badminton court mood, outfit concept, racket, pose, scale, and vertical card
 aspect ratio. The result should still clearly look like the same Honey Serve
 base card, only personalized with this player's face.
 
-Use the profile photo only as the identity reference. Preserve the recognizable
-facial identity: face shape, eyes, nose, mouth, smile line, jaw impression, and
-overall likeness. Do not copy the photo literally and do not paste a realistic
-face onto the figure. Convert the likeness into the same smooth toy-like 3D
-figure style as the base card.
+Use the profile photo only as an identity reference, not as a face texture.
+Extract only the key facial characteristics: face shape, eye spacing, eyebrow
+impression, nose/mouth shape, smile line, jaw impression, and overall likeness.
+Rebuild those traits as a smooth toy-like Nendoroid-style face that belongs to
+the figure. Do not copy the source face literally, do not preserve realistic
+skin texture, and do not paste a realistic face onto the figure.
 
 Make the person look attractive, polished, and slightly cooler than the source
 photo while still recognizable. The expression should be calm, focused, and
 confident, suitable for Korean badminton club members in their 30s. Avoid a
 childish, overly cute, overly cheerful, teenage, or idol-like feeling.
 
-The face should be naturally integrated into the Nendoroid-style figure. Match
-the base figure's head size and body proportions; do not make the face too big.
-Keep the head/face scale consistent with the base card. Hair style may be
-adjusted if needed for the card style, but the facial identity must remain
-recognizable.
+The face should be naturally integrated into the Nendoroid-style figure, with
+simplified stylized features, soft toy-like skin, and the same 3D collectible
+finish as the base card. Match the base figure's head size and body proportions;
+do not make the face too big. Keep the head/face scale consistent with the base
+card. Hair style may be adjusted if needed for the card style, but the facial
+identity must remain recognizable.
 
 For female players, keep the outfit sporty and practical. Prefer shorts or
 athletic pants over skirts unless the base card explicitly needs otherwise.
@@ -86,6 +88,8 @@ Output one complete vertical player-card image.
 Negative prompt / avoid:
 
 - realistic pasted face
+- realistic skin texture
+- photo-like portrait face
 - oversized face
 - distorted eyes
 - baby face
