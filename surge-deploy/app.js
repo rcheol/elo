@@ -1679,9 +1679,8 @@ function createStickerGhost(stickerId, event) {
 }
 
 function moveStickerGhost(ghost, event) {
-  const isTouch = ghost.classList.contains("is-touch");
   ghost.style.left = `${event.clientX}px`;
-  ghost.style.top = `${isTouch ? Math.max(28, event.clientY - 58) : event.clientY}px`;
+  ghost.style.top = `${event.clientY}px`;
 }
 
 function cancelStickerDrag() {
