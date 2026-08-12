@@ -1146,7 +1146,7 @@ const playerAssetProfiles = [
     nameIncludes: ["류철"],
     photo: "./assets/player-photos/cheol-ryu.png",
     cardTiers: ["s", "a", "b", "c"],
-    figureCardTiers: ["s"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "taehoon-kim",
@@ -1155,7 +1155,7 @@ const playerAssetProfiles = [
     nameIncludes: ["김태훈"],
     photo: "./assets/player-photos/taehoon-kim.jpg",
     cardTiers: ["s"],
-    figureCardTiers: ["s"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "jinuk-kim",
@@ -1164,7 +1164,7 @@ const playerAssetProfiles = [
     nameIncludes: ["김진욱 (kjy9631)"],
     photo: "./assets/player-photos/jinuk-kim.jpg",
     cardTiers: ["a"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "jinwook-kim-left",
@@ -1173,7 +1173,7 @@ const playerAssetProfiles = [
     nameIncludes: ["김진욱(왼)"],
     photo: "./assets/player-photos/jinwook-kim-left.jpg",
     cardTiers: ["a"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "jiyeong-baek",
@@ -1183,7 +1183,7 @@ const playerAssetProfiles = [
     nameIncludes: ["백지영"],
     photo: "./assets/player-photos/jiyeong-baek.jpg",
     cardTiers: ["s", "a", "b", "c"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "sangjun-park",
@@ -1192,7 +1192,7 @@ const playerAssetProfiles = [
     nameIncludes: ["박상준"],
     photo: "./assets/player-photos/sangjun-park.jpg",
     cardTiers: ["s", "a", "b", "c"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "jonghyun-park",
@@ -1201,7 +1201,7 @@ const playerAssetProfiles = [
     nameIncludes: ["박종현"],
     photo: "./assets/player-photos/jonghyun-park.jpg",
     cardTiers: ["a"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "hoseok-jung",
@@ -1210,7 +1210,7 @@ const playerAssetProfiles = [
     nameIncludes: ["정호석"],
     photo: "./assets/player-photos/hoseok-jung.jpg",
     cardTiers: ["s", "a", "b", "c"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "eungi-hong",
@@ -1219,7 +1219,7 @@ const playerAssetProfiles = [
     nameIncludes: ["홍은기"],
     photo: "./assets/player-photos/eungi-hong.jpg",
     cardTiers: ["s", "a", "b", "c"],
-    figureCardTiers: ["c"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "yeongseon-byun",
@@ -1229,7 +1229,7 @@ const playerAssetProfiles = [
     nameIncludes: ["변영선"],
     photo: "./assets/player-photos/yeongseon-byun.jpg",
     cardTiers: ["a", "b", "c"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "h-hyun",
@@ -1239,7 +1239,7 @@ const playerAssetProfiles = [
     nameIncludes: ["현현영"],
     photo: "./assets/player-photos/h-hyun.jpg",
     cardTiers: ["c"],
-    figureCardTiers: ["c"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "hwasun-lee",
@@ -1249,7 +1249,7 @@ const playerAssetProfiles = [
     nameIncludes: ["이화선"],
     photo: "./assets/player-photos/hwasun-lee.jpg",
     cardTiers: ["c"],
-    figureCardTiers: ["c"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "hyungjin-son",
@@ -1258,7 +1258,7 @@ const playerAssetProfiles = [
     nameIncludes: ["손형진"],
     photo: "./assets/player-photos/hyungjin-son.jpg",
     cardTiers: ["a", "b"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "jh723-paek",
@@ -1267,7 +1267,7 @@ const playerAssetProfiles = [
     nameIncludes: ["박정훈"],
     photo: "./assets/player-photos/jh723-paek.jpg",
     cardTiers: ["a", "b"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "kkook-kang",
@@ -1276,7 +1276,7 @@ const playerAssetProfiles = [
     nameIncludes: ["강경국"],
     photo: "./assets/player-photos/kkook-kang.jpg",
     cardTiers: ["s"],
-    figureCardTiers: ["s"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "eunjun-ko",
@@ -1285,7 +1285,7 @@ const playerAssetProfiles = [
     nameIncludes: ["고은준"],
     photo: "./assets/player-photos/eunjun-ko.jpg",
     cardTiers: ["b"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "seokki-hong",
@@ -1294,7 +1294,7 @@ const playerAssetProfiles = [
     nameIncludes: ["홍석기"],
     photo: "./assets/player-photos/seokki-hong.jpg",
     cardTiers: ["a", "b"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "sooyeon-jin",
@@ -1304,7 +1304,7 @@ const playerAssetProfiles = [
     nameIncludes: ["진수연"],
     photo: "./assets/player-photos/sooyeon-jin.jpg",
     cardTiers: ["b", "c"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "dohun-lee",
@@ -1313,7 +1313,7 @@ const playerAssetProfiles = [
     nameIncludes: ["이도훈"],
     photo: "./assets/player-photos/dohun-lee.jpg",
     cardTiers: ["c"],
-    figureCardTiers: ["c"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "yehyang-jang",
@@ -1323,7 +1323,7 @@ const playerAssetProfiles = [
     nameIncludes: ["장예향"],
     photo: "./assets/player-photos/yehyang-jang.jpg",
     cardTiers: ["b"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "suyeon-lee",
@@ -1333,7 +1333,7 @@ const playerAssetProfiles = [
     nameIncludes: ["이수연"],
     photo: "./assets/player-photos/suyeon-lee.jpg",
     cardTiers: ["b", "c"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "yh5626-lee",
@@ -1342,7 +1342,7 @@ const playerAssetProfiles = [
     nameIncludes: ["이영현"],
     photo: "./assets/player-photos/yh5626-lee.jpg",
     cardTiers: ["a", "b"],
-    figureCardTiers: ["a"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "youngseo-lee",
@@ -1351,7 +1351,7 @@ const playerAssetProfiles = [
     nameIncludes: ["이영서"],
     photo: "./assets/player-photos/youngseo-lee.jpg",
     cardTiers: ["b"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "haeseul-jeong",
@@ -1361,7 +1361,7 @@ const playerAssetProfiles = [
     nameIncludes: ["정해슬"],
     photo: "./assets/player-photos/haeseul-jeong.jpg",
     cardTiers: ["b"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "yeseul-lee",
@@ -1371,7 +1371,7 @@ const playerAssetProfiles = [
     nameIncludes: ["이예슬"],
     photo: "./assets/player-photos/yeseul-lee.jpg",
     cardTiers: ["c"],
-    figureCardTiers: ["c"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "kyungtae-kim",
@@ -1380,7 +1380,7 @@ const playerAssetProfiles = [
     nameIncludes: ["김경태"],
     photo: "./assets/player-photos/kyungtae-kim.jpg",
     cardTiers: ["b"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "sehwan-ki",
@@ -1389,7 +1389,7 @@ const playerAssetProfiles = [
     nameIncludes: [],
     photo: "./assets/player-photos/sehwan-ki.jpg",
     cardTiers: ["s"],
-    figureCardTiers: ["s"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "hanseul-jeon",
@@ -1399,7 +1399,7 @@ const playerAssetProfiles = [
     nameIncludes: ["전한슬"],
     photo: "./assets/player-photos/hanseul-jeon.jpg",
     cardTiers: ["c"],
-    figureCardTiers: ["c"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
   {
     identity: "wonjoon-cho",
@@ -1408,7 +1408,7 @@ const playerAssetProfiles = [
     nameIncludes: ["조원준"],
     photo: "./assets/player-photos/wonjoon-cho.jpg",
     cardTiers: ["b"],
-    figureCardTiers: ["b"],
+    figureCardTiers: ["s", "a", "b", "c"],
   },
 ];
 
