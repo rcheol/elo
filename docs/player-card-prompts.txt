@@ -1,5 +1,5 @@
 Honey Serve player card prompts
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 This file keeps the reusable prompts for the Honey Serve player cards.
 The most successful current style is the personal 3D chibi / Nendoroid-style
@@ -58,20 +58,24 @@ badminton court mood, outfit concept, racket, pose, scale, and vertical card
 aspect ratio. The result should still clearly look like the same Honey Serve
 base card, only personalized with this player's face.
 
-Use the base card as the primary image. Treat the profile photo only as a loose
-identity clue, not as a face to merge or paste. Start from the base card's
-existing Nendoroid-style face and gently adjust only the simplified toy-like
-features so they hint at the profile photo: general face silhouette, eyebrow
-impression, eye spacing, nose/mouth impression, smile line, jaw impression, and
-overall mood. The result should feel like the base card figure was customized
-for this person, not like the real photo was inserted.
+Use the base card as the primary image. Treat the profile photo as a stylized
+identity reference, not as a face to merge or paste. Start from the base card's
+existing Nendoroid-style face and adjust only simplified toy-like features.
+Use medium-low-plus likeness strength: a little more specific than a generic
+chibi, but clearly less realistic than a direct portrait. Preserve only stylized
+toy-figure cues such as hair part and volume, forehead/face silhouette, eyebrow
+thickness and angle, eye shape and spacing, nose/mouth impression, smile line,
+jaw impression, and overall mood. Avoid copying exact facial proportions from
+the photo. The result should feel like the base card figure was loosely
+customized for this person, not like the real photo was inserted.
 
 Keep the face clearly Nendoroid / collectible figurine style: simplified,
 smooth, toy-like, softly rounded, stylized, with no realistic skin pores,
-photo-realistic facial planes, or passport-photo look. Identity likeness should
-come from subtle stylized cues only. Do not copy the source face literally, do
-not preserve realistic skin texture, and do not paste or blend a realistic human
-face onto the figure.
+photo-realistic facial planes, narrow realistic eyes, natural human face
+shading, or passport-photo look. Identity likeness should come from stylized
+facial-design cues, not literal facial copying. Do not copy the source face
+literally, do not preserve realistic skin texture, and do not paste or blend a
+realistic human face onto the figure.
 
 Make the person look attractive, polished, and slightly cooler than the source
 photo while still recognizable. The expression should be calm, focused, and
