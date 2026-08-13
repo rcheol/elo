@@ -1126,7 +1126,15 @@ function playerDisplayName(player) {
     ? player.name
     : `${player.name} ${accountSuffix}`;
   const specialStarAccounts = ["ji0.baek", "jiyeong.baek"];
-  return specialStarAccounts.includes(normalizeUsername(accountId)) ? `${displayName} ⭐` : displayName;
+  const specialShuttleAccounts = ["sj-_-.park", "sangjun.park"];
+  const normalizedAccountId = normalizeUsername(accountId);
+  if (specialStarAccounts.includes(normalizedAccountId)) {
+    return `${displayName} ⭐`;
+  }
+  if (specialShuttleAccounts.includes(normalizedAccountId)) {
+    return `${displayName} 🏸`;
+  }
+  return displayName;
 }
 
 function playerCardDisplayName(player) {
