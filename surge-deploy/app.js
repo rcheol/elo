@@ -1144,6 +1144,14 @@ function getBestPartnerPlayerIds(pairStats) {
   );
 }
 
+function isCheolPlayer(player) {
+  return normalizeUsername(playerAccountId(player)) === "rcheol" || normalizeNameKey(player?.name) === "류철";
+}
+
+function honorEligibleStandings(standings, rule) {
+  return rule.personal === false ? standings : standings.filter((player) => !isCheolPlayer(player));
+}
+
 const playerHonorRules = [
   {
     key: "wins",
@@ -1275,6 +1283,7 @@ const playerHonorRules = [
     key: "chemistry",
     label: "케미왕",
     className: "player-honor--chemistry",
+    personal: false,
     winners(standings) {
       const candidates = standings.filter((player) => (
         Number(player.chemistryPartnerCount || 0) >= 5
@@ -1291,6 +1300,7 @@ const playerHonorRules = [
     key: "bestPartner",
     label: "최강파트너",
     className: "player-honor--best-partner",
+    personal: false,
     winners(standings) {
       return standings.filter((player) => player.isBestPartner);
     },
@@ -1299,6 +1309,7 @@ const playerHonorRules = [
     key: "mixedDoubles",
     label: "혼복최강",
     className: "player-honor--mixed-doubles",
+    personal: false,
     winners(standings) {
       const maxDelta = Math.max(0, ...standings.map((player) => Number(player.mixedDoublesDelta || 0)));
       if (maxDelta <= 0) {
@@ -1311,6 +1322,7 @@ const playerHonorRules = [
     key: "menDoubles",
     label: "남복최강",
     className: "player-honor--men-doubles",
+    personal: false,
     winners(standings) {
       const maxDelta = Math.max(0, ...standings.map((player) => Number(player.menDoublesDelta || 0)));
       if (maxDelta <= 0) {
@@ -1323,6 +1335,7 @@ const playerHonorRules = [
     key: "womenDoubles",
     label: "여복최강",
     className: "player-honor--women-doubles",
+    personal: false,
     winners(standings) {
       const maxDelta = Math.max(0, ...standings.map((player) => Number(player.womenDoublesDelta || 0)));
       if (maxDelta <= 0) {
@@ -1337,7 +1350,7 @@ function applyPlayerHonors(standings) {
   const honorMap = new Map(standings.map((player) => [player.id, []]));
 
   playerHonorRules.forEach((rule) => {
-    rule.winners(standings).forEach((player) => {
+    rule.winners(honorEligibleStandings(standings, rule)).forEach((player) => {
       honorMap.get(player.id)?.push({
         key: rule.key,
         label: rule.label,
