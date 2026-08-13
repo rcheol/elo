@@ -83,6 +83,13 @@
                 <input id="signupDisplayName" name="name" autocomplete="name" maxlength="24" required type="text">
               </label>
               <label>
+                <span>성별</span>
+                <select id="signupGender" name="gender" autocomplete="sex">
+                  <option value="male">남자</option>
+                  <option value="female">여자</option>
+                </select>
+              </label>
+              <label>
                 <span>비밀번호</span>
                 <input id="signupPassword" name="password" autocomplete="new-password" minlength="4" required type="password">
               </label>
@@ -239,6 +246,13 @@
             <label>
               <span>초기 레이팅</span>
               <input id="playerRating" inputmode="numeric" min="800" max="2400" placeholder="1500" type="number">
+            </label>
+            <label>
+              <span>성별</span>
+              <select id="playerGender">
+                <option value="male">남자</option>
+                <option value="female">여자</option>
+              </select>
             </label>
             <button class="button button--primary" type="submit">
               <i data-lucide="user-plus"></i>

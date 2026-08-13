@@ -641,6 +641,10 @@ textarea:focus {
   align-items: end;
 }
 
+.player-form {
+  grid-template-columns: minmax(0, 1fr) 138px 104px auto;
+}
+
 .permission-note {
   margin: 0;
   color: var(--muted);
@@ -1486,6 +1490,18 @@ tbody tr:last-child td {
 
 .player-honor--best-partner {
   color: #b36f00;
+}
+
+.player-honor--mixed-doubles {
+  color: #9a4fb0;
+}
+
+.player-honor--men-doubles {
+  color: #266fb1;
+}
+
+.player-honor--women-doubles {
+  color: #c34f86;
 }
 
 .player-sub {

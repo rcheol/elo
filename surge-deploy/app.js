@@ -37,6 +37,25 @@ const playerStickerCatalog = [
   { id: "moon", emoji: "🌙", label: "달" },
 ];
 const playerStickerById = new Map(playerStickerCatalog.map((sticker) => [sticker.id, sticker]));
+const femalePlayerNames = [
+  "안유진",
+  "변영선",
+  "장예향",
+  "백지영",
+  "신현정",
+  "진수연",
+  "이수연",
+  "정해슬",
+  "김수영",
+  "현현영",
+  "이예슬",
+  "전한슬",
+  "이화선",
+  "이나은",
+  "엘라",
+  "최정현",
+];
+const femalePlayerNameKeys = new Set(femalePlayerNames.map((name) => normalizeNameKey(name)));
 const scrollSnapshotSelectors = [
   ".rankings-board .table-wrap",
   "#queueList",
@@ -217,6 +236,29 @@ function normalizeRole(value) {
   return ["admin", "manager", "member"].includes(value) ? value : "member";
 }
 
+function normalizePlayerName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeNameKey(value) {
+  return normalizePlayerName(value).toLocaleLowerCase();
+}
+
+function basePlayerNameKey(value) {
+  return normalizeNameKey(String(value || "").replace(/\s*\([^)]*\)\s*$/, ""));
+}
+
+function inferPlayerGenderFromName(name) {
+  const normalizedName = normalizeNameKey(name);
+  const baseName = basePlayerNameKey(name);
+  return femalePlayerNameKeys.has(normalizedName) || femalePlayerNameKeys.has(baseName) ? "female" : "male";
+}
+
+function normalizePlayerGender(value, fallbackName = "") {
+  const gender = String(value || "").trim().toLocaleLowerCase();
+  return gender === "female" || gender === "male" ? gender : inferPlayerGenderFromName(fallbackName);
+}
+
 function safeIsoDate(value, fallback = new Date().toISOString()) {
   const fallbackDate = new Date(fallback);
   const fallbackIso = Number.isNaN(fallbackDate.getTime()) ? new Date().toISOString() : fallbackDate.toISOString();
@@ -297,6 +339,7 @@ function normalizeState(input) {
           accountUsername: normalizeUsername(player.accountUsername || player.account_username || ""),
           accountRole: player.accountRole || player.account_role ? normalizeRole(player.accountRole || player.account_role) : "",
           name: String(player.name).trim(),
+          gender: normalizePlayerGender(player.gender, player.name),
           seedRating:
             player.seedRating == null && player.rating == null
               ? null
@@ -707,9 +750,10 @@ async function offerBrowserCredentialSave(username, password, displayName = "") 
   }
 }
 
-async function createAccount(username, displayName, password) {
+async function createAccount(username, displayName, password, gender = "male") {
   const normalizedUsername = normalizeUsername(username);
   const cleanDisplayName = String(displayName || username).trim().replace(/\s+/g, " ");
+  const playerGender = normalizePlayerGender(gender, cleanDisplayName);
   if (normalizedUsername.length < 3) {
     showToast("아이디는 3자 이상 입력하세요.");
     return false;
@@ -726,7 +770,7 @@ async function createAccount(username, displayName, password) {
   try {
     const payload = await apiFetch("/api/signup", {
       method: "POST",
-      body: { username: normalizedUsername, displayName: cleanDisplayName, password },
+      body: { username: normalizedUsername, displayName: cleanDisplayName, password, gender: playerGender },
     });
     await offerBrowserCredentialSave(normalizedUsername, password, payload.currentUser?.displayName || cleanDisplayName);
     applyServerState(payload);
@@ -891,6 +935,11 @@ function getStandings(sourceState = state) {
         mannerVotes: mannerVoteCounts.get(player.id) || 0,
         clutchWins: 0,
         aceKillerDelta: 0,
+        doublesDeltas: {
+          mixed: 0,
+          men: 0,
+          women: 0,
+        },
         partnerDeltaByPartner: new Map(),
       },
     ]),
@@ -931,6 +980,9 @@ function getStandings(sourceState = state) {
         streakDelta: round1(player.streakDelta),
         winRate: player.games ? player.wins / player.games : 0,
         aceKillerDelta: round1(player.aceKillerDelta),
+        mixedDoublesDelta: round1(player.doublesDeltas.mixed),
+        menDoublesDelta: round1(player.doublesDeltas.men),
+        womenDoublesDelta: round1(player.doublesDeltas.women),
         chemistryPartnerCount: chemistryStats.partnerCount,
         chemistrySpread: chemistryStats.spread,
         isBestPartner: bestPartnerPlayerIds.has(player.id),
@@ -991,6 +1043,27 @@ function addPairDelta(pairStats, teamIds = [], delta) {
   pairStats.set(key, current);
 }
 
+function doublesTypeForTeam(table, teamIds = []) {
+  const genders = teamIds.map((id) => normalizePlayerGender(table.get(id)?.gender, table.get(id)?.name || ""));
+  const femaleCount = genders.filter((gender) => gender === "female").length;
+  if (femaleCount === 1) {
+    return "mixed";
+  }
+  return femaleCount === 2 ? "women" : "men";
+}
+
+function addDoublesDelta(table, teamIds = [], changeMap) {
+  const doublesType = doublesTypeForTeam(table, teamIds);
+  teamIds.forEach((id) => {
+    const player = table.get(id);
+    if (player?.doublesDeltas) {
+      player.doublesDeltas[doublesType] = round1(
+        Number(player.doublesDeltas[doublesType] || 0) + playerMatchDelta(changeMap, id),
+      );
+    }
+  });
+}
+
 function applyHonorTeamStats(table, pairStats, teamIds = [], won, winningScore, teamRating, opponentRating, changeMap) {
   const totalDelta = teamDelta(changeMap, teamIds);
   if (won && Number(winningScore || 0) >= 22) {
@@ -1017,6 +1090,7 @@ function applyHonorTeamStats(table, pairStats, teamIds = [], won, winningScore, 
     addPartnerDelta(player, partnerId, playerMatchDelta(changeMap, id));
   });
   addPairDelta(pairStats, teamIds, totalDelta);
+  addDoublesDelta(table, teamIds, changeMap);
 }
 
 function applyHonorMatchStats(table, pairStats, match, changeMap) {
@@ -1219,6 +1293,42 @@ const playerHonorRules = [
     className: "player-honor--best-partner",
     winners(standings) {
       return standings.filter((player) => player.isBestPartner);
+    },
+  },
+  {
+    key: "mixedDoubles",
+    label: "혼복최강",
+    className: "player-honor--mixed-doubles",
+    winners(standings) {
+      const maxDelta = Math.max(0, ...standings.map((player) => Number(player.mixedDoublesDelta || 0)));
+      if (maxDelta <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.mixedDoublesDelta || 0) === maxDelta);
+    },
+  },
+  {
+    key: "menDoubles",
+    label: "남복최강",
+    className: "player-honor--men-doubles",
+    winners(standings) {
+      const maxDelta = Math.max(0, ...standings.map((player) => Number(player.menDoublesDelta || 0)));
+      if (maxDelta <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.menDoublesDelta || 0) === maxDelta);
+    },
+  },
+  {
+    key: "womenDoubles",
+    label: "여복최강",
+    className: "player-honor--women-doubles",
+    winners(standings) {
+      const maxDelta = Math.max(0, ...standings.map((player) => Number(player.womenDoublesDelta || 0)));
+      if (maxDelta <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.womenDoublesDelta || 0) === maxDelta);
     },
   },
 ];
@@ -1631,7 +1741,7 @@ function playerPhotoUrl(player) {
 }
 
 function playerCardGender(player) {
-  return playerCardProfile(player)?.gender || "male";
+  return normalizePlayerGender(player?.gender || playerCardProfile(player)?.gender, player?.name || "");
 }
 
 function defaultPlayerCardArtUrl(player, tierKey) {
@@ -2042,10 +2152,11 @@ async function deletePlayerCardSticker(playerId, stickerId) {
   }
 }
 
-async function addPlayer(name, rating) {
+async function addPlayer(name, rating, gender = "male") {
   if (!requirePlayerRegistrar()) return false;
 
-  const normalizedName = name.trim().replace(/\s+/g, " ");
+  const normalizedName = normalizePlayerName(name);
+  const playerGender = normalizePlayerGender(gender, normalizedName);
   if (!normalizedName) {
     showToast("선수 이름을 입력하세요.");
     return false;
@@ -2055,7 +2166,7 @@ async function addPlayer(name, rating) {
     applyServerState(
       await apiFetch("/api/players", {
         method: "POST",
-        body: { name: normalizedName, seedRating: Number(rating || state.settings.baseRating) },
+        body: { name: normalizedName, gender: playerGender, seedRating: Number(rating || state.settings.baseRating) },
       }),
       { preserveScroll: true },
     );
@@ -2556,6 +2667,7 @@ function renderAccess() {
 
   $("#playerName").disabled = !canAddPlayers;
   $("#playerRating").disabled = !canAddPlayers;
+  $("#playerGender").disabled = !canAddPlayers;
   $("#playerForm button").disabled = !canAddPlayers;
   $("#queuePlayerSelect").disabled = !loggedIn || availableQueueCount === 0;
   $("#queueAddBtn").disabled = !loggedIn || availableQueueCount === 0;
@@ -3284,7 +3396,12 @@ function bindEvents() {
   $("#signupForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const created = await createAccount($("#signupUsername").value, $("#signupDisplayName").value, $("#signupPassword").value);
+    const created = await createAccount(
+      $("#signupUsername").value,
+      $("#signupDisplayName").value,
+      $("#signupPassword").value,
+      $("#signupGender").value,
+    );
     if (created) {
       form.reset();
     }
@@ -3296,7 +3413,8 @@ function bindEvents() {
     event.preventDefault();
     const nameInput = $("#playerName");
     const ratingInput = $("#playerRating");
-    const added = await addPlayer(nameInput.value, ratingInput.value);
+    const genderInput = $("#playerGender");
+    const added = await addPlayer(nameInput.value, ratingInput.value, genderInput.value);
     if (added) {
       nameInput.value = "";
       ratingInput.value = "";

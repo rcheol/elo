@@ -23,6 +23,26 @@ const defaultSettings = {
   marginBonus: true,
 };
 const validRoles = new Set(["admin", "manager", "member"]);
+const validPlayerGenders = new Set(["male", "female"]);
+const femalePlayerNames = [
+  "안유진",
+  "변영선",
+  "장예향",
+  "백지영",
+  "신현정",
+  "진수연",
+  "이수연",
+  "정해슬",
+  "김수영",
+  "현현영",
+  "이예슬",
+  "전한슬",
+  "이화선",
+  "이나은",
+  "엘라",
+  "최정현",
+];
+const femalePlayerNameKeys = new Set(femalePlayerNames.map((name) => normalizeNameKey(name)));
 const playerCardStickerIds = [
   "shuttle",
   "racket",
@@ -118,6 +138,7 @@ function initDb() {
       user_id TEXT,
       name TEXT NOT NULL,
       normalized_name TEXT NOT NULL UNIQUE,
+      gender TEXT NOT NULL DEFAULT 'male' CHECK (gender IN ('male', 'female')),
       seed_rating REAL,
       created_at TEXT NOT NULL
     );
@@ -192,10 +213,12 @@ function initDb() {
 function migratePlayersTable() {
   const columns = db.prepare("PRAGMA table_info(players)").all();
   const hasUserId = columns.some((column) => column.name === "user_id");
+  const hasGender = columns.some((column) => column.name === "gender");
   const seedRatingColumn = columns.find((column) => column.name === "seed_rating");
   const seedRatingIsNotNull = Number(seedRatingColumn?.notnull || 0) === 1;
 
-  if (hasUserId && !seedRatingIsNotNull) {
+  if (hasUserId && hasGender && !seedRatingIsNotNull) {
+    backfillPlayerGenders();
     return;
   }
 
@@ -206,18 +229,26 @@ function migratePlayersTable() {
       user_id TEXT,
       name TEXT NOT NULL,
       normalized_name TEXT NOT NULL UNIQUE,
+      gender TEXT NOT NULL DEFAULT 'male' CHECK (gender IN ('male', 'female')),
       seed_rating REAL,
       created_at TEXT NOT NULL
     );
   `);
 
   db.prepare(`
-    INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
-    SELECT id, ${hasUserId ? "user_id" : "NULL"}, name, normalized_name, seed_rating, created_at
+    INSERT INTO players (id, user_id, name, normalized_name, gender, seed_rating, created_at)
+    SELECT id,
+           ${hasUserId ? "user_id" : "NULL"},
+           name,
+           normalized_name,
+           ${hasGender ? "gender" : "'male'"},
+           seed_rating,
+           created_at
     FROM players_legacy
   `).run();
   db.exec("DROP TABLE players_legacy");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_players_user_id_unique ON players(user_id) WHERE user_id IS NOT NULL");
+  backfillPlayerGenders();
 }
 
 function migrateUsersTable() {
@@ -386,6 +417,42 @@ function normalizeNameKey(value) {
   return normalizePlayerName(value).toLowerCase();
 }
 
+function basePlayerNameKey(value) {
+  return normalizeNameKey(String(value || "").replace(/\s*\([^)]*\)\s*$/, ""));
+}
+
+function inferPlayerGenderFromName(name) {
+  const normalizedName = normalizeNameKey(name);
+  const baseName = basePlayerNameKey(name);
+  return femalePlayerNameKeys.has(normalizedName) || femalePlayerNameKeys.has(baseName) ? "female" : "male";
+}
+
+function normalizePlayerGender(value, fallbackName = "") {
+  const gender = String(value || "").trim().toLowerCase();
+  if (validPlayerGenders.has(gender)) {
+    return gender;
+  }
+  return inferPlayerGenderFromName(fallbackName);
+}
+
+function backfillPlayerGenders() {
+  const update = db.prepare("UPDATE players SET gender = ? WHERE id = ?");
+  db
+    .prepare("SELECT id, name, gender FROM players")
+    .all()
+    .forEach((player) => {
+      const inferredGender = inferPlayerGenderFromName(player.name);
+      const currentGender = String(player.gender || "").trim().toLowerCase();
+      if (inferredGender === "female" && currentGender !== "female") {
+        update.run(inferredGender, player.id);
+        return;
+      }
+      if (!validPlayerGenders.has(currentGender)) {
+        update.run(inferredGender, player.id);
+      }
+    });
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
   const hash = crypto.scryptSync(String(password), salt, 64).toString("hex");
@@ -533,6 +600,7 @@ function playerFromRow(row) {
     accountUsername: row.account_username || "",
     accountRole: row.account_role ? normalizeRole(row.account_role) : "",
     name: row.name,
+    gender: normalizePlayerGender(row.gender, row.name),
     seedRating: row.seed_rating == null ? null : Number(row.seed_rating),
     status: row.seed_rating == null ? "pending" : "active",
     createdAt: row.created_at,
@@ -548,6 +616,7 @@ function getPlayers(options = {}) {
              users.username AS account_username,
              users.role AS account_role,
              players.name,
+             players.gender,
              players.seed_rating,
              players.created_at
       FROM players
@@ -696,17 +765,26 @@ function getCardStickers(currentUser = null) {
 }
 
 function getStatePayload(currentUser) {
-  const includePendingPlayers = currentUser?.role === "admin";
+  const safeCurrentUser = currentUser
+    ? {
+        id: currentUser.id,
+        username: currentUser.username,
+        displayName: currentUser.displayName,
+        role: normalizeRole(currentUser.role),
+        createdAt: currentUser.createdAt,
+      }
+    : null;
+  const includePendingPlayers = safeCurrentUser?.role === "admin";
   return {
     players: getPlayers({ includePending: includePendingPlayers }),
     matches: getMatches(),
     mannerVotes: getMannerVotes(),
-    cardStickers: getCardStickers(currentUser),
+    cardStickers: getCardStickers(safeCurrentUser),
     settings: getSettings(),
     visitorStats: getVisitorStats(),
     queuePlayerIds: getQueuePlayerIds(),
-    users: currentUser?.role === "admin" ? getUsersSafe() : [],
-    currentUser,
+    users: safeCurrentUser?.role === "admin" ? getUsersSafe() : [],
+    currentUser: safeCurrentUser,
   };
 }
 
@@ -1302,12 +1380,13 @@ function insertPlayer(input) {
     throw new HttpError(400, "PLAYER_NAME_REQUIRED");
   }
 
+  const gender = normalizePlayerGender(input?.gender, name);
   const seedRating = clampNumber(Number(input?.seedRating ?? input?.rating ?? getSettings().baseRating), 800, 2400);
   try {
     db.prepare(`
-      INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
-      VALUES (?, NULL, ?, ?, ?, ?)
-    `).run(uid(), name, normalizeNameKey(name), seedRating, nowIso());
+      INSERT INTO players (id, user_id, name, normalized_name, gender, seed_rating, created_at)
+      VALUES (?, NULL, ?, ?, ?, ?, ?)
+    `).run(uid(), name, normalizeNameKey(name), gender, seedRating, nowIso());
   } catch (error) {
     if (String(error.message).includes("UNIQUE")) {
       throw new HttpError(409, "PLAYER_NAME_TAKEN");
@@ -1410,10 +1489,11 @@ function createPendingPlayerForUser(user) {
   }
 
   const name = uniquePlayerNameForAccount(user.displayName, user.username);
+  const gender = normalizePlayerGender(user.gender, name);
   db.prepare(`
-    INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
-    VALUES (?, ?, ?, ?, NULL, ?)
-  `).run(uid(), user.id, name, normalizeNameKey(name), nowIso());
+    INSERT INTO players (id, user_id, name, normalized_name, gender, seed_rating, created_at)
+    VALUES (?, ?, ?, ?, ?, NULL, ?)
+  `).run(uid(), user.id, name, normalizeNameKey(name), gender, nowIso());
 }
 
 function ensurePendingPlayersForUsers() {
@@ -1629,6 +1709,7 @@ function createAccount(input) {
     id: uid(),
     username,
     displayName,
+    gender: normalizePlayerGender(input?.gender, displayName),
     role: userCount === 0 ? "admin" : "member",
     createdAt: nowIso(),
   };
@@ -1738,6 +1819,7 @@ function normalizeImportedPlayers(inputPlayers) {
       userId: player?.userId ? String(player.userId) : null,
       name,
       normalizedName: key,
+      gender: normalizePlayerGender(player?.gender, name),
       seedRating:
         player?.seedRating == null && player?.rating == null
           ? null
@@ -1819,11 +1901,19 @@ function replaceData(input, currentUser) {
   saveSettings(settings);
 
   const insertPlayerStatement = db.prepare(`
-    INSERT INTO players (id, user_id, name, normalized_name, seed_rating, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO players (id, user_id, name, normalized_name, gender, seed_rating, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   players.forEach((player) => {
-    insertPlayerStatement.run(player.id, player.userId, player.name, player.normalizedName, player.seedRating, player.createdAt);
+    insertPlayerStatement.run(
+      player.id,
+      player.userId,
+      player.name,
+      player.normalizedName,
+      player.gender,
+      player.seedRating,
+      player.createdAt,
+    );
   });
 
   const insertMatchStatement = db.prepare(`
@@ -2007,12 +2097,22 @@ function normalizeStoredPlayer(player, seenIds, seenNames) {
     userId: player?.userId ?? player?.user_id ? String(player?.userId ?? player?.user_id) : null,
     name,
     normalizedName,
+    gender: normalizePlayerGender(player?.gender, name),
     seedRating:
       player?.seedRating == null && player?.seed_rating == null
         ? null
         : clampNumber(Number(player?.seedRating ?? player?.seed_rating), 800, 2400),
     createdAt: player?.createdAt ?? player?.created_at ?? nowIso(),
   };
+}
+
+function backfillPostgresPlayerGenders(state) {
+  state.players.forEach((player) => {
+    const inferredGender = inferPlayerGenderFromName(player.name);
+    if (inferredGender === "female" || !validPlayerGenders.has(String(player.gender || "").trim().toLowerCase())) {
+      player.gender = inferredGender;
+    }
+  });
 }
 
 function normalizeStoredMatch(match, index, seenIds) {
@@ -2142,6 +2242,7 @@ function normalizePostgresState(value) {
     .map((player) => normalizeStoredPlayer(player, playerIds, playerNames))
     .filter(Boolean)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.name.localeCompare(b.name));
+  backfillPostgresPlayerGenders(state);
 
   const activePlayerIdsForQueue = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
   const queueIds = Array.isArray(source.queuePlayerIds) ? source.queuePlayerIds : [];
@@ -2259,6 +2360,7 @@ function pgPlayerFromStored(player, state = null) {
     accountUsername: accountUser?.username || "",
     accountRole: accountUser ? normalizeRole(accountUser.role) : "",
     name: player.name,
+    gender: normalizePlayerGender(player.gender, player.name),
     seedRating: player.seedRating == null ? null : Number(player.seedRating),
     status: player.seedRating == null ? "pending" : "active",
     createdAt: player.createdAt,
@@ -2387,17 +2489,18 @@ function pgSaveQueuePlayerIds(state, input) {
 }
 
 function pgGetStatePayload(state, currentUser) {
-  const includePendingPlayers = currentUser?.role === "admin";
+  const safeCurrentUser = pgUserFromStored(currentUser);
+  const includePendingPlayers = safeCurrentUser?.role === "admin";
   return {
     players: pgGetPlayers(state, { includePending: includePendingPlayers }),
     matches: pgGetMatches(state),
     mannerVotes: pgGetMannerVotes(state),
-    cardStickers: pgGetCardStickers(state, currentUser),
+    cardStickers: pgGetCardStickers(state, safeCurrentUser),
     settings: cloneSettings(state.settings),
     visitorStats: publicVisitorStats(state.visitorStats),
     queuePlayerIds: [...state.queuePlayerIds],
-    users: currentUser?.role === "admin" ? pgGetUsersSafe(state) : [],
-    currentUser,
+    users: safeCurrentUser?.role === "admin" ? pgGetUsersSafe(state) : [],
+    currentUser: safeCurrentUser,
   };
 }
 
@@ -2685,11 +2788,13 @@ function pgInsertPlayer(state, input) {
   }
 
   const seedRating = clampNumber(Number(input?.seedRating ?? input?.rating ?? state.settings.baseRating), 800, 2400);
+  const gender = normalizePlayerGender(input?.gender, name);
   state.players.push({
     id: uid(),
     userId: null,
     name,
     normalizedName,
+    gender,
     seedRating,
     createdAt: nowIso(),
   });
@@ -2781,11 +2886,13 @@ function pgCreatePendingPlayerForUser(state, user) {
   }
 
   const name = pgUniquePlayerNameForAccount(state, user.displayName, user.username);
+  const gender = normalizePlayerGender(user.gender, name);
   state.players.push({
     id: uid(),
     userId: user.id,
     name,
     normalizedName: normalizeNameKey(name),
+    gender,
     seedRating: null,
     createdAt: nowIso(),
   });
@@ -2828,12 +2935,13 @@ function pgCreateAccount(state, input) {
     id: uid(),
     username,
     displayName,
+    gender: normalizePlayerGender(input?.gender, displayName),
     passwordHash: hashPassword(password),
     role: state.users.length === 0 ? "admin" : "member",
     createdAt: nowIso(),
   };
   state.users.push(user);
-  return pgUserFromStored(user);
+  return user;
 }
 
 function pgLoginAccount(state, input) {
@@ -2931,6 +3039,7 @@ function pgReplaceData(state, input, currentUser) {
     userId: player.userId,
     name: player.name,
     normalizedName: player.normalizedName,
+    gender: player.gender,
     seedRating: player.seedRating,
     createdAt: player.createdAt,
   }));
