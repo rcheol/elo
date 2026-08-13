@@ -1456,6 +1456,10 @@ tbody tr:last-child td {
   color: #d14f7c;
 }
 
+.player-honor--clutch {
+  color: #d43d32;
+}
+
 .player-honor--win-streak {
   color: #c75147;
 }
@@ -1464,12 +1468,24 @@ tbody tr:last-child td {
   color: #8a5ad8;
 }
 
+.player-honor--ace-killer {
+  color: #5f42d6;
+}
+
 .player-honor--weak-killer {
   color: #8d6b18;
 }
 
 .player-honor--effort {
   color: #d06f1f;
+}
+
+.player-honor--chemistry {
+  color: #0f8f91;
+}
+
+.player-honor--best-partner {
+  color: #b36f00;
 }
 
 .player-sub {

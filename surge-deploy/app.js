@@ -889,9 +889,13 @@ function getStandings(sourceState = state) {
         attendanceDays: new Set(),
         maxWinStreak: 0,
         mannerVotes: mannerVoteCounts.get(player.id) || 0,
+        clutchWins: 0,
+        aceKillerDelta: 0,
+        partnerDeltaByPartner: new Map(),
       },
     ]),
   );
+  const partnerPairStats = new Map();
 
   sortedMatches(sourceState.matches).forEach((match) => {
     const changeMap = new Map(match.changes.map((change) => [change.id, Number(change.delta || 0)]));
@@ -908,21 +912,30 @@ function getStandings(sourceState = state) {
       }
     });
 
+    applyHonorMatchStats(table, partnerPairStats, match, changeMap);
     applyMatchStats(table, match.teamA, match.winner === "A", matchPlayedAt(match), changeMap);
     applyMatchStats(table, match.teamB, match.winner === "B", matchPlayedAt(match), changeMap);
   });
 
+  const bestPartnerPlayerIds = getBestPartnerPlayerIds(partnerPairStats);
   const standings = [...table.values()]
-    .map((player) => ({
-      ...player,
-      rating: round1(player.rating),
-      ratingGainFromSeed: round1(Number(player.rating || 0) - Number(player.seedRating || 0)),
-      recordMargin: Number(player.wins || 0) - Number(player.losses || 0),
-      peakRating: player.peakRating == null ? null : round1(player.peakRating),
-      attendanceDays: player.attendanceDays.size,
-      streakDelta: round1(player.streakDelta),
-      winRate: player.games ? player.wins / player.games : 0,
-    }))
+    .map((player) => {
+      const chemistryStats = chemistryStatsFromPartners(player.partnerDeltaByPartner);
+      return {
+        ...player,
+        rating: round1(player.rating),
+        ratingGainFromSeed: round1(Number(player.rating || 0) - Number(player.seedRating || 0)),
+        recordMargin: Number(player.wins || 0) - Number(player.losses || 0),
+        peakRating: player.peakRating == null ? null : round1(player.peakRating),
+        attendanceDays: player.attendanceDays.size,
+        streakDelta: round1(player.streakDelta),
+        winRate: player.games ? player.wins / player.games : 0,
+        aceKillerDelta: round1(player.aceKillerDelta),
+        chemistryPartnerCount: chemistryStats.partnerCount,
+        chemistrySpread: chemistryStats.spread,
+        isBestPartner: bestPartnerPlayerIds.has(player.id),
+      };
+    })
     .sort((a, b) => {
       if (b.rating !== a.rating) return b.rating - a.rating;
       if (b.winRate !== a.winRate) return b.winRate - a.winRate;
@@ -944,6 +957,117 @@ function playersWithBestRatio(standings, predicate, ratioValue) {
   return candidates
     .filter((entry) => Math.abs(entry.ratio - bestRatio) < 0.000001)
     .map((entry) => entry.player);
+}
+
+function playerMatchDelta(changeMap, playerId) {
+  return Number(changeMap.get(playerId) || 0);
+}
+
+function teamDelta(changeMap, teamIds = []) {
+  return round1(teamIds.reduce((sum, id) => sum + playerMatchDelta(changeMap, id), 0));
+}
+
+function pairKey(ids = []) {
+  return [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(":");
+}
+
+function addPartnerDelta(player, partnerId, delta) {
+  if (!player?.partnerDeltaByPartner || !partnerId) {
+    return;
+  }
+  const current = player.partnerDeltaByPartner.get(partnerId) || { totalDelta: 0, games: 0 };
+  current.totalDelta = round1(Number(current.totalDelta || 0) + Number(delta || 0));
+  current.games += 1;
+  player.partnerDeltaByPartner.set(partnerId, current);
+}
+
+function addPairDelta(pairStats, teamIds = [], delta) {
+  if (!Array.isArray(teamIds) || teamIds.length !== 2) {
+    return;
+  }
+  const key = pairKey(teamIds);
+  const current = pairStats.get(key) || { ids: [...teamIds], totalDelta: 0 };
+  current.totalDelta = round1(Number(current.totalDelta || 0) + Number(delta || 0));
+  pairStats.set(key, current);
+}
+
+function applyHonorTeamStats(table, pairStats, teamIds = [], won, winningScore, teamRating, opponentRating, changeMap) {
+  const totalDelta = teamDelta(changeMap, teamIds);
+  if (won && Number(winningScore || 0) >= 22) {
+    teamIds.forEach((id) => {
+      const player = table.get(id);
+      if (player) {
+        player.clutchWins += 1;
+      }
+    });
+  }
+
+  if (Number(teamRating || 0) < Number(opponentRating || 0)) {
+    teamIds.forEach((id) => {
+      const player = table.get(id);
+      if (player) {
+        player.aceKillerDelta = round1(Number(player.aceKillerDelta || 0) + playerMatchDelta(changeMap, id));
+      }
+    });
+  }
+
+  teamIds.forEach((id) => {
+    const player = table.get(id);
+    const partnerId = teamIds.find((entry) => entry !== id);
+    addPartnerDelta(player, partnerId, playerMatchDelta(changeMap, id));
+  });
+  addPairDelta(pairStats, teamIds, totalDelta);
+}
+
+function applyHonorMatchStats(table, pairStats, match, changeMap) {
+  applyHonorTeamStats(
+    table,
+    pairStats,
+    match.teamA,
+    match.winner === "A",
+    match.scoreA,
+    match.teamRatingA,
+    match.teamRatingB,
+    changeMap,
+  );
+  applyHonorTeamStats(
+    table,
+    pairStats,
+    match.teamB,
+    match.winner === "B",
+    match.scoreB,
+    match.teamRatingB,
+    match.teamRatingA,
+    changeMap,
+  );
+}
+
+function chemistryStatsFromPartners(partnerDeltaByPartner) {
+  const averages = [...(partnerDeltaByPartner?.values() || [])]
+    .map((entry) => (Number(entry?.games || 0) > 0 ? Number(entry.totalDelta || 0) / Number(entry.games || 0) : NaN))
+    .filter(Number.isFinite);
+  if (averages.length < 5) {
+    return { partnerCount: averages.length, spread: null };
+  }
+  const average = averages.reduce((sum, value) => sum + value, 0) / averages.length;
+  const variance = averages.reduce((sum, value) => sum + ((value - average) ** 2), 0) / averages.length;
+  return {
+    partnerCount: averages.length,
+    spread: Math.sqrt(variance),
+  };
+}
+
+function getBestPartnerPlayerIds(pairStats) {
+  const candidates = [...pairStats.values()].filter((entry) => Number(entry.totalDelta || 0) > 0);
+  const bestDelta = Math.max(0, ...candidates.map((entry) => Number(entry.totalDelta || 0)));
+  if (bestDelta <= 0) {
+    return new Set();
+  }
+  return new Set(
+    candidates
+      .filter((entry) => Math.abs(Number(entry.totalDelta || 0) - bestDelta) < 0.000001)
+      .flatMap((entry) => entry.ids),
+  );
 }
 
 const playerHonorRules = [
@@ -997,6 +1121,18 @@ const playerHonorRules = [
     },
   },
   {
+    key: "clutch",
+    label: "클러치왕",
+    className: "player-honor--clutch",
+    winners(standings) {
+      const maxClutchWins = Math.max(0, ...standings.map((player) => Number(player.clutchWins || 0)));
+      if (maxClutchWins <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.clutchWins || 0) === maxClutchWins);
+    },
+  },
+  {
     key: "winStreak",
     label: "연승왕",
     className: "player-honor--win-streak",
@@ -1018,6 +1154,18 @@ const playerHonorRules = [
         (player) => Number(player.recordMargin || 0) < 0 && Number(player.ratingGainFromSeed || 0) > 0,
         (player) => round1(Number(player.ratingGainFromSeed || 0)) / Math.abs(Number(player.recordMargin || 0)),
       );
+    },
+  },
+  {
+    key: "aceKiller",
+    label: "에이스킬러",
+    className: "player-honor--ace-killer",
+    winners(standings) {
+      const maxAceKillerDelta = Math.max(0, ...standings.map((player) => Number(player.aceKillerDelta || 0)));
+      if (maxAceKillerDelta <= 0) {
+        return [];
+      }
+      return standings.filter((player) => Number(player.aceKillerDelta || 0) === maxAceKillerDelta);
     },
   },
   {
@@ -1047,6 +1195,30 @@ const playerHonorRules = [
       return standings.filter((player) => (
         round1(Number(player.rating || 0) - Number(player.seedRating || 0)) === maxGainFromSeed
       ));
+    },
+  },
+  {
+    key: "chemistry",
+    label: "케미왕",
+    className: "player-honor--chemistry",
+    winners(standings) {
+      const candidates = standings.filter((player) => (
+        Number(player.chemistryPartnerCount || 0) >= 5
+        && Number.isFinite(Number(player.chemistrySpread))
+      ));
+      if (!candidates.length) {
+        return [];
+      }
+      const minSpread = Math.min(...candidates.map((player) => Number(player.chemistrySpread)));
+      return candidates.filter((player) => Math.abs(Number(player.chemistrySpread) - minSpread) < 0.000001);
+    },
+  },
+  {
+    key: "bestPartner",
+    label: "최강파트너",
+    className: "player-honor--best-partner",
+    winners(standings) {
+      return standings.filter((player) => player.isBestPartner);
     },
   },
 ];
