@@ -1714,6 +1714,15 @@ const playerAssetProfiles = [
     figureCardTiers: ["s", "a", "b", "c"],
   },
   {
+    identity: "minjae-jo",
+    accountIds: ["min.jae.jo"],
+    workdaySearchIds: ["min.jae.jo"],
+    nameIncludes: ["조민재"],
+    photo: "./assets/player-photos/minjae-jo.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
+  {
     identity: "wonjoon-cho",
     accountIds: ["june", "wonjoons.cho"],
     workdaySearchIds: ["wonjoons.cho"],
