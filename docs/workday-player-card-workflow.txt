@@ -1,0 +1,89 @@
+Honey Serve Workday profile photo and player card workflow
+Last updated: 2026-08-14
+
+Use this exact workflow for future player-card requests. Do not rediscover the
+browser, screenshot, crop, prompt, compression, or push path from scratch.
+
+1. Identify the player
+   - Fetch live state from https://honeyserve-elo.onrender.com/api/state.
+   - Match the requested Korean player name to the player object.
+   - Prefer player.accountUsername as the Workday search id when it exists and
+     looks like a Workday id.
+   - If the user explicitly gives a Workday/search id, use that id instead.
+   - If neither exists, search Workday by the Korean name.
+
+2. Control the already-open Workday Edge session
+   - Preferred path: use the old successful CDP connection to the already logged
+     in Edge session:
+     http://127.0.0.1:9333/json/list
+   - Pick the page target whose URL contains "workday", connect to its
+     webSocketDebuggerUrl, enable Runtime, and run DOM/fetch extraction inside
+     the page.
+   - For direct photo extraction, search document.images by the expected English
+     alt text or visible Workday profile result, then fetch img.currentSrc/src
+     with credentials: "include" and save the returned blob.
+   - Do not start by moving Edge to the foreground or doing coordinate-based
+     desktop automation. That is noisy and easy to break.
+   - Only use browser-extension tooling or Win32 foreground/coordinate
+     automation as a fallback when the CDP port is unavailable or stale.
+
+3. Foreground fallback only
+   - Use the known Workday Edge window from the window list. It usually has:
+     app = MSEdge, title contains Workday.
+   - If the window rectangle is -32000/-32000, it is minimized. Restore it.
+   - Use Win32 ShowWindow(hwnd, 9), SetWindowPos topmost, BringWindowToTop,
+     SetForegroundWindow, then SetWindowPos not-topmost.
+   - Confirm with a screenshot. Do not type until the screenshot clearly shows
+     the Workday search page in front.
+
+4. Search Workday
+   - Click the centered Workday search box, paste the search id via clipboard,
+     then press Enter.
+   - Wait for Workday. It is slow, so use a real delay and take a screenshot
+     after loading.
+   - Verify the result name and email/id visually before using the photo.
+
+5. Save the profile photo
+   - Screenshot the Workday result page.
+   - Crop the profile avatar from the screenshot into:
+     surge-deploy/assets/player-photos/<identity>.jpg
+   - Resize to 256x256 JPEG.
+   - Keep the photo small. Around 4KB to 30KB is normal.
+
+6. Generate player cards
+   - Use the built-in image_gen tool, not a custom script, for card generation.
+   - References for each card:
+     1. The saved profile photo
+     2. The matching base figure card:
+        - male-s-figure.jpg, male-a-figure.jpg, male-b-figure.jpg, male-c-figure.jpg
+        - female-s-figure.jpg, female-a-figure.jpg, female-b-figure.jpg, female-c-figure.jpg
+   - Use the prompt from docs/player-card-prompts.txt.
+   - Keep the card Nendoroid / collectible figurine style. Use the profile photo
+     only for stylized facial-design cues, not literal face copying.
+
+7. Save and compress generated cards
+   - Resize generated cards to 260x390.
+   - Save as JPEG:
+     surge-deploy/assets/player-cards/<identity>-s-figure.jpg
+     surge-deploy/assets/player-cards/<identity>-a-figure.jpg
+     surge-deploy/assets/player-cards/<identity>-b-figure.jpg
+     surge-deploy/assets/player-cards/<identity>-c-figure.jpg
+   - Compress each file under 40KB before committing.
+   - Inspect the final compressed files with view_image before committing.
+
+8. Wire the assets into the site
+   - Add a playerAssetProfiles entry in surge-deploy/app.js.
+   - Include accountIds, workdaySearchIds, nameIncludes, photo, and
+     figureCardTiers: ["s", "a", "b", "c"].
+   - Run npm.cmd run check. In PowerShell, use npm.cmd, not npm, because npm.ps1
+     can be blocked by execution policy.
+
+9. Commit and push
+   - Do not commit tmp/.
+   - Commit only the prompt/doc update, app.js mapping, profile photo, and card
+     images.
+   - Use:
+     git -c http.version=HTTP/1.1 push --verbose origin main
+   - If GitHub returns 403, check Windows Credential Manager. The correct GitHub
+     account for this repo is rcheol. A stale numeric github.com credential can
+     cause 403 even when the remote URL contains rcheol.

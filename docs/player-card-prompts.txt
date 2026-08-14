@@ -1,5 +1,5 @@
 Honey Serve player card prompts
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 This file keeps the reusable prompts for the Honey Serve player cards.
 The most successful current style is the personal 3D chibi / Nendoroid-style
@@ -21,9 +21,12 @@ Tier visual language:
 - C: bronze finish
 
 Workday profile photo lookup rule:
+- If the player already has a Honey Serve account username and it looks like a
+  Workday id, search Workday by that account username first.
 - If the user gives a specific Workday/search id with the person's name, search
   Workday by that id first.
-- If the user only gives the person's name, search Workday by the name.
+- If there is no account username and no explicit id, search Workday by the
+  person's name.
 
 Recommended source assets:
 - Male base cards:

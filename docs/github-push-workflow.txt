@@ -1,0 +1,64 @@
+Honey Serve GitHub push workflow
+Last updated: 2026-08-14
+
+Use this workflow for this repo. Do not switch to SSH, GitHub CLI, LFS, or a
+different remote unless the user explicitly asks.
+
+Known good direction
+====================
+
+- Repo: E:\github\badminton-elo-ranking
+- Remote: https://rcheol@github.com/rcheol/elo.git
+- Branch: main
+- GitHub account: rcheol
+- Network-safe push command:
+  git -c http.version=HTTP/1.1 push --verbose origin main
+- Authentication style:
+  HTTPS + Git Credential Manager + Windows Credential Manager.
+
+Rules
+=====
+
+1. Use PowerShell/Windows Git credential flow.
+   - The user has repeatedly confirmed that push works from VSCode PowerShell.
+   - Keep using HTTPS and Windows Credential Manager.
+   - Do not try SSH; the company/network path can block GitHub SSH.
+   - Do not switch to another method just because a non-interactive Codex shell
+     cannot show the credential prompt. The old successful method is still the
+     source of truth.
+
+2. Do not delete or rewrite GitHub credentials casually.
+   - Do not delete git:https://github.com credentials unless the user explicitly
+     approves it in that moment.
+   - If push fails with HTTP 403, first inspect which credential is being used:
+     cmdkey /list
+     "protocol=https`nhost=github.com`nusername=rcheol`n`n" | git credential fill
+   - Mask any password/token output.
+   - A stale credential such as User: 43690919 for git:https://github.com can
+     cause 403 for rcheol/elo.
+
+3. If authentication is missing, restore the old successful flow.
+   - Open an interactive PowerShell in the user session.
+   - Run:
+     cd E:\github\badminton-elo-ranking
+     git -c http.version=HTTP/1.1 push --verbose origin main
+   - Let Git Credential Manager open its browser/login prompt.
+   - The user signs in as rcheol once.
+   - After that, normal non-interactive pushes should work again because Windows
+     Credential Manager has the correct credential.
+
+4. Keep asset files small.
+   - Player cards should be under 36KB when possible and always under 40KB.
+   - Do not use Git LFS. The user's company environment blocks LFS.
+   - For image/card work, commit and push one image file at a time. The company
+     network can return HTTP 403 when one push pack is around 100KB+ even if
+     every individual file is below 40KB.
+   - If several small commits are already local, push them incrementally:
+     git push origin <commit-sha>:refs/heads/main
+     then repeat with the next commit SHA in chronological order.
+
+5. If a non-interactive push fails with:
+   fatal: helper error (-1): authentication prompt was canceled
+   bash: /dev/tty: No such device or address
+   then the current shell could not show the GCM prompt. Do not keep retrying
+   the same non-interactive command. Use step 3.
