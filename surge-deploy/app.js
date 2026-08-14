@@ -836,7 +836,7 @@ async function deleteUser(userId) {
     showToast("현재 로그인한 계정은 삭제할 수 없습니다.");
     return;
   }
-  if (!window.confirm(`${target.displayName} 계정을 삭제할까요?`)) {
+  if (!window.confirm(`${target.displayName} 계정만 삭제하고 연결된 선수는 남겨둘까요?`)) {
     return;
   }
 

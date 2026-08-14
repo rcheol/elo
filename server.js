@@ -1780,14 +1780,7 @@ function deleteUser(targetUserId, currentUser) {
     throw new HttpError(409, "LAST_ADMIN");
   }
 
-  const linkedPlayer = db.prepare("SELECT id, seed_rating FROM players WHERE user_id = ?").get(targetUserId);
-  if (linkedPlayer) {
-    if (countPlayerGames(linkedPlayer.id) === 0) {
-      db.prepare("DELETE FROM players WHERE id = ?").run(linkedPlayer.id);
-    } else {
-      db.prepare("UPDATE players SET user_id = NULL WHERE id = ?").run(linkedPlayer.id);
-    }
-  }
+  db.prepare("UPDATE players SET user_id = NULL WHERE user_id = ?").run(targetUserId);
 
   db.prepare("DELETE FROM users WHERE id = ?").run(targetUserId);
 }
@@ -2995,15 +2988,11 @@ function pgDeleteUser(state, targetUserId, currentUser) {
     throw new HttpError(409, "LAST_ADMIN");
   }
 
-  const linkedPlayer = state.players.find((player) => player.userId === targetUserId);
-  if (linkedPlayer) {
-    if (pgCountPlayerGames(state, linkedPlayer.id) === 0) {
-      state.players = state.players.filter((player) => player.id !== linkedPlayer.id);
-      state.queuePlayerIds = state.queuePlayerIds.filter((id) => id !== linkedPlayer.id);
-    } else {
-      linkedPlayer.userId = null;
+  state.players.forEach((player) => {
+    if (player.userId === targetUserId) {
+      player.userId = null;
     }
-  }
+  });
 
   state.sessions = state.sessions.filter((session) => session.userId !== targetUserId);
   state.users = state.users.filter((user) => user.id !== targetUserId);
