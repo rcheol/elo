@@ -1023,6 +1023,38 @@ function pairKey(ids = []) {
   return [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(":");
 }
 
+function isSamePair(leftIds = [], rightIds = []) {
+  return leftIds.length === 2 && rightIds.length === 2 && pairKey(leftIds) === pairKey(rightIds);
+}
+
+function selectedTeamHeadToHead(teamA = [], teamB = []) {
+  const stats = {
+    games: 0,
+    wins: 0,
+    losses: 0,
+    recentAt: "",
+  };
+
+  sortedMatches().forEach((match) => {
+    const matchTeamA = match.teamA || [];
+    const matchTeamB = match.teamB || [];
+    const selectedAWasA = isSamePair(teamA, matchTeamA) && isSamePair(teamB, matchTeamB);
+    const selectedAWasB = isSamePair(teamA, matchTeamB) && isSamePair(teamB, matchTeamA);
+
+    if (!selectedAWasA && !selectedAWasB) {
+      return;
+    }
+
+    const selectedAWon = selectedAWasA ? match.winner === "A" : match.winner === "B";
+    stats.games += 1;
+    stats.wins += selectedAWon ? 1 : 0;
+    stats.losses += selectedAWon ? 0 : 1;
+    stats.recentAt = matchPlayedAt(match);
+  });
+
+  return stats;
+}
+
 function addPartnerDelta(player, partnerId, delta) {
   if (!player?.partnerDeltaByPartner || !partnerId) {
     return;
@@ -3255,7 +3287,18 @@ function renderPreview() {
   const ratingA = average(teamA.map((id) => ratingById.get(id)));
   const ratingB = average(teamB.map((id) => ratingById.get(id)));
   const expectedA = 1 / (1 + 10 ** ((ratingB - ratingA) / 400));
-  preview.textContent = `A팀 평균 ${Math.round(ratingA)} : ${Math.round(ratingB)} · A팀 기대승률 ${Math.round(expectedA * 100)}%`;
+  const headToHead = selectedTeamHeadToHead(teamA, teamB);
+  const previewLines = [
+    `<span class="rating-preview-line">A팀 평균 ${Math.round(ratingA)} : ${Math.round(ratingB)} · A팀 기대승률 ${Math.round(expectedA * 100)}%</span>`,
+  ];
+
+  if (headToHead.games > 0) {
+    previewLines.push(
+      `<span class="rating-preview-line rating-preview-line--head-to-head">상대전적 A팀 ${headToHead.wins}승 ${headToHead.losses}패 · 최근 ${escapeHtml(formatDate(headToHead.recentAt))}</span>`,
+    );
+  }
+
+  preview.innerHTML = previewLines.join("");
 }
 
 function shuffleTeams() {

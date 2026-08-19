@@ -635,6 +635,17 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.rating-preview-line {
+  display: block;
+}
+
+.rating-preview-line--head-to-head {
+  margin-top: 2px;
+  color: var(--green-deep);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
 .player-form,
 .queue-form {
   grid-template-columns: minmax(0, 1fr) 138px auto;
