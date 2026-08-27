@@ -894,11 +894,18 @@ textarea:focus {
   justify-content: flex-end;
 }
 
-.player-card .player-honor {
+.player-card .player-honor,
+.player-card .player-text-tag {
   background: rgba(9, 18, 16, 0.58);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
   backdrop-filter: blur(3px);
   text-shadow: 0 1px 5px rgba(0, 0, 0, 0.75);
+}
+
+.player-card .player-text-tag--local-b,
+.player-card .player-text-tag--local-c,
+.player-card .player-text-tag--national-c {
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .player-card__metrics {
@@ -1441,7 +1448,8 @@ tbody tr:last-child td {
   vertical-align: middle;
 }
 
-.player-honor {
+.player-honor,
+.player-text-tag {
   display: inline-flex;
   align-items: center;
   min-height: 19px;
@@ -1453,6 +1461,22 @@ tbody tr:last-child td {
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
+}
+
+.player-text-tag {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.player-text-tag--local-b {
+  color: #14705d;
+}
+
+.player-text-tag--local-c {
+  color: #326fc7;
+}
+
+.player-text-tag--national-c {
+  color: #b3265a;
 }
 
 .player-honor--wins {

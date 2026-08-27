@@ -1473,6 +1473,38 @@ function playerCardDisplayName(player) {
   return name.replace(new RegExp(`\\s*\\(${escapeRegExp(accountId)}\\)\\s*$`, "i"), "").trim() || name;
 }
 
+const playerTextTagRules = [
+  {
+    nameKey: "강경국",
+    label: "지역B조",
+    className: "player-text-tag--local-b",
+  },
+  {
+    nameKey: "박성수",
+    label: "지역C조",
+    className: "player-text-tag--local-c",
+  },
+  {
+    nameKey: "안유진",
+    label: "지역B조",
+    className: "player-text-tag--local-b",
+  },
+  {
+    nameKey: "조민신",
+    label: "전국C조",
+    className: "player-text-tag--national-c",
+  },
+];
+
+function playerTextTags(player) {
+  const playerNameKeys = new Set([
+    normalizeNameKey(player?.name),
+    basePlayerNameKey(player?.name),
+  ]);
+
+  return playerTextTagRules.filter((rule) => playerNameKeys.has(rule.nameKey));
+}
+
 const playerAssetProfiles = [
   {
     identity: "cheol-ryu",
@@ -1887,24 +1919,32 @@ function renderPlayerHonorBadgeItems(honors = []) {
   `).join("");
 }
 
-function renderPlayerHonorBadges(honors = []) {
-  if (!honors.length) {
+function renderPlayerTextTagBadgeItems(player) {
+  return playerTextTags(player).map((tag) => `
+    <span class="player-text-tag ${escapeHtml(tag.className || "")}">${escapeHtml(tag.label)}</span>
+  `).join("");
+}
+
+function renderPlayerBadges(player) {
+  const markup = `${renderPlayerTextTagBadgeItems(player)}${renderPlayerHonorBadgeItems(player?.honors || [])}`;
+  if (!markup) {
     return "";
   }
 
   return `
-    <span class="player-honor-list" aria-label="선수 칭호">
-      ${renderPlayerHonorBadgeItems(honors)}
+    <span class="player-honor-list" aria-label="선수 태그와 칭호">
+      ${markup}
     </span>
   `;
 }
 
-function setPlayerCardHonors(element, honors = []) {
+function setPlayerCardBadges(element, player) {
   if (!element) {
     return;
   }
-  element.innerHTML = renderPlayerHonorBadgeItems(honors);
-  element.hidden = !honors.length;
+  const markup = `${renderPlayerTextTagBadgeItems(player)}${renderPlayerHonorBadgeItems(player?.honors || [])}`;
+  element.innerHTML = markup;
+  element.hidden = !markup;
 }
 
 function renderRankingPlayerName(player, options = {}) {
@@ -1916,8 +1956,7 @@ function renderRankingPlayerName(player, options = {}) {
       </button>
     `
     : `<span class="player-name">${escapeHtml(displayName)}</span>`;
-  const honorMarkup = renderPlayerHonorBadges(player.honors);
-  const combinedMarkup = `${nameMarkup}${honorMarkup}`;
+  const combinedMarkup = `${nameMarkup}${renderPlayerBadges(player)}`;
 
   if (!playerAccountId(player)) {
     return `<span class="player-name-with-honors">${combinedMarkup}</span>`;
@@ -2533,7 +2572,7 @@ function renderAuth(standings) {
     $("#currentUserName").textContent = player?.name || user.displayName;
     $("#currentUserHandle").textContent = `@${user.username}`;
     $("#currentRoleBadge").textContent = roleLabel(user.role);
-    setPlayerCardHonors($("#currentHonorBadges"), player?.honors || []);
+    setPlayerCardBadges($("#currentHonorBadges"), player);
     $("#currentPlayerCardRating").textContent = player ? Math.round(player.rating).toLocaleString("ko-KR") : "--";
     $("#currentPlayerCardRank").textContent = rank ? `#${rank}` : "--";
     $("#currentPlayerCardManner").textContent = player ? Number(player.mannerVotes || 0).toLocaleString("ko-KR") : "0";
@@ -2873,7 +2912,7 @@ function openPlayerCardDialog(playerId) {
   $("#rankingPlayerCardHandle").textContent = accountId ? `@${accountId}` : "";
   roleBadge.textContent = role ? roleLabel(role) : "";
   roleBadge.hidden = !role;
-  setPlayerCardHonors($("#rankingPlayerCardHonorBadges"), player.honors || []);
+  setPlayerCardBadges($("#rankingPlayerCardHonorBadges"), player);
   $("#rankingPlayerCardRating").textContent = Number.isFinite(rating) ? Math.round(rating).toLocaleString("ko-KR") : "--";
   $("#rankingPlayerCardRank").textContent = rank > 0 ? `#${rank}` : "--";
   $("#rankingPlayerCardManner").textContent = Number(player.mannerVotes || 0).toLocaleString("ko-KR");
