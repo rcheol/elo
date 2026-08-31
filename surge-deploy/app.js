@@ -1505,6 +1505,20 @@ function playerTextTags(player) {
   return playerTextTagRules.filter((rule) => playerNameKeys.has(rule.nameKey));
 }
 
+const hiddenRankingPlayerNameKeys = new Set(["조민신"]);
+
+function isHiddenFromRankings(player) {
+  const playerNameKeys = new Set([
+    normalizeNameKey(player?.name),
+    basePlayerNameKey(player?.name),
+  ]);
+  return [...playerNameKeys].some((nameKey) => hiddenRankingPlayerNameKeys.has(nameKey));
+}
+
+function visibleRankingStandings(standings) {
+  return standings.filter((player) => !isHiddenFromRankings(player));
+}
+
 const playerAssetProfiles = [
   {
     identity: "cheol-ryu",
@@ -2775,8 +2789,9 @@ function renderAccess() {
 function renderRankings(standings, options = {}) {
   const body = $("#rankingBody");
   const empty = $("#rankingEmpty");
-  const focusPlayerId = focusedRankingPlayerId(standings);
-  const activeRows = standings.map((player, index) => {
+  const visibleStandings = visibleRankingStandings(standings);
+  const focusPlayerId = focusedRankingPlayerId(visibleStandings);
+  const activeRows = visibleStandings.map((player, index) => {
       const rank = index + 1;
       const tier = playerCardTier(player);
       const rankClass = `rank-pill rank-pill--${tier.key}`;
@@ -2843,6 +2858,7 @@ function renderRankings(standings, options = {}) {
   const pendingRows = isAdmin()
     ? state.players
         .filter((player) => player.seedRating == null || player.status === "pending")
+        .filter((player) => !isHiddenFromRankings(player))
         .map((player) => `
           <tr class="pending-player-row">
             <td><span class="rank-pill">-</span></td>
@@ -2876,7 +2892,7 @@ function renderRankings(standings, options = {}) {
 
   body.innerHTML = [...activeRows, ...pendingRows].join("");
 
-  empty.classList.toggle("is-visible", standings.length + pendingRows.length === 0);
+  empty.classList.toggle("is-visible", visibleStandings.length + pendingRows.length === 0);
   if (!shouldPreserveScroll(options)) {
     scrollRankingToFocus(focusPlayerId);
   }
@@ -3373,7 +3389,7 @@ function formatStreakText(streak, streakDelta = 0) {
 }
 
 function buildRankingExportLines() {
-  const standings = getStandings();
+  const standings = visibleRankingStandings(getStandings());
   const lines = standings.map((player, index) => {
     const winRate = player.games ? `${Math.round(player.winRate * 100)}%` : "-";
     const lastPlayed = player.lastPlayed ? `최근 ${formatDate(player.lastPlayed)}` : "경기 없음";
@@ -3398,6 +3414,7 @@ function buildRankingExportLines() {
   if (isAdmin()) {
     state.players
       .filter((player) => player.seedRating == null || player.status === "pending")
+      .filter((player) => !isHiddenFromRankings(player))
       .forEach((player) => {
         lines.push(`-. ${playerDisplayName(player, { managerBadge: true })} | 초기 ELO 필요 | 전적 - | 승률 - | 최고 -`);
       });
