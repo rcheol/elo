@@ -16,6 +16,9 @@ const visitorMaxAgeMs = 1000 * 60 * 60 * 24 * 400;
 const visitorCookieName = "visitor_id";
 const maxBodyBytes = 2 * 1024 * 1024;
 const healthPaths = new Set(["/api/health", "/healthz", "/health"]);
+const videoScoreTextLimit = 12000;
+const videoScoreFetchTimeoutMs = 10000;
+const openAiVideoScoreModel = process.env.OPENAI_VIDEO_SCORE_MODEL || "gpt-5-mini";
 
 const defaultSettings = {
   baseRating: 1500,
@@ -1689,6 +1692,448 @@ function sendError(req, res, error) {
   sendJson(req, res, status, payload);
 }
 
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(Number.parseInt(code, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function normalizeAnalysisText(value) {
+  return decodeHtmlEntities(value)
+    .replace(/\\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clipAnalysisText(value, maxLength = videoScoreTextLimit) {
+  const text = normalizeAnalysisText(value);
+  return text.length > maxLength ? `${text.slice(0, maxLength)} ...` : text;
+}
+
+function validBadmintonFinalScore(scoreA, scoreB) {
+  if (!Number.isInteger(scoreA) || !Number.isInteger(scoreB)) {
+    return false;
+  }
+  if (scoreA < 0 || scoreB < 0 || scoreA === scoreB) {
+    return false;
+  }
+  const winnerScore = Math.max(scoreA, scoreB);
+  const loserScore = Math.min(scoreA, scoreB);
+  const gap = winnerScore - loserScore;
+  return winnerScore >= 21 && winnerScore <= 30 && loserScore <= 29 && (gap >= 2 || winnerScore === 30);
+}
+
+function extractYouTubeVideoId(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(value)) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
+    const parts = url.pathname.split("/").filter(Boolean);
+
+    if (host === "youtu.be") {
+      return /^[a-zA-Z0-9_-]{11}$/.test(parts[0] || "") ? parts[0] : "";
+    }
+
+    if (host === "youtube.com" || host === "music.youtube.com") {
+      const watchId = url.searchParams.get("v");
+      if (/^[a-zA-Z0-9_-]{11}$/.test(watchId || "")) {
+        return watchId;
+      }
+      if (["embed", "shorts", "live"].includes(parts[0]) && /^[a-zA-Z0-9_-]{11}$/.test(parts[1] || "")) {
+        return parts[1];
+      }
+    }
+  } catch {
+    const match = value.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/))([a-zA-Z0-9_-]{11})/);
+    return match?.[1] || "";
+  }
+
+  return "";
+}
+
+function normalizedYouTubeWatchUrl(videoId) {
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = videoScoreFetchTimeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 HoneyServeScoreBot/1.0",
+        Accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
+        ...(options.headers || {}),
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchTextSafely(url, options = {}) {
+  try {
+    const response = await fetchWithTimeout(url, options);
+    if (!response.ok) {
+      return "";
+    }
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
+async function fetchJsonSafely(url, options = {}) {
+  const text = await fetchTextSafely(url, options);
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonObjectAfter(source, marker) {
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const start = source.indexOf("{", markerIndex + marker.length);
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseYouTubeInitialPlayerResponse(html) {
+  const jsonText = extractJsonObjectAfter(html, "ytInitialPlayerResponse");
+  if (!jsonText) {
+    return null;
+  }
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    return null;
+  }
+}
+
+function captionTracksFromPlayerResponse(playerResponse) {
+  return playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+}
+
+async function fetchCaptionText(track) {
+  const baseUrl = String(track?.baseUrl || "");
+  if (!baseUrl) {
+    return "";
+  }
+  const separator = baseUrl.includes("?") ? "&" : "?";
+  const jsonUrl = baseUrl.includes("fmt=") ? baseUrl : `${baseUrl}${separator}fmt=json3`;
+  const captionJson = await fetchJsonSafely(jsonUrl);
+  if (captionJson?.events) {
+    return captionJson.events
+      .map((event) => (event.segs || []).map((segment) => segment.utf8 || "").join(""))
+      .join(" ");
+  }
+
+  const captionXml = await fetchTextSafely(baseUrl);
+  return captionXml
+    .replace(/<text[^>]*>/g, " ")
+    .replace(/<\/text>/g, " ")
+    .replace(/<[^>]+>/g, " ");
+}
+
+function scoreCandidateFromText(text, source) {
+  const normalized = normalizeAnalysisText(text);
+  if (!normalized) {
+    return null;
+  }
+
+  const scoreRegex = /(?<!\d)(\d{1,2})\s*(?:점)?\s*(?:[:：\-–—]|대|vs\.?|VS\.?)\s*(\d{1,2})\s*(?:점)?(?!\d)/g;
+  const candidates = [];
+  let match;
+
+  while ((match = scoreRegex.exec(normalized))) {
+    const scoreA = Number(match[1]);
+    const scoreB = Number(match[2]);
+    if (!validBadmintonFinalScore(scoreA, scoreB)) {
+      continue;
+    }
+
+    const before = normalized.slice(Math.max(0, match.index - 36), match.index);
+    const after = normalized.slice(match.index + match[0].length, match.index + match[0].length + 36);
+    const context = `${before}${match[0]}${after}`;
+    const scoreWords = /(최종|결과|스코어|점수|final|score|result|win|won|승)/i.test(context);
+    const timeWords = /(오전|오후|\bAM\b|\bPM\b|시\s*$|분\s*$)/i.test(before);
+    const confidence = clampNumber((source === "captions" ? 0.58 : 0.64) + (scoreWords ? 0.17 : 0) - (timeWords ? 0.2 : 0), 0.35, 0.88);
+    candidates.push({
+      scoreA,
+      scoreB,
+      confidence,
+      source,
+      context: context.trim(),
+      index: match.index,
+    });
+  }
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  return candidates.sort((a, b) => {
+    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    const maxDiff = Math.max(b.scoreA, b.scoreB) - Math.max(a.scoreA, a.scoreB);
+    if (maxDiff !== 0) return maxDiff;
+    return b.index - a.index;
+  })[0];
+}
+
+async function collectYouTubeAnalysisText(videoId) {
+  const watchUrl = normalizedYouTubeWatchUrl(videoId);
+  const sources = [];
+  const warnings = [];
+
+  const oembed = await fetchJsonSafely(`https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`);
+  if (oembed?.title) {
+    sources.push({ type: "title", text: oembed.title });
+  }
+
+  const html = await fetchTextSafely(`${watchUrl}&hl=ko&gl=KR`);
+  const playerResponse = html ? parseYouTubeInitialPlayerResponse(html) : null;
+  const videoDetails = playerResponse?.videoDetails;
+  if (videoDetails?.title && videoDetails.title !== oembed?.title) {
+    sources.push({ type: "title", text: videoDetails.title });
+  }
+  if (videoDetails?.shortDescription) {
+    sources.push({ type: "description", text: videoDetails.shortDescription });
+  }
+
+  const tracks = captionTracksFromPlayerResponse(playerResponse)
+    .slice()
+    .sort((a, b) => {
+      const aKo = String(a.languageCode || "").startsWith("ko") ? 0 : 1;
+      const bKo = String(b.languageCode || "").startsWith("ko") ? 0 : 1;
+      const aManual = a.kind === "asr" ? 1 : 0;
+      const bManual = b.kind === "asr" ? 1 : 0;
+      return aKo - bKo || aManual - bManual;
+    })
+    .slice(0, 2);
+
+  for (const track of tracks) {
+    const text = await fetchCaptionText(track);
+    if (text) {
+      sources.push({ type: "captions", text });
+      break;
+    }
+  }
+
+  if (!html) {
+    warnings.push("영상 페이지 텍스트를 가져오지 못했습니다.");
+  }
+  if (!tracks.length) {
+    warnings.push("사용 가능한 자막을 찾지 못했습니다.");
+  }
+
+  return {
+    videoId,
+    url: watchUrl,
+    title: normalizeAnalysisText(oembed?.title || videoDetails?.title || ""),
+    sources,
+    warnings,
+  };
+}
+
+function parseOpenAiJsonOutput(payload) {
+  const outputText = payload?.output_text
+    || (payload?.output || [])
+      .flatMap((item) => item.content || [])
+      .map((content) => content.text || "")
+      .join("")
+      .trim();
+  if (!outputText) {
+    return null;
+  }
+  try {
+    return JSON.parse(outputText);
+  } catch {
+    return null;
+  }
+}
+
+async function analyzeScoreWithOpenAi(videoText) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  const textBySource = videoText.sources
+    .map((source, index) => `[${index + 1}:${source.type}] ${clipAnalysisText(source.text, 5000)}`)
+    .join("\n\n")
+    .slice(0, videoScoreTextLimit);
+
+  if (!textBySource) {
+    return null;
+  }
+
+  const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      model: openAiVideoScoreModel,
+      input: [
+        {
+          role: "system",
+          content: "You extract the final badminton doubles score from YouTube metadata or captions. Return only evidence-backed results.",
+        },
+        {
+          role: "user",
+          content: [
+            "Find the final match score if it is explicitly present in the text.",
+            "Accept badminton final scores such as 21:18, 22:20, or 30:29.",
+            "Do not infer from timestamps, dates, set numbers, or unrelated numbers.",
+            "Return confidence as a number from 0 to 1.",
+            "If no reliable final score is present, return found=false.",
+            "",
+            textBySource,
+          ].join("\n"),
+        },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "badminton_video_score",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              found: { type: "boolean" },
+              scoreA: { type: "integer" },
+              scoreB: { type: "integer" },
+              confidence: { type: "number" },
+              evidence: { type: "string" },
+            },
+            required: ["found", "scoreA", "scoreB", "confidence", "evidence"],
+          },
+        },
+      },
+      max_output_tokens: 300,
+    }),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json();
+  const result = parseOpenAiJsonOutput(payload);
+  if (!result?.found) {
+    return null;
+  }
+
+  const scoreA = Number(result.scoreA);
+  const scoreB = Number(result.scoreB);
+  if (!validBadmintonFinalScore(scoreA, scoreB)) {
+    return null;
+  }
+
+  const rawConfidence = Number(result.confidence || 0.75);
+  return {
+    scoreA,
+    scoreB,
+    confidence: clampNumber(rawConfidence > 1 ? rawConfidence / 100 : rawConfidence, 0.35, 0.95),
+    source: "ai",
+    context: String(result.evidence || "").slice(0, 180),
+  };
+}
+
+async function analyzeVideoScore(input) {
+  const videoId = extractYouTubeVideoId(input?.url || input?.youtubeUrl);
+  if (!videoId) {
+    throw new HttpError(400, "VIDEO_URL_UNSUPPORTED", "유튜브 링크를 확인하세요.");
+  }
+
+  const videoText = await collectYouTubeAnalysisText(videoId);
+  if (!videoText.sources.length) {
+    throw new HttpError(422, "VIDEO_TEXT_UNAVAILABLE", "영상의 제목, 설명, 자막을 가져오지 못했습니다.");
+  }
+
+  const regexCandidate = videoText.sources
+    .map((source) => scoreCandidateFromText(source.text, source.type))
+    .filter(Boolean)
+    .sort((a, b) => b.confidence - a.confidence)[0] || null;
+
+  let aiCandidate = null;
+  try {
+    aiCandidate = await analyzeScoreWithOpenAi(videoText);
+  } catch {
+    videoText.warnings.push("AI 분석을 완료하지 못했습니다.");
+  }
+
+  const result = aiCandidate || regexCandidate;
+  if (!result) {
+    throw new HttpError(422, "VIDEO_SCORE_NOT_FOUND", "영상 텍스트에서 최종 스코어를 찾지 못했습니다.");
+  }
+
+  return {
+    videoId,
+    url: videoText.url,
+    title: videoText.title,
+    scoreA: result.scoreA,
+    scoreB: result.scoreB,
+    confidence: round1(result.confidence * 100),
+    source: result.source,
+    evidence: result.context,
+    warnings: videoText.warnings,
+  };
+}
+
 function createAccount(input) {
   const username = normalizeUsername(input?.username);
   const displayName = normalizeDisplayName(input?.displayName, username);
@@ -3132,6 +3577,13 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, payload);
   }
 
+  if (method === "POST" && pathname === "/api/video-score") {
+    const body = await readJsonBody(req);
+    await withPostgresState((state) => pgRequireUser(req, state));
+    const payload = await analyzeVideoScore(body);
+    return sendJson(req, res, 200, payload);
+  }
+
   const playerStickerMatch = pathname.match(/^\/api\/players\/([^/]+)\/stickers\/([^/]+)$/);
   if (method === "PUT" && playerStickerMatch) {
     const body = await readJsonBody(req);
@@ -3368,6 +3820,13 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     runInTransaction(() => saveQueuePlayerIds(body, currentUser));
     return sendJson(req, res, 200, getStatePayload(currentUser));
+  }
+
+  if (method === "POST" && pathname === "/api/video-score") {
+    requireUser(req);
+    const body = await readJsonBody(req);
+    const payload = await analyzeVideoScore(body);
+    return sendJson(req, res, 200, payload);
   }
 
   const playerStickerMatch = pathname.match(/^\/api\/players\/([^/]+)\/stickers\/([^/]+)$/);

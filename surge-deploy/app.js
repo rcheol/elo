@@ -72,6 +72,7 @@ let toastTimer = null;
 let editingMatchId = null;
 let openCardPlayerId = "";
 let stickerDrag = null;
+let videoScoreBusy = false;
 let paginationState = {
   myHistory: 1,
   partnerStats: 1,
@@ -128,6 +129,9 @@ const errorMessages = {
   USER_PLAYER_REQUIRED: "연결할 선수를 선택하세요.",
   USERNAME_TAKEN: "이미 등록된 아이디입니다.",
   USERNAME_TOO_SHORT: "아이디는 3자 이상 입력하세요.",
+  VIDEO_SCORE_NOT_FOUND: "영상에서 최종 스코어를 찾지 못했습니다.",
+  VIDEO_TEXT_UNAVAILABLE: "영상의 제목, 설명, 자막을 가져오지 못했습니다.",
+  VIDEO_URL_UNSUPPORTED: "유튜브 링크를 확인하세요.",
 };
 
 function createDefaultState() {
@@ -2430,7 +2434,75 @@ function resetMatchEntryDefaults() {
       input.value = "21";
     }
   });
+  const youtubeInput = $("#youtubeMatchUrl");
+  if (youtubeInput) {
+    youtubeInput.value = "";
+  }
+  setVideoScoreResult("");
   renderPreview();
+}
+
+function setVideoScoreBusy(busy) {
+  videoScoreBusy = busy;
+  const button = $("#videoScoreAnalyzeBtn");
+  const input = $("#youtubeMatchUrl");
+  const loggedIn = Boolean(getCurrentUser());
+  if (button) {
+    button.disabled = busy || !loggedIn;
+    const label = $("span", button);
+    if (label) {
+      label.textContent = busy ? "분석 중" : "스코어 추출";
+    }
+  }
+  if (input) {
+    input.disabled = busy || !loggedIn;
+  }
+}
+
+function setVideoScoreResult(message, status = "") {
+  const result = $("#videoScoreResult");
+  if (!result) {
+    return;
+  }
+  result.textContent = message || "";
+  result.classList.toggle("is-success", status === "success");
+  result.classList.toggle("is-error", status === "error");
+}
+
+async function analyzeVideoScoreFromUrl() {
+  if (!requireLogin()) return;
+
+  const input = $("#youtubeMatchUrl");
+  const url = input?.value.trim() || "";
+  if (!url) {
+    showToast("유튜브 링크를 입력하세요.");
+    input?.focus();
+    return;
+  }
+
+  setVideoScoreBusy(true);
+  setVideoScoreResult("분석 중...");
+  try {
+    const payload = await apiFetch("/api/video-score", {
+      method: "POST",
+      body: { url },
+    });
+    $("#scoreA").value = String(payload.scoreA);
+    $("#scoreB").value = String(payload.scoreB);
+    renderPreview();
+
+    const confidenceText = Number.isFinite(Number(payload.confidence))
+      ? ` · 신뢰도 ${Math.round(Number(payload.confidence))}%`
+      : "";
+    const titleText = payload.title ? ` · ${payload.title}` : "";
+    setVideoScoreResult(`${payload.scoreA} : ${payload.scoreB} 반영${confidenceText}${titleText}`, "success");
+    showToast(`${payload.scoreA} : ${payload.scoreB} 스코어를 반영했습니다.`);
+  } catch (error) {
+    setVideoScoreResult(apiMessage(error), "error");
+    showApiError(error);
+  } finally {
+    setVideoScoreBusy(false);
+  }
 }
 
 async function recordMatch() {
@@ -2771,6 +2843,7 @@ function renderAccess() {
   $("#matchSubmitBtn").disabled = !canRecordMatch;
   $("#shuffleBtn").hidden = activePlayerCount < 4;
   $("#shuffleBtn").disabled = !canRecordMatch;
+  setVideoScoreBusy(videoScoreBusy);
 
   $("#playerName").disabled = !canAddPlayers;
   $("#playerRating").disabled = !canAddPlayers;
@@ -3577,6 +3650,14 @@ function bindEvents() {
   $("#scoreA").addEventListener("input", renderPreview);
   $("#scoreB").addEventListener("input", renderPreview);
   $("#shuffleBtn").addEventListener("click", shuffleTeams);
+  $("#videoScoreAnalyzeBtn").addEventListener("click", analyzeVideoScoreFromUrl);
+  $("#youtubeMatchUrl").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      analyzeVideoScoreFromUrl();
+    }
+  });
+  $("#youtubeMatchUrl").addEventListener("input", () => setVideoScoreResult(""));
   $("#exportBtn").addEventListener("click", exportData);
 
   $("#baseRating").addEventListener("change", (event) => {

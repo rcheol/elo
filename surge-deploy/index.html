@@ -161,6 +161,17 @@
                 <input id="matchPlayedAt" required type="datetime-local">
               </label>
             </div>
+            <div class="video-score-tool">
+              <label>
+                <span>유튜브 링크</span>
+                <input id="youtubeMatchUrl" autocomplete="off" inputmode="url" placeholder="https://youtu.be/..." type="url">
+              </label>
+              <button class="icon-text-button" id="videoScoreAnalyzeBtn" type="button">
+                <i data-lucide="wand-sparkles"></i>
+                <span>스코어 추출</span>
+              </button>
+              <p id="videoScoreResult" class="video-score-result" aria-live="polite"></p>
+            </div>
             <div class="team-grid">
               <div class="team-box team-box--a" role="group" aria-labelledby="teamATitle">
                 <h3 id="teamATitle">A팀</h3>
