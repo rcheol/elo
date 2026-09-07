@@ -1,22 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import os
 import platform
 import socket
+import subprocess
 import sys
+import tempfile
 import traceback
+from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
 
 from app.config import get_settings
+from app.frame_extractor import find_ffmpeg
 from app.models import ScoreScanRequest, SlotPlayer
 from app.providers.gemma_frames import analyze_score_scan_with_gemma, detect_player_slots_with_gemma
 
 
 DEFAULT_API_BASE_URL = "https://honeyserve-elo.onrender.com"
 MIN_PYTHON_VERSION = (3, 10)
+DEFAULT_RESULT_UPLOAD_SOFT_LIMIT_BYTES = 45 * 1024
 
 
 def env(name: str, default: str = "") -> str:
@@ -54,6 +62,27 @@ def poll_seconds() -> float:
 
 def worker_verify_tls() -> bool:
     return env_bool("WORKER_VERIFY_TLS", True)
+
+
+def result_upload_soft_limit_bytes() -> int:
+    try:
+        return max(8 * 1024, int(env("WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES", str(DEFAULT_RESULT_UPLOAD_SOFT_LIMIT_BYTES))))
+    except ValueError:
+        return DEFAULT_RESULT_UPLOAD_SOFT_LIMIT_BYTES
+
+
+def reference_frame_max_height() -> int:
+    try:
+        return max(60, min(240, int(env("WORKER_REFERENCE_FRAME_MAX_HEIGHT", "120"))))
+    except ValueError:
+        return 120
+
+
+def reference_frame_jpeg_quality() -> int:
+    try:
+        return max(2, min(31, int(env("WORKER_REFERENCE_FRAME_JPEG_QUALITY", "16"))))
+    except ValueError:
+        return 16
 
 
 def auth_headers() -> Dict[str, str]:
@@ -100,8 +129,116 @@ async def fetch_next_job(client: httpx.AsyncClient) -> Optional[Dict[str, Any]]:
 
 
 async def submit_result(client: httpx.AsyncClient, job_id: str, payload: Dict[str, Any]) -> None:
+    payload = fit_result_payload_for_upload(payload)
+    payload_size = json_payload_size(payload)
+    print(f"Submitting job {job_id} result ({payload_size} bytes)")
     response = await client.post(f"/api/video-analysis/worker/jobs/{job_id}/result", json=payload)
-    response.raise_for_status()
+    if response.status_code == 403 and "Access Upload Denied" in response.text:
+        fallback_payload = fit_result_payload_for_upload(payload, drop_images=True)
+        fallback_size = json_payload_size(fallback_payload)
+        print(f"Upload denied; retrying job {job_id} result without frame images ({fallback_size} bytes)")
+        response = await client.post(f"/api/video-analysis/worker/jobs/{job_id}/result", json=fallback_payload)
+
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Failed to submit worker result ({response.status_code}): "
+            f"{response.text[:500]}"
+        )
+
+
+def json_payload_size(payload: Dict[str, Any]) -> int:
+    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def fit_result_payload_for_upload(payload: Dict[str, Any], *, drop_images: bool = False) -> Dict[str, Any]:
+    fitted = deepcopy(payload)
+    fitted["warnings"] = trim_strings(fitted.get("warnings") or [], max_items=8, max_chars=500)
+
+    if isinstance(fitted.get("referenceFrames"), list):
+        if drop_images:
+            fitted["referenceFrames"] = []
+        else:
+            fitted["referenceFrames"] = compact_reference_frames(fitted["referenceFrames"])
+
+    score_result = fitted.get("scoreResult")
+    if isinstance(score_result, dict):
+        score_result["warnings"] = trim_strings(score_result.get("warnings") or [], max_items=8, max_chars=500)
+        score_result["evidence"] = (score_result.get("evidence") or [])[:8]
+        score_result["readings"] = (score_result.get("readings") or [])[:120]
+
+    limit = result_upload_soft_limit_bytes()
+    while json_payload_size(fitted) > limit and fitted.get("referenceFrames"):
+        fitted["referenceFrames"].pop()
+
+    if json_payload_size(fitted) > limit:
+        fitted.pop("referenceFrames", None)
+
+    return fitted
+
+
+def trim_strings(items: Any, *, max_items: int, max_chars: int) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    return [str(item)[:max_chars] for item in items[:max_items]]
+
+
+def compact_reference_frames(frames: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    compacted = []
+    for frame in frames:
+        compacted.append(
+            {
+                "timestamp": str(frame.get("timestamp") or ""),
+                "imageDataUrl": compact_image_data_url(str(frame.get("imageDataUrl") or "")),
+            }
+        )
+    return compacted
+
+
+def compact_image_data_url(data_url: str) -> str:
+    if not data_url.startswith("data:image/") or "," not in data_url:
+        return data_url
+
+    ffmpeg_path = find_ffmpeg()
+    if not ffmpeg_path:
+        return data_url
+
+    _header, encoded = data_url.split(",", 1)
+    try:
+        image_bytes = base64.b64decode(encoded)
+    except ValueError:
+        return data_url
+
+    with tempfile.TemporaryDirectory(prefix="honeyserve-thumb-") as temp_dir:
+        input_path = Path(temp_dir) / "input.jpg"
+        output_path = Path(temp_dir) / "thumb.jpg"
+        input_path.write_bytes(image_bytes)
+
+        command = [
+            ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vf",
+            f"scale=-2:min({reference_frame_max_height()}\\,ih)",
+            "-frames:v",
+            "1",
+            "-q:v",
+            str(reference_frame_jpeg_quality()),
+            str(output_path),
+        ]
+        try:
+            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return data_url
+
+        if not output_path.exists():
+            return data_url
+
+        thumb = base64.b64encode(output_path.read_bytes()).decode("ascii")
+        return f"data:image/jpeg;base64,{thumb}"
 
 
 async def run_player_detection(job: Dict[str, Any]) -> Dict[str, Any]:

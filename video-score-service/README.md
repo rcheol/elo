@@ -58,11 +58,15 @@ GEMMA_MODEL=base/gemma-4-31b-it
 GEMMA_VERIFY_TLS=false
 YTDLP_VERIFY_TLS=false
 WORKER_VERIFY_TLS=false
+WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES=46080
+WORKER_REFERENCE_FRAME_MAX_HEIGHT=120
+WORKER_REFERENCE_FRAME_JPEG_QUALITY=16
 REQUEST_TIMEOUT_SECONDS=300
 ```
 
 `WORKER_VERIFY_TLS=false`는 로컬 worker가 Render 큐 서버에 붙을 때 Python 인증서 검증에서 막히는 경우에만 사용합니다. 사내 SSL 프록시나 로컬 Python CA 문제로 `[SSL: CERTIFICATE_VERIFY_FAILED]`가 나면 이 값을 false로 두고 다시 실행하면 됩니다.
 `YTDLP_VERIFY_TLS=false`는 `yt-dlp`가 YouTube 페이지/API를 읽을 때 같은 인증서 검증 오류가 나는 경우에 사용합니다.
+회사망 업로드 제한으로 `Access Upload Denied`가 나면 worker가 기준 프레임을 썸네일로 줄여 다시 올립니다. 기본 업로드 목표 크기는 `WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES=46080`입니다.
 
 실행:
 

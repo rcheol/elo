@@ -110,7 +110,7 @@ def extract_frames_from_youtube_info(
     max_frames: int,
     max_height: int,
 ) -> List[ExtractedFrame]:
-    ffmpeg_path = _find_ffmpeg()
+    ffmpeg_path = find_ffmpeg()
     if not ffmpeg_path:
         raise RuntimeError("ffmpeg is required for Gemma frame extraction. Install imageio-ffmpeg or put ffmpeg on PATH.")
 
@@ -162,7 +162,7 @@ def extract_frames_from_youtube_info(
         return frames
 
 
-def _find_ffmpeg() -> Optional[str]:
+def find_ffmpeg() -> Optional[str]:
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
         return ffmpeg_path
