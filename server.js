@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import https from "node:https";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,8 @@ const healthPaths = new Set(["/api/health", "/healthz", "/health"]);
 const videoScoreTextLimit = 12000;
 const videoScoreFetchTimeoutMs = 10000;
 const openAiVideoScoreModel = process.env.OPENAI_VIDEO_SCORE_MODEL || "gpt-5-mini";
+const infiniaGemmaChatCompletionsUrl = "https://infinia-api.dev-aibixby.com/oai/v1/chat/completions";
+const infiniaGemmaProbeTimeoutMs = 30000;
 
 const defaultSettings = {
   baseRating: 1500,
@@ -2134,6 +2137,86 @@ async function analyzeVideoScore(input) {
   };
 }
 
+function normalizeBearerToken(input) {
+  return String(input || "").replace(/^Bearer\s+/i, "").trim();
+}
+
+function redactedResponsePreview(text) {
+  return String(text || "")
+    .replace(/Bearer\s+[^\s"]+/gi, "Bearer [redacted]")
+    .slice(0, 500);
+}
+
+function probeInfiniaGemma(input) {
+  const apiKey = normalizeBearerToken(input?.apiKey || input?.token || process.env.GEMMA_API_KEY);
+  if (!apiKey) {
+    throw new HttpError(400, "GEMMA_API_KEY_REQUIRED", "Gemma API 키를 입력하세요.");
+  }
+
+  const requestBody = JSON.stringify({
+    model: String(input?.model || "base/gemma-4-31b-it"),
+    messages: [
+      {
+        role: "system",
+        content: "You are Gauss, created by Samsung Research. You are a helpful assistant.",
+      },
+      {
+        role: "user",
+        content: "Reply with exactly: honeyserve-ok",
+      },
+    ],
+    temperature: 0,
+    max_tokens: 32,
+  });
+  const url = new URL(infiniaGemmaChatCompletionsUrl);
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      url,
+      {
+        method: "POST",
+        rejectUnauthorized: false,
+        timeout: infiniaGemmaProbeTimeoutMs,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Length": Buffer.byteLength(requestBody),
+        },
+      },
+      (response) => {
+        let responseText = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          responseText += chunk;
+          if (responseText.length > 3000) {
+            request.destroy();
+          }
+        });
+        response.on("end", () => {
+          resolve({
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            upstreamStatus: response.statusCode,
+            upstreamStatusMessage: response.statusMessage,
+            endpointHost: url.hostname,
+            model: "base/gemma-4-31b-it",
+            responsePreview: redactedResponsePreview(responseText),
+          });
+        });
+      },
+    );
+
+    request.on("timeout", () => {
+      request.destroy(new Error("Gemma probe timed out."));
+    });
+    request.on("error", (error) => {
+      reject(new HttpError(502, "GEMMA_PROBE_FAILED", error.message));
+    });
+    request.write(requestBody);
+    request.end();
+  });
+}
+
 function createAccount(input) {
   const username = normalizeUsername(input?.username);
   const displayName = normalizeDisplayName(input?.displayName, username);
@@ -3513,6 +3596,12 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, { ok: true, storage: "postgres" });
   }
 
+  if (method === "POST" && pathname === "/api/gemma-connectivity-test") {
+    const body = await readJsonBody(req);
+    const payload = await probeInfiniaGemma(body);
+    return sendJson(req, res, 200, payload);
+  }
+
   if (method === "GET" && pathname === "/api/state") {
     const result = await withPostgresState((state) => {
       const currentUser = pgGetCurrentUser(req, state);
@@ -3765,6 +3854,12 @@ async function handleApi(req, res, url) {
 
   if (method === "GET" && healthPaths.has(pathname)) {
     return sendJson(req, res, 200, { ok: true, storage: "sqlite" });
+  }
+
+  if (method === "POST" && pathname === "/api/gemma-connectivity-test") {
+    const body = await readJsonBody(req);
+    const payload = await probeInfiniaGemma(body);
+    return sendJson(req, res, 200, payload);
   }
 
   if (method === "GET" && pathname === "/api/state") {
