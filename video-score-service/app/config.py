@@ -27,6 +27,8 @@ class Settings:
     gemma_frame_max_frames: int
     gemma_frame_max_height: int
     gemma_frame_jpeg_quality: int
+    gemma_player_frame_max_height: int
+    gemma_player_frame_jpeg_quality: int
     gemma_request_max_bytes: int
     gemma_score_scan_interval_seconds: int
     gemma_score_scan_max_frames: int
@@ -71,6 +73,8 @@ def get_settings() -> Settings:
         gemma_frame_max_frames=int(os.getenv("GEMMA_FRAME_MAX_FRAMES", "12")),
         gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "360")),
         gemma_frame_jpeg_quality=int(os.getenv("GEMMA_FRAME_JPEG_QUALITY", "16")),
+        gemma_player_frame_max_height=int(os.getenv("GEMMA_PLAYER_FRAME_MAX_HEIGHT", "480")),
+        gemma_player_frame_jpeg_quality=int(os.getenv("GEMMA_PLAYER_FRAME_JPEG_QUALITY", "18")),
         gemma_request_max_bytes=int(os.getenv("GEMMA_REQUEST_MAX_BYTES", "40000")),
         gemma_score_scan_interval_seconds=int(os.getenv("GEMMA_SCORE_SCAN_INTERVAL_SECONDS", "1")),
         gemma_score_scan_max_frames=int(os.getenv("GEMMA_SCORE_SCAN_MAX_FRAMES", "1200")),

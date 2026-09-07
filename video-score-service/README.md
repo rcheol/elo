@@ -58,6 +58,8 @@ GEMMA_MODEL=base/gemma-4-31b-it
 GEMMA_VERIFY_TLS=false
 GEMMA_FRAME_MAX_HEIGHT=360
 GEMMA_FRAME_JPEG_QUALITY=16
+GEMMA_PLAYER_FRAME_MAX_HEIGHT=480
+GEMMA_PLAYER_FRAME_JPEG_QUALITY=18
 GEMMA_REQUEST_MAX_BYTES=40000
 GEMMA_SCORE_SCAN_INTERVAL_SECONDS=1
 GEMMA_SCORE_SCAN_MAX_FRAMES=1200
@@ -69,14 +71,15 @@ GEMMA_RALLY_MIN_CONFIDENCE=0.55
 YTDLP_VERIFY_TLS=false
 WORKER_VERIFY_TLS=false
 WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES=40000
-WORKER_REFERENCE_FRAME_MAX_HEIGHT=120
-WORKER_REFERENCE_FRAME_JPEG_QUALITY=16
+WORKER_REFERENCE_FRAME_MAX_HEIGHT=480
+WORKER_REFERENCE_FRAME_JPEG_QUALITY=18
 REQUEST_TIMEOUT_SECONDS=300
 ```
 
 `WORKER_VERIFY_TLS=false`는 로컬 worker가 Render 큐 서버에 붙을 때 Python 인증서 검증에서 막히는 경우에만 사용합니다. 사내 SSL 프록시나 로컬 Python CA 문제로 `[SSL: CERTIFICATE_VERIFY_FAILED]`가 나면 이 값을 false로 두고 다시 실행하면 됩니다.
 `YTDLP_VERIFY_TLS=false`는 `yt-dlp`가 YouTube 페이지/API를 읽을 때 같은 인증서 검증 오류가 나는 경우에 사용합니다.
 회사망 업로드 제한으로 `Access Upload Denied`가 나면 Gemma 요청과 worker 결과 업로드 크기를 줄여야 합니다. 기본 Gemma 요청 제한은 `GEMMA_REQUEST_MAX_BYTES=40000`, worker 결과 업로드 목표 크기는 `WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES=40000`입니다.
+Player mapping uses separate higher-resolution frames (`GEMMA_PLAYER_FRAME_MAX_HEIGHT=480`) and checks every candidate frame before choosing the clearest one. The worker keeps that reference image at full quality when the upload payload is already under `WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES`; it only downscales as a fallback.
 
 실행:
 

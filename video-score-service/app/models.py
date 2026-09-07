@@ -97,7 +97,7 @@ class VideoSessionCreateRequest(BaseModel):
     youtube_url: str = Field(..., min_length=8)
     hint: str = Field(default="", max_length=1000)
     save_raw: bool = False
-    calibration_max_frames: int = Field(default=4, ge=1, le=12)
+    calibration_max_frames: int = Field(default=18, ge=1, le=24)
 
 
 class PlayerMappingRequest(BaseModel):

@@ -1,7 +1,13 @@
 from pydantic import ValidationError
 
-from app.models import PlayerMappingRequest, ScoreReading
-from app.providers.gemma_frames import _parse_rally_window_analysis, _select_final_score, _select_scoreboard_checkpoint
+from app.models import PlayerMappingRequest, PlayerSlot, ScoreReading
+from app.providers.gemma_frames import (
+    _parse_rally_window_analysis,
+    _player_slot_candidate_is_found,
+    _player_slot_candidate_score,
+    _select_final_score,
+    _select_scoreboard_checkpoint,
+)
 
 
 def test_player_mapping_requires_four_unique_slots():
@@ -109,3 +115,31 @@ def test_scoreboard_checkpoint_only_applies_small_forward_jumps():
         accepted_rallies=3,
     )
     assert large_jump is None
+
+
+def test_player_slot_candidate_prefers_distinguishable_mapping_frame():
+    slots = [
+        PlayerSlot(slot_id="A1", team="A", label="near-left", description="white shirt", confidence=0.8),
+        PlayerSlot(slot_id="A2", team="A", label="near-right", description="blue shirt", confidence=0.8),
+        PlayerSlot(slot_id="B1", team="B", label="far-left", description="black shirt", confidence=0.75),
+        PlayerSlot(slot_id="B2", team="B", label="far-right", description="red shirt", confidence=0.75),
+    ]
+    strong = {
+        "found": True,
+        "visiblePlayers": 4,
+        "distinguishablePlayers": 4,
+        "qualityScore": 82,
+        "identificationQuality": "good",
+    }
+    weak = {
+        "found": True,
+        "visiblePlayers": 4,
+        "distinguishablePlayers": 2,
+        "qualityScore": 35,
+        "identificationQuality": "poor",
+        "warnings": ["far-side players are small and blurred"],
+    }
+
+    assert _player_slot_candidate_is_found(strong, slots)
+    assert not _player_slot_candidate_is_found(weak, slots)
+    assert _player_slot_candidate_score(strong, slots) > _player_slot_candidate_score(weak, slots)

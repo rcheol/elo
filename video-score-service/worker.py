@@ -73,16 +73,16 @@ def result_upload_soft_limit_bytes() -> int:
 
 def reference_frame_max_height() -> int:
     try:
-        return max(60, min(240, int(env("WORKER_REFERENCE_FRAME_MAX_HEIGHT", "120"))))
+        return max(120, min(720, int(env("WORKER_REFERENCE_FRAME_MAX_HEIGHT", "480"))))
     except ValueError:
-        return 120
+        return 480
 
 
 def reference_frame_jpeg_quality() -> int:
     try:
-        return max(2, min(31, int(env("WORKER_REFERENCE_FRAME_JPEG_QUALITY", "16"))))
+        return max(2, min(31, int(env("WORKER_REFERENCE_FRAME_JPEG_QUALITY", "18"))))
     except ValueError:
-        return 16
+        return 18
 
 
 def auth_headers() -> Dict[str, str]:
@@ -154,12 +154,6 @@ def fit_result_payload_for_upload(payload: Dict[str, Any], *, drop_images: bool 
     fitted = deepcopy(payload)
     fitted["warnings"] = trim_strings(fitted.get("warnings") or [], max_items=8, max_chars=500)
 
-    if isinstance(fitted.get("referenceFrames"), list):
-        if drop_images:
-            fitted["referenceFrames"] = []
-        else:
-            fitted["referenceFrames"] = compact_reference_frames(fitted["referenceFrames"])
-
     score_result = fitted.get("scoreResult")
     if isinstance(score_result, dict):
         score_result["warnings"] = trim_strings(score_result.get("warnings") or [], max_items=8, max_chars=500)
@@ -167,6 +161,32 @@ def fit_result_payload_for_upload(payload: Dict[str, Any], *, drop_images: bool 
         score_result["readings"] = (score_result.get("readings") or [])[:120]
 
     limit = result_upload_soft_limit_bytes()
+    source_reference_frames = fitted.get("referenceFrames") if isinstance(fitted.get("referenceFrames"), list) else None
+    if source_reference_frames is not None:
+        if drop_images:
+            fitted["referenceFrames"] = []
+        elif json_payload_size(fitted) > limit:
+            fitted["referenceFrames"] = compact_reference_frames(
+                source_reference_frames,
+                max_height=reference_frame_max_height(),
+                jpeg_quality=reference_frame_jpeg_quality(),
+            )
+            for max_height, jpeg_quality in (
+                (420, 20),
+                (360, 22),
+                (300, 24),
+                (240, 26),
+                (180, 28),
+                (120, 30),
+            ):
+                if json_payload_size(fitted) <= limit:
+                    break
+                fitted["referenceFrames"] = compact_reference_frames(
+                    source_reference_frames,
+                    max_height=max_height,
+                    jpeg_quality=jpeg_quality,
+                )
+
     while json_payload_size(fitted) > limit and fitted.get("referenceFrames"):
         fitted["referenceFrames"].pop()
 
@@ -182,19 +202,28 @@ def trim_strings(items: Any, *, max_items: int, max_chars: int) -> list[str]:
     return [str(item)[:max_chars] for item in items[:max_items]]
 
 
-def compact_reference_frames(frames: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+def compact_reference_frames(
+    frames: list[Dict[str, Any]],
+    *,
+    max_height: Optional[int] = None,
+    jpeg_quality: Optional[int] = None,
+) -> list[Dict[str, Any]]:
     compacted = []
     for frame in frames:
         compacted.append(
             {
                 "timestamp": str(frame.get("timestamp") or ""),
-                "imageDataUrl": compact_image_data_url(str(frame.get("imageDataUrl") or "")),
+                "imageDataUrl": compact_image_data_url(
+                    str(frame.get("imageDataUrl") or ""),
+                    max_height=max_height or reference_frame_max_height(),
+                    jpeg_quality=jpeg_quality or reference_frame_jpeg_quality(),
+                ),
             }
         )
     return compacted
 
 
-def compact_image_data_url(data_url: str) -> str:
+def compact_image_data_url(data_url: str, *, max_height: int, jpeg_quality: int) -> str:
     if not data_url.startswith("data:image/") or "," not in data_url:
         return data_url
 
@@ -222,11 +251,11 @@ def compact_image_data_url(data_url: str) -> str:
             "-i",
             str(input_path),
             "-vf",
-            f"scale=-2:min({reference_frame_max_height()}\\,ih)",
+            f"scale=-2:min({max_height}\\,ih)",
             "-frames:v",
             "1",
             "-q:v",
-            str(reference_frame_jpeg_quality()),
+            str(max(2, min(31, int(jpeg_quality)))),
             str(output_path),
         ]
         try:

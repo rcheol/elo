@@ -102,14 +102,14 @@ async def detect_player_slots_with_gemma(
     frames = extract_evenly_spaced_frames_from_youtube(
         youtube_url,
         max_frames=max_frames,
-        max_height=settings.gemma_frame_max_height,
-        jpeg_quality=settings.gemma_frame_jpeg_quality,
-        start_ratio=0.03,
-        end_ratio=0.70,
+        max_height=settings.gemma_player_frame_max_height,
+        jpeg_quality=settings.gemma_player_frame_jpeg_quality,
+        start_ratio=0.04,
+        end_ratio=0.88,
     )
 
     warnings: List[str] = []
-    best_candidate: Optional[Tuple[ExtractedFrame, List[PlayerSlot], List[str], Optional[Dict], float]] = None
+    best_candidate: Optional[Tuple[ExtractedFrame, List[PlayerSlot], List[str], Optional[Dict], float, bool]] = None
 
     for index, frame in enumerate(frames, start=1):
         payload = _build_chat_payload(
@@ -128,24 +128,23 @@ async def detect_player_slots_with_gemma(
             parsed = extract_json_object(_extract_chat_text(raw))
             slots, slot_warnings = _parse_player_slots(parsed)
             candidate_score = _player_slot_candidate_score(parsed, slots)
+            candidate_found = _player_slot_candidate_is_found(parsed, slots)
         except ValueError as exc:
             warnings.append(f"{frame.timestamp_label}: {exc}")
             continue
 
-        candidate = (frame, slots, slot_warnings, raw if save_raw else None, candidate_score)
+        candidate = (frame, slots, slot_warnings, raw if save_raw else None, candidate_score, candidate_found)
         if not best_candidate or candidate_score > best_candidate[4]:
             best_candidate = candidate
 
-        if _player_slot_candidate_is_found(parsed, slots):
-            return _reference_frames([frame]), slots, warnings + slot_warnings + [
-                f"Selected one reference frame at {frame.timestamp_label} where all four players appear visible."
-            ], raw if save_raw else None
-
     if best_candidate:
-        frame, slots, slot_warnings, raw, _score = best_candidate
-        return _reference_frames([frame]), slots, warnings + slot_warnings + [
-            f"Could not fully verify all four players at once; using the clearest single frame at {frame.timestamp_label}."
-        ], raw
+        frame, slots, slot_warnings, raw, _score, candidate_found = best_candidate
+        message = (
+            f"Selected the clearest player-mapping frame at {frame.timestamp_label} after checking {len(frames)} candidate frames."
+            if candidate_found else
+            f"Using the best available player-mapping frame at {frame.timestamp_label} after checking {len(frames)} candidate frames."
+        )
+        return _reference_frames([frame]), slots, warnings + slot_warnings + [message], raw
 
     raise RuntimeError("Could not find a usable reference frame for player mapping. " + " ".join(warnings[-3:]))
 
@@ -446,14 +445,17 @@ Rules:
 
 
 def _build_single_frame_player_slot_prompt(hint: str, frame: ExtractedFrame, *, index: int, total: int) -> str:
-    user_hint = hint.strip() or "Find a single clear frame where all four doubles players are visible at once."
+    user_hint = hint.strip() or "Find the clearest single frame for a human to map all four doubles players."
     return f"""
-Analyze this single badminton doubles frame and decide whether all four players are visible enough for a user to identify them.
+Analyze this single badminton doubles frame as a candidate for human player mapping.
 
 Return only this JSON object:
 {{
   "found": true or false,
   "visiblePlayers": 0,
+  "distinguishablePlayers": 0,
+  "qualityScore": 0,
+  "identificationQuality": "excellent" or "good" or "fair" or "poor",
   "reason": "short explanation",
   "slots": [
     {{"slotId": "A1", "team": "A", "label": "near-left", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
@@ -466,11 +468,16 @@ Return only this JSON object:
 
 Rules:
 - Analyze only this one frame. Do not use other timestamps.
-- Set found=true only when four actual badminton players are simultaneously visible and distinguishable.
+- Set found=true only when four actual badminton players are simultaneously visible and distinguishable by a human.
 - Do not identify real names. The user will map these anonymous slots to real players.
 - Team A is the near/bottom/first-side team from the camera perspective. Team B is the far/top/opposite-side team.
 - Within each team, left/right is from the camera perspective.
-- Keep descriptions short and useful: clothing color, court side, near/far, left/right, stance, or racket hand.
+- Prefer frames where all four players are separated, not hidden behind each other, not motion-blurred, and large enough to inspect clothing/body cues.
+- Penalize frames where far-side players are tiny, cropped, blocked, blurred, or all wearing similar clothing with no useful distinguishing cue.
+- qualityScore is 0-100 for user mapping usefulness, not for match action quality.
+- distinguishablePlayers is how many of the four can be told apart from the others in this frame.
+- Slot confidence should reflect whether that exact slot can be mapped visually, not whether a player exists somewhere in the frame.
+- Keep descriptions short and useful: clothing color, court side, near/far, left/right, stance, racket hand, shorts/skirt color, shoe color, or pose.
 - Candidate frame {index} of {total}, timestamp: {frame.timestamp_label}
 - User hint: {user_hint}
 """.strip()
@@ -716,17 +723,65 @@ def _parse_player_slots(payload: Dict) -> Tuple[List[PlayerSlot], List[str]]:
 def _player_slot_candidate_is_found(payload: Dict, slots: List[PlayerSlot]) -> bool:
     found = _truthy(payload.get("found") or payload.get("allPlayersVisible") or payload.get("all_players_visible"))
     visible_players = _safe_int(payload.get("visiblePlayers", payload.get("visible_players")), default=0)
+    distinguishable_players = _safe_int(
+        payload.get("distinguishablePlayers", payload.get("distinguishable_players")),
+        default=0,
+    )
+    quality_score = _safe_float(payload.get("qualityScore", payload.get("quality_score")), default=0.0)
+    identification_quality = str(payload.get("identificationQuality") or payload.get("identification_quality") or "").lower()
     described_slots = sum(1 for slot in slots if slot.description.strip())
-    confident_slots = sum(1 for slot in slots if slot.confidence >= 0.35)
-    return found and visible_players >= 4 and described_slots >= 4 and confident_slots >= 3
+    confident_slots = sum(1 for slot in slots if slot.confidence >= 0.45)
+    average_confidence = sum(slot.confidence for slot in slots) / max(1, len(slots))
+    return (
+        found
+        and visible_players >= 4
+        and distinguishable_players >= 4
+        and described_slots >= 4
+        and confident_slots >= 3
+        and average_confidence >= 0.5
+        and quality_score >= 60
+        and identification_quality != "poor"
+    )
 
 
 def _player_slot_candidate_score(payload: Dict, slots: List[PlayerSlot]) -> float:
     visible_players = _safe_int(payload.get("visiblePlayers", payload.get("visible_players")), default=0)
+    distinguishable_players = _safe_int(
+        payload.get("distinguishablePlayers", payload.get("distinguishable_players")),
+        default=0,
+    )
+    quality_score = _safe_float(payload.get("qualityScore", payload.get("quality_score")), default=0.0)
+    identification_quality = str(payload.get("identificationQuality") or payload.get("identification_quality") or "").lower()
     described_slots = sum(1 for slot in slots if slot.description.strip())
     confidence_total = sum(slot.confidence for slot in slots)
-    found_bonus = 4.0 if _truthy(payload.get("found") or payload.get("allPlayersVisible") or payload.get("all_players_visible")) else 0.0
-    return found_bonus + min(4, visible_players) + described_slots * 0.5 + confidence_total
+    found_bonus = 8.0 if _truthy(payload.get("found") or payload.get("allPlayersVisible") or payload.get("all_players_visible")) else 0.0
+    quality_bonus = {
+        "excellent": 8.0,
+        "good": 5.0,
+        "fair": 2.0,
+        "poor": -6.0,
+    }.get(identification_quality, 0.0)
+    text = " ".join(
+        [
+            str(payload.get("reason") or ""),
+            " ".join(str(item) for item in payload.get("warnings", []) if item),
+            " ".join(slot.description for slot in slots),
+        ]
+    ).lower()
+    penalty = 0.0
+    for keyword in ("tiny", "small", "far-side players are small", "blur", "motion", "occluded", "blocked", "cropped", "unclear"):
+        if keyword in text:
+            penalty += 2.0
+    return (
+        found_bonus
+        + min(4, visible_players) * 1.5
+        + min(4, distinguishable_players) * 3.0
+        + described_slots
+        + confidence_total * 3.0
+        + quality_score / 5.0
+        + quality_bonus
+        - penalty
+    )
 
 
 def _parse_score_readings(payload: Dict) -> Tuple[List[ScoreReading], List[Evidence], List[str]]:

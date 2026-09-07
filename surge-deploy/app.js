@@ -384,7 +384,7 @@ function normalizeVideoAnalysisJob(job) {
     hint: String(job.hint || ""),
     createdBy: String(job.createdBy ?? job.created_by ?? ""),
     createdByName: String(job.createdByName ?? job.created_by_name ?? "알 수 없음"),
-    calibrationMaxFrames: Number(job.calibrationMaxFrames ?? job.calibration_max_frames ?? 12),
+    calibrationMaxFrames: Number(job.calibrationMaxFrames ?? job.calibration_max_frames ?? 18),
     scoreRequest: {
       scanIntervalSeconds: Number(job.scoreRequest?.scanIntervalSeconds ?? job.score_request?.scan_interval_seconds ?? 1),
       maxFrames: Number(job.scoreRequest?.maxFrames ?? job.score_request?.max_frames ?? 1200),
