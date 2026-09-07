@@ -18,7 +18,18 @@ DEFAULT_API_BASE_URL = "https://honeyserve-elo.onrender.com"
 
 
 def env(name: str, default: str = "") -> str:
-    return os.getenv(name, default).strip()
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value if value else default
+
+
+def env_bool(name: str, default: bool = True) -> bool:
+    value = env(name)
+    if not value:
+        return default
+    return value.lower() not in {"0", "false", "no", "off"}
 
 
 def worker_id() -> str:
@@ -37,6 +48,10 @@ def poll_seconds() -> float:
         return max(2.0, float(env("WORKER_POLL_SECONDS", "10")))
     except ValueError:
         return 10.0
+
+
+def worker_verify_tls() -> bool:
+    return env_bool("WORKER_VERIFY_TLS", True)
 
 
 def auth_headers() -> Dict[str, str]:
@@ -196,12 +211,16 @@ async def main() -> None:
     headers = auth_headers()
     base_url = api_base_url()
     interval = poll_seconds()
+    verify_tls = worker_verify_tls()
     print(f"HoneyServe video worker started: {worker_id()} -> {base_url}")
+    if not verify_tls:
+        print("Worker queue TLS verification is disabled (WORKER_VERIFY_TLS=false).")
 
     async with httpx.AsyncClient(
         base_url=base_url,
         headers=headers,
         timeout=httpx.Timeout(30.0),
+        verify=verify_tls,
     ) as client:
         while True:
             try:

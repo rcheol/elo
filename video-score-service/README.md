@@ -56,8 +56,11 @@ GEMMA_API_KEY=보유한 Gemma 호출 키
 GEMMA_CHAT_COMPLETIONS_URL=https://infinia-api.dev-aibixby.com/oai/v1/chat/completions
 GEMMA_MODEL=base/gemma-4-31b-it
 GEMMA_VERIFY_TLS=false
+WORKER_VERIFY_TLS=false
 REQUEST_TIMEOUT_SECONDS=300
 ```
+
+`WORKER_VERIFY_TLS=false`는 로컬 worker가 Render 큐 서버에 붙을 때 Python 인증서 검증에서 막히는 경우에만 사용합니다. 사내 SSL 프록시나 로컬 Python CA 문제로 `[SSL: CERTIFICATE_VERIFY_FAILED]`가 나면 이 값을 false로 두고 다시 실행하면 됩니다.
 
 실행:
 
