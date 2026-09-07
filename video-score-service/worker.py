@@ -4,6 +4,7 @@ import asyncio
 import os
 import platform
 import socket
+import sys
 import traceback
 from typing import Any, Dict, Optional
 
@@ -15,6 +16,7 @@ from app.providers.gemma_frames import analyze_score_scan_with_gemma, detect_pla
 
 
 DEFAULT_API_BASE_URL = "https://honeyserve-elo.onrender.com"
+MIN_PYTHON_VERSION = (3, 10)
 
 
 def env(name: str, default: str = "") -> str:
@@ -67,6 +69,15 @@ def auth_headers() -> Dict[str, str]:
 
 
 def validate_worker_settings() -> None:
+    if sys.version_info < MIN_PYTHON_VERSION:
+        required = ".".join(map(str, MIN_PYTHON_VERSION))
+        current = ".".join(map(str, sys.version_info[:3]))
+        raise RuntimeError(
+            f"Python {required}+ is required for the current yt-dlp YouTube extractor. "
+            f"Current Python is {current}. Start the worker with tmp\\video-score-venv310 instead. "
+            "No video job was claimed."
+        )
+
     settings = get_settings()
     missing = []
     if not settings.gemma_api_key:

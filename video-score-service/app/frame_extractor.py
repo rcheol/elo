@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import shutil
 import subprocess
 import tempfile
@@ -109,9 +110,9 @@ def extract_frames_from_youtube_info(
     max_frames: int,
     max_height: int,
 ) -> List[ExtractedFrame]:
-    ffmpeg_path = shutil.which("ffmpeg")
+    ffmpeg_path = _find_ffmpeg()
     if not ffmpeg_path:
-        raise RuntimeError("ffmpeg is required for Gemma frame extraction.")
+        raise RuntimeError("ffmpeg is required for Gemma frame extraction. Install imageio-ffmpeg or put ffmpeg on PATH.")
 
     stream_url = _select_video_stream_url(info, max_height=max_height)
     if not stream_url:
@@ -161,6 +162,17 @@ def extract_frames_from_youtube_info(
         return frames
 
 
+def _find_ffmpeg() -> Optional[str]:
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return ffmpeg_path
+    try:
+        import imageio_ffmpeg
+    except ImportError:
+        return None
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
 def _load_youtube_info(youtube_url: str) -> dict:
     try:
         from yt_dlp import YoutubeDL
@@ -172,9 +184,17 @@ def _load_youtube_info(youtube_url: str) -> dict:
         "no_warnings": True,
         "skip_download": True,
         "format": "bv*[height<=720]/bv*/bestvideo/best",
+        "nocheckcertificate": not _env_bool("YTDLP_VERIFY_TLS", True),
     }
     with YoutubeDL(options) as ydl:
         return ydl.extract_info(youtube_url, download=False)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _select_video_stream_url(info: dict, *, max_height: int) -> Optional[str]:

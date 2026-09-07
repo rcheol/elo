@@ -30,7 +30,7 @@ Render 배포 서버에서는 Gemma API가 사내 IP 제한으로 timeout될 수
 
 ```powershell
 cd E:\github\badminton-elo-ranking\video-score-service
-python -m venv .venv
+py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
@@ -56,17 +56,19 @@ GEMMA_API_KEY=보유한 Gemma 호출 키
 GEMMA_CHAT_COMPLETIONS_URL=https://infinia-api.dev-aibixby.com/oai/v1/chat/completions
 GEMMA_MODEL=base/gemma-4-31b-it
 GEMMA_VERIFY_TLS=false
+YTDLP_VERIFY_TLS=false
 WORKER_VERIFY_TLS=false
 REQUEST_TIMEOUT_SECONDS=300
 ```
 
 `WORKER_VERIFY_TLS=false`는 로컬 worker가 Render 큐 서버에 붙을 때 Python 인증서 검증에서 막히는 경우에만 사용합니다. 사내 SSL 프록시나 로컬 Python CA 문제로 `[SSL: CERTIFICATE_VERIFY_FAILED]`가 나면 이 값을 false로 두고 다시 실행하면 됩니다.
+`YTDLP_VERIFY_TLS=false`는 `yt-dlp`가 YouTube 페이지/API를 읽을 때 같은 인증서 검증 오류가 나는 경우에 사용합니다.
 
 실행:
 
 ```powershell
 cd E:\github\badminton-elo-ranking\video-score-service
-.\..\tmp\video-score-venv\Scripts\Activate.ps1
+.\..\tmp\video-score-venv310\Scripts\Activate.ps1
 python worker.py
 ```
 
