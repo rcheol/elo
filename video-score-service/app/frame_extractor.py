@@ -14,6 +14,12 @@ class ExtractedFrame:
     timestamp_seconds: float
     data_url: str
 
+    @property
+    def timestamp_label(self) -> str:
+        total = max(0, int(self.timestamp_seconds))
+        minutes, seconds = divmod(total, 60)
+        return f"{minutes:02d}:{seconds:02d}"
+
 
 def extract_tail_frames_from_youtube(
     youtube_url: str,
@@ -22,18 +28,97 @@ def extract_tail_frames_from_youtube(
     max_frames: int,
     max_height: int,
 ) -> List[ExtractedFrame]:
+    info = _load_youtube_info(youtube_url)
+    duration = float(info.get("duration") or 0)
+    start = max(0.0, duration - tail_seconds) if duration > 0 else 0.0
+    clip_duration = min(tail_seconds, duration - start) if duration > 0 else tail_seconds
+    return extract_frames_from_youtube_info(
+        info,
+        start_seconds=start,
+        duration_seconds=clip_duration,
+        max_frames=max_frames,
+        max_height=max_height,
+    )
+
+
+def extract_evenly_spaced_frames_from_youtube(
+    youtube_url: str,
+    *,
+    max_frames: int,
+    max_height: int,
+    start_ratio: float = 0.05,
+    end_ratio: float = 0.95,
+) -> List[ExtractedFrame]:
+    info = _load_youtube_info(youtube_url)
+    duration = float(info.get("duration") or 0)
+    if duration <= 0:
+        return extract_frames_from_youtube_info(
+            info,
+            start_seconds=0,
+            duration_seconds=max_frames,
+            max_frames=max_frames,
+            max_height=max_height,
+        )
+
+    safe_start_ratio = min(0.95, max(0.0, start_ratio))
+    safe_end_ratio = min(1.0, max(safe_start_ratio + 0.01, end_ratio))
+    start = duration * safe_start_ratio
+    clip_duration = max(1.0, duration * safe_end_ratio - start)
+    return extract_frames_from_youtube_info(
+        info,
+        start_seconds=start,
+        duration_seconds=clip_duration,
+        max_frames=max_frames,
+        max_height=max_height,
+    )
+
+
+def extract_score_scan_frames_from_youtube(
+    youtube_url: str,
+    *,
+    interval_seconds: int,
+    max_frames: int,
+    max_height: int,
+) -> List[ExtractedFrame]:
+    info = _load_youtube_info(youtube_url)
+    duration = float(info.get("duration") or 0)
+    if duration <= 0:
+        return extract_frames_from_youtube_info(
+            info,
+            start_seconds=0,
+            duration_seconds=max_frames * interval_seconds,
+            max_frames=max_frames,
+            max_height=max_height,
+        )
+
+    frame_count = min(max_frames, max(1, int(duration // interval_seconds) + 1))
+    return extract_frames_from_youtube_info(
+        info,
+        start_seconds=0,
+        duration_seconds=duration,
+        max_frames=frame_count,
+        max_height=max_height,
+    )
+
+
+def extract_frames_from_youtube_info(
+    info: dict,
+    *,
+    start_seconds: float,
+    duration_seconds: float,
+    max_frames: int,
+    max_height: int,
+) -> List[ExtractedFrame]:
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
         raise RuntimeError("ffmpeg is required for Gemma frame extraction.")
 
-    info = _load_youtube_info(youtube_url)
-    duration = float(info.get("duration") or 0)
     stream_url = _select_video_stream_url(info, max_height=max_height)
     if not stream_url:
         raise RuntimeError("Could not find a playable YouTube video stream.")
 
-    start = max(0.0, duration - tail_seconds) if duration > 0 else 0.0
-    sample_fps = max_frames / max(1, min(tail_seconds, int(duration - start) if duration > 0 else tail_seconds))
+    clip_duration = max(1.0, duration_seconds)
+    sample_fps = max_frames / clip_duration
 
     with tempfile.TemporaryDirectory(prefix="honeyserve-frames-") as temp_dir:
         output_pattern = str(Path(temp_dir) / "frame_%03d.jpg")
@@ -44,9 +129,11 @@ def extract_tail_frames_from_youtube(
             "error",
             "-y",
             "-ss",
-            f"{start:.3f}",
+            f"{start_seconds:.3f}",
             "-i",
             stream_url,
+            "-t",
+            f"{clip_duration:.3f}",
             "-vf",
             f"fps={sample_fps:.6f},scale=-2:min({max_height}\\,ih)",
             "-frames:v",
@@ -59,10 +146,10 @@ def extract_tail_frames_from_youtube(
         if not paths:
             raise RuntimeError("ffmpeg did not extract any frames.")
 
-        interval = (min(tail_seconds, duration - start) / max(1, len(paths) - 1)) if duration > 0 else 0
+        interval = clip_duration / max(1, len(paths) - 1)
         frames: List[ExtractedFrame] = []
         for index, path in enumerate(paths):
-            timestamp = start + interval * index
+            timestamp = start_seconds + interval * index
             frames.append(
                 ExtractedFrame(
                     timestamp_seconds=timestamp,
@@ -114,4 +201,3 @@ def _select_video_stream_url(info: dict, *, max_height: int) -> Optional[str]:
 def _jpeg_to_data_url(path: Path) -> str:
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
-

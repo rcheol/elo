@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import httpx
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.config import Settings
-from app.frame_extractor import ExtractedFrame, extract_tail_frames_from_youtube
-from app.models import AnalyzeRequest, AnalyzeResponse, Evidence, Score
-from app.providers.heuristics import extract_json_object, normalize_gemini_payload
+from app.frame_extractor import (
+    ExtractedFrame,
+    extract_evenly_spaced_frames_from_youtube,
+    extract_score_scan_frames_from_youtube,
+    extract_tail_frames_from_youtube,
+)
+from app.models import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    Evidence,
+    PlayerSlot,
+    ReferenceFrame,
+    Score,
+    ScoreReading,
+    ScoreScanRequest,
+    SlotPlayer,
+    VideoScoreResult,
+)
+from app.providers.heuristics import extract_json_object, infer_winner, normalize_gemini_payload, score_has_badminton_shape
 
 
 async def analyze_with_gemma_frames(request: AnalyzeRequest, settings: Settings) -> AnalyzeResponse:
@@ -21,40 +37,23 @@ async def analyze_with_gemma_frames(request: AnalyzeRequest, settings: Settings)
         )
 
     prompt = _build_prompt(request, frames)
-    payload = {
-        "model": settings.gemma_model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You extract final badminton doubles scores from scoreboard frames. Return JSON only.",
-            },
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": prompt}]
-                + [{"type": "image_url", "image_url": {"url": frame.data_url}} for frame in frames],
-            },
-        ],
-        "temperature": 0,
-        "max_tokens": 800,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.gemma_api_key}",
-        "Content-Type": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=httpx.Timeout(settings.request_timeout_seconds)) as client:
-        response = await client.post(settings.gemma_chat_completions_url, headers=headers, json=payload)
-
-    if response.status_code >= 400:
+    payload = _build_chat_payload(
+        model=settings.gemma_model,
+        system="You extract final badminton doubles scores from scoreboard frames. Return JSON only.",
+        prompt=prompt,
+        frames=frames,
+        max_tokens=800,
+    )
+    raw, error = await _post_gemma_chat(settings, payload)
+    if error:
         return AnalyzeResponse(
             status="failed",
             provider="gemma_frames",
             model=settings.gemma_model,
-            warnings=[f"Gemma API error {response.status_code}: {response.text[:1000]}"],
-            raw=_try_json(response) if request.save_raw else None,
+            warnings=[error],
+            raw=raw if request.save_raw else None,
         )
 
-    raw = response.json()
     try:
         parsed = extract_json_object(_extract_chat_text(raw))
         score_payload, evidence_payload, warnings = normalize_gemini_payload(parsed)
@@ -77,6 +76,146 @@ async def analyze_with_gemma_frames(request: AnalyzeRequest, settings: Settings)
         warnings=warnings,
         raw=raw if request.save_raw else None,
     )
+
+
+async def detect_player_slots_with_gemma(
+    youtube_url: str,
+    *,
+    hint: str,
+    settings: Settings,
+    max_frames: int,
+    save_raw: bool,
+) -> Tuple[List[ReferenceFrame], List[PlayerSlot], List[str], Optional[Dict]]:
+    frames = extract_evenly_spaced_frames_from_youtube(
+        youtube_url,
+        max_frames=max_frames,
+        max_height=settings.gemma_frame_max_height,
+        start_ratio=0.05,
+        end_ratio=0.35,
+    )
+    payload = _build_chat_payload(
+        model=settings.gemma_model,
+        system="You label four anonymous badminton doubles players from reference frames. Return JSON only.",
+        prompt=_build_player_slot_prompt(hint, frames),
+        frames=frames,
+        max_tokens=1000,
+    )
+    raw, error = await _post_gemma_chat(settings, payload)
+    if error:
+        return _reference_frames(frames), [], [error], raw if save_raw else None
+
+    try:
+        parsed = extract_json_object(_extract_chat_text(raw))
+        slots, warnings = _parse_player_slots(parsed)
+    except ValueError as exc:
+        return _reference_frames(frames), [], [str(exc)], raw if save_raw else None
+
+    return _reference_frames(frames), slots, warnings, raw if save_raw else None
+
+
+async def analyze_score_scan_with_gemma(
+    youtube_url: str,
+    *,
+    player_mapping: Dict[str, SlotPlayer],
+    hint: str,
+    settings: Settings,
+    request: ScoreScanRequest,
+) -> VideoScoreResult:
+    frames = extract_score_scan_frames_from_youtube(
+        youtube_url,
+        interval_seconds=request.scan_interval_seconds or settings.gemma_score_scan_interval_seconds,
+        max_frames=request.max_frames or settings.gemma_score_scan_max_frames,
+        max_height=settings.gemma_frame_max_height,
+    )
+    warnings: List[str] = [f"Gemma scanned {len(frames)} frame(s) from the video timeline."]
+    readings: List[ScoreReading] = []
+    evidence: List[Evidence] = []
+    raw_batches: List[Dict] = []
+
+    batch_size = request.batch_size or settings.gemma_score_scan_batch_size
+    for batch_index, batch in enumerate(_chunks(frames, batch_size), start=1):
+        payload = _build_chat_payload(
+            model=settings.gemma_model,
+            system="You read badminton scoreboard frames and return structured JSON only.",
+            prompt=_build_score_scan_prompt(
+                batch,
+                player_mapping=player_mapping,
+                hint=hint or request.hint,
+                batch_index=batch_index,
+            ),
+            frames=batch,
+            max_tokens=1200,
+        )
+        raw, error = await _post_gemma_chat(settings, payload)
+        if error:
+            warnings.append(error)
+            if raw:
+                raw_batches.append(raw)
+            continue
+
+        raw_batches.append(raw)
+        try:
+            parsed = extract_json_object(_extract_chat_text(raw))
+            batch_readings, batch_evidence, batch_warnings = _parse_score_readings(parsed)
+            readings.extend(batch_readings)
+            evidence.extend(batch_evidence)
+            warnings.extend(batch_warnings)
+        except ValueError as exc:
+            warnings.append(f"Batch {batch_index}: {exc}")
+
+    score, score_warning = _select_final_score(readings)
+    if score_warning:
+        warnings.append(score_warning)
+
+    return VideoScoreResult(
+        score=score,
+        readings=readings,
+        evidence=evidence[:12],
+        warnings=warnings,
+        needs_confirmation=True,
+        match_payload=_build_match_payload(player_mapping, score),
+    )
+
+
+def _build_chat_payload(
+    *,
+    model: str,
+    system: str,
+    prompt: str,
+    frames: List[ExtractedFrame],
+    max_tokens: int,
+) -> Dict:
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": system,
+            },
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}]
+                + [{"type": "image_url", "image_url": {"url": frame.data_url}} for frame in frames],
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": max_tokens,
+    }
+
+
+async def _post_gemma_chat(settings: Settings, payload: Dict) -> Tuple[Dict, Optional[str]]:
+    headers = {
+        "Authorization": f"Bearer {settings.gemma_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(settings.request_timeout_seconds)) as client:
+        response = await client.post(settings.gemma_chat_completions_url, headers=headers, json=payload)
+
+    if response.status_code >= 400:
+        return _try_json(response) or {}, f"Gemma API error {response.status_code}: {response.text[:1000]}"
+
+    return response.json(), None
 
 
 def _build_frame_inputs(request: AnalyzeRequest, settings: Settings) -> List[ExtractedFrame]:
@@ -124,6 +263,208 @@ Rules:
 """.strip()
 
 
+def _build_player_slot_prompt(hint: str, frames: List[ExtractedFrame]) -> str:
+    timestamps = ", ".join(frame.timestamp_label for frame in frames)
+    user_hint = hint.strip() or "Use the clearest frame where all four players are visible."
+    return f"""
+Analyze these badminton doubles reference frames and define four anonymous player slots for user confirmation.
+
+Return only this JSON object:
+{{
+  "slots": [
+    {{"slotId": "A1", "team": "A", "label": "A팀 앞/왼쪽", "description": "visual description", "timestamp": "MM:SS", "confidence": 0.0}},
+    {{"slotId": "A2", "team": "A", "label": "A팀 뒤/오른쪽", "description": "visual description", "timestamp": "MM:SS", "confidence": 0.0}},
+    {{"slotId": "B1", "team": "B", "label": "B팀 앞/왼쪽", "description": "visual description", "timestamp": "MM:SS", "confidence": 0.0}},
+    {{"slotId": "B2", "team": "B", "label": "B팀 뒤/오른쪽", "description": "visual description", "timestamp": "MM:SS", "confidence": 0.0}}
+  ],
+  "warnings": ["optional warning"]
+}}
+
+Rules:
+- Do not identify real names. The user will map these slots to real players.
+- Team A means the left/top/first-visible team from the camera perspective.
+- Team B means the right/bottom/opposite team from the camera perspective.
+- Keep descriptions short but useful: clothes color, side of court, near/far position, dominant visual cue.
+- Frame timestamps: {timestamps}
+- User hint: {user_hint}
+""".strip()
+
+
+def _build_score_scan_prompt(
+    frames: List[ExtractedFrame],
+    *,
+    player_mapping: Dict[str, SlotPlayer],
+    hint: str,
+    batch_index: int,
+) -> str:
+    mapping_text = ", ".join(
+        f"{slot}={player.player_name}" for slot, player in sorted(player_mapping.items())
+    ) or "not mapped"
+    timestamps = ", ".join(frame.timestamp_label for frame in frames)
+    user_hint = hint.strip() or "Read visible scoreboard digits. If no scoreboard is visible, omit that frame."
+    return f"""
+Analyze scoreboard information in this batch of badminton doubles frames.
+
+Return only this JSON object:
+{{
+  "readings": [
+    {{"timestamp": "MM:SS", "scoreA": 0, "scoreB": 0, "confidence": 0.0, "note": "short reason"}}
+  ],
+  "evidence": [
+    {{"timestamp": "MM:SS", "text": "short visual evidence"}}
+  ],
+  "warnings": ["optional warning"]
+}}
+
+Rules:
+- Batch number: {batch_index}
+- Team mapping: {mapping_text}
+- Team A score is the score for A1/A2. Team B score is the score for B1/B2.
+- Only include a reading when scoreboard digits or an on-screen final score are visible enough.
+- If the frame shows a scoreboard but the team order is ambiguous, use the established A/B side mapping and reduce confidence.
+- Ignore dates, timestamps, court numbers, player jersey numbers, and YouTube UI numbers.
+- Frame timestamps in order: {timestamps}
+- User hint: {user_hint}
+""".strip()
+
+
+def _parse_player_slots(payload: Dict) -> Tuple[List[PlayerSlot], List[str]]:
+    warnings = [str(item) for item in payload.get("warnings", []) if item]
+    slots_by_id: Dict[str, PlayerSlot] = {}
+    for item in payload.get("slots", []):
+        if not isinstance(item, dict):
+            continue
+        slot_id = str(item.get("slotId") or item.get("slot_id") or "").upper()
+        if slot_id not in {"A1", "A2", "B1", "B2"}:
+            continue
+        team = "A" if slot_id.startswith("A") else "B"
+        confidence = _safe_float(item.get("confidence"), default=0.0)
+        slots_by_id[slot_id] = PlayerSlot(
+            slot_id=slot_id,
+            team=team,
+            label=str(item.get("label") or _default_slot_label(slot_id)),
+            description=str(item.get("description") or ""),
+            timestamp=str(item.get("timestamp") or ""),
+            confidence=max(0.0, min(1.0, confidence)),
+        )
+
+    slots = []
+    for slot_id in ("A1", "A2", "B1", "B2"):
+        slots.append(slots_by_id.get(slot_id) or PlayerSlot(
+            slot_id=slot_id,
+            team="A" if slot_id.startswith("A") else "B",
+            label=_default_slot_label(slot_id),
+            confidence=0.0,
+        ))
+
+    if len(slots_by_id) < 4:
+        warnings.append("Gemma did not confidently label all four player slots; default slots were filled in.")
+    return slots, warnings
+
+
+def _parse_score_readings(payload: Dict) -> Tuple[List[ScoreReading], List[Evidence], List[str]]:
+    warnings = [str(item) for item in payload.get("warnings", []) if item]
+    readings: List[ScoreReading] = []
+    for item in payload.get("readings", []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            score_a = int(item.get("scoreA", item.get("score_a")))
+            score_b = int(item.get("scoreB", item.get("score_b")))
+        except (TypeError, ValueError):
+            continue
+        readings.append(
+            ScoreReading(
+                timestamp=str(item.get("timestamp") or ""),
+                score_a=score_a,
+                score_b=score_b,
+                confidence=max(0.0, min(1.0, _safe_float(item.get("confidence"), default=0.0))),
+                note=str(item.get("note") or ""),
+            )
+        )
+
+    evidence: List[Evidence] = []
+    for item in payload.get("evidence", []):
+        if isinstance(item, dict):
+            evidence.append(Evidence(timestamp=str(item.get("timestamp") or ""), text=str(item.get("text") or "")))
+        elif item:
+            evidence.append(Evidence(text=str(item)))
+    return readings, evidence, warnings
+
+
+def _select_final_score(readings: List[ScoreReading]) -> Tuple[Optional[Score], Optional[str]]:
+    if not readings:
+        return None, "No visible scoreboard readings were found."
+
+    final_shaped = [reading for reading in readings if score_has_badminton_shape(reading.score_a, reading.score_b)]
+    if final_shaped:
+        selected = max(final_shaped, key=lambda reading: (_timestamp_to_seconds(reading.timestamp), reading.confidence))
+        return Score(
+            team_a=selected.score_a,
+            team_b=selected.score_b,
+            winner=infer_winner(selected.score_a, selected.score_b),
+            confidence=selected.confidence,
+        ), None
+
+    selected = max(readings, key=lambda reading: (_timestamp_to_seconds(reading.timestamp), max(reading.score_a, reading.score_b), reading.confidence))
+    return Score(
+        team_a=selected.score_a,
+        team_b=selected.score_b,
+        winner=infer_winner(selected.score_a, selected.score_b),
+        confidence=min(selected.confidence, 0.45),
+    ), "No badminton-shaped final score was found; returning the latest visible scoreboard with low confidence."
+
+
+def _build_match_payload(player_mapping: Dict[str, SlotPlayer], score: Optional[Score]) -> Optional[Dict]:
+    if not score:
+        return None
+    if set(player_mapping.keys()) != {"A1", "A2", "B1", "B2"}:
+        return None
+
+    return {
+        "teamA": [player_mapping["A1"].player_id, player_mapping["A2"].player_id],
+        "teamB": [player_mapping["B1"].player_id, player_mapping["B2"].player_id],
+        "scoreA": score.team_a,
+        "scoreB": score.team_b,
+    }
+
+
+def _reference_frames(frames: List[ExtractedFrame]) -> List[ReferenceFrame]:
+    return [
+        ReferenceFrame(timestamp=frame.timestamp_label, image_data_url=frame.data_url)
+        for frame in frames
+    ]
+
+
+def _chunks(items: List[ExtractedFrame], size: int) -> Iterable[List[ExtractedFrame]]:
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
+
+
+def _default_slot_label(slot_id: str) -> str:
+    return {
+        "A1": "A팀 선수 1",
+        "A2": "A팀 선수 2",
+        "B1": "B팀 선수 1",
+        "B2": "B팀 선수 2",
+    }.get(slot_id, slot_id)
+
+
+def _timestamp_to_seconds(value: str) -> int:
+    parts = [part for part in str(value).split(":") if part.isdigit()]
+    total = 0
+    for part in parts:
+        total = total * 60 + int(part)
+    return total
+
+
+def _safe_float(value: object, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _extract_chat_text(raw: Dict) -> str:
     choices = raw.get("choices")
     if isinstance(choices, list) and choices:
@@ -156,4 +497,3 @@ def _format_seconds(value: float) -> str:
     total = max(0, int(value))
     minutes, seconds = divmod(total, 60)
     return f"{minutes:02d}:{seconds:02d}"
-

@@ -25,6 +25,9 @@ class Settings:
     gemma_frame_tail_seconds: int
     gemma_frame_max_frames: int
     gemma_frame_max_height: int
+    gemma_score_scan_interval_seconds: int
+    gemma_score_scan_max_frames: int
+    gemma_score_scan_batch_size: int
 
     @property
     def gemini_enabled(self) -> bool:
@@ -59,4 +62,7 @@ def get_settings() -> Settings:
         gemma_frame_tail_seconds=int(os.getenv("GEMMA_FRAME_TAIL_SECONDS", "600")),
         gemma_frame_max_frames=int(os.getenv("GEMMA_FRAME_MAX_FRAMES", "12")),
         gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "720")),
+        gemma_score_scan_interval_seconds=int(os.getenv("GEMMA_SCORE_SCAN_INTERVAL_SECONDS", "20")),
+        gemma_score_scan_max_frames=int(os.getenv("GEMMA_SCORE_SCAN_MAX_FRAMES", "96")),
+        gemma_score_scan_batch_size=int(os.getenv("GEMMA_SCORE_SCAN_BATCH_SIZE", "8")),
     )
