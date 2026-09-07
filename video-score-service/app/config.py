@@ -22,6 +22,7 @@ class Settings:
     gemma_api_key: str
     gemma_chat_completions_url: str
     gemma_model: str
+    gemma_verify_tls: bool
     gemma_frame_tail_seconds: int
     gemma_frame_max_frames: int
     gemma_frame_max_height: int
@@ -59,6 +60,7 @@ def get_settings() -> Settings:
         gemma_api_key=os.getenv("GEMMA_API_KEY", "").strip(),
         gemma_chat_completions_url=os.getenv("GEMMA_CHAT_COMPLETIONS_URL", "").strip(),
         gemma_model=os.getenv("GEMMA_MODEL", "base/gemma-4-31b-it").strip(),
+        gemma_verify_tls=_env_bool("GEMMA_VERIFY_TLS", True),
         gemma_frame_tail_seconds=int(os.getenv("GEMMA_FRAME_TAIL_SECONDS", "600")),
         gemma_frame_max_frames=int(os.getenv("GEMMA_FRAME_MAX_FRAMES", "12")),
         gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "720")),
@@ -66,3 +68,10 @@ def get_settings() -> Settings:
         gemma_score_scan_max_frames=int(os.getenv("GEMMA_SCORE_SCAN_MAX_FRAMES", "96")),
         gemma_score_scan_batch_size=int(os.getenv("GEMMA_SCORE_SCAN_BATCH_SIZE", "8")),
     )
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}

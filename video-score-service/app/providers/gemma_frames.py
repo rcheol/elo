@@ -209,7 +209,10 @@ async def _post_gemma_chat(settings: Settings, payload: Dict) -> Tuple[Dict, Opt
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(settings.request_timeout_seconds)) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.request_timeout_seconds),
+        verify=settings.gemma_verify_tls,
+    ) as client:
         response = await client.post(settings.gemma_chat_completions_url, headers=headers, json=payload)
 
     if response.status_code >= 400:

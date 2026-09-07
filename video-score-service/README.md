@@ -192,6 +192,7 @@ GET /jobs/{job_id}
   - `GEMMA_API_KEY`: base/gemma-4-31b-it 호출 키
   - `GEMMA_CHAT_COMPLETIONS_URL`: OpenAI-compatible `/v1/chat/completions` URL
   - `GEMMA_MODEL`: `base/gemma-4-31b-it`
+  - `GEMMA_VERIFY_TLS`: curl의 `-k`가 필요한 사내 dev endpoint라면 `false`
 
 Docker로 배포하는 경우 `Dockerfile`을 그대로 사용하면 됩니다.
 
