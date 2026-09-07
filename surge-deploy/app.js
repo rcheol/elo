@@ -2685,6 +2685,10 @@ async function pollVideoAnalysisJob(jobId) {
     }
   } catch (error) {
     stopVideoAnalysisPolling();
+    if (error.code === "VIDEO_JOB_NOT_FOUND") {
+      clearCurrentVideoAnalysisJob({ remote: false });
+      return;
+    }
     setVideoScoreResult(apiMessage(error), "error");
   }
 }
@@ -2832,7 +2836,7 @@ function renderVideoAnalysisPanel() {
   const warningText = job.warnings?.length
     ? `<p class="video-analysis-sub">${escapeHtml(job.warnings.slice(0, 2).join(" · "))}</p>`
     : "";
-  const clearAction = ["failed", "registered"].includes(job.status)
+  const clearAction = !["waiting_player_mapping", "waiting_confirmation"].includes(job.status)
     ? `<div class="video-analysis-actions"><button class="button button--neutral" type="button" data-video-clear-job><span>새 링크 입력</span></button></div>`
     : "";
 
@@ -2970,12 +2974,26 @@ async function confirmVideoScoreJob(jobId) {
   }
 }
 
-function clearCurrentVideoAnalysisJob() {
+async function clearCurrentVideoAnalysisJob(options = {}) {
+  const jobId = currentVideoAnalysisJob?.id || localStorage.getItem(videoAnalysisJobStorageKey);
+  const remote = options.remote !== false;
   currentVideoAnalysisJob = null;
   localStorage.removeItem(videoAnalysisJobStorageKey);
   stopVideoAnalysisPolling();
   setVideoScoreResult("");
   renderVideoAnalysisPanel();
+  setVideoScoreBusy(false);
+
+  if (!remote || !jobId || !getCurrentUser()) {
+    return;
+  }
+
+  try {
+    const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" });
+    applyServerState(payload, { preserveScroll: true });
+  } catch (error) {
+    showApiError(error);
+  }
 }
 
 async function recordMatch() {

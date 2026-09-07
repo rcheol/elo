@@ -3301,6 +3301,12 @@ function getVideoAnalysisJob(state, jobId, currentUser) {
   return videoAnalysisJobPublicView(job, currentUser);
 }
 
+function deleteVideoAnalysisJob(state, jobId, currentUser) {
+  const job = findVideoAnalysisJob(state, jobId);
+  ensureCanAccessVideoAnalysisJob(job, currentUser);
+  state.videoAnalysisJobs = state.videoAnalysisJobs.filter((candidate) => candidate.id !== job.id);
+}
+
 function normalizeVideoPlayerMappingInput(state, input) {
   const source = input?.slots || input?.playerMapping || input?.player_mapping || {};
   const activePlayers = state.players.filter((player) => player.seedRating != null);
@@ -4229,6 +4235,15 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, payload);
   }
 
+  if (method === "DELETE" && videoAnalysisJobMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      deleteVideoAnalysisJob(state, decodeURIComponent(videoAnalysisJobMatch[1]), currentUser);
+      return pgGetStatePayload(state, currentUser);
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
   const videoAnalysisPlayersMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)\/players$/);
   if (method === "PUT" && videoAnalysisPlayersMatch) {
     const body = await readJsonBody(req);
@@ -4539,6 +4554,14 @@ async function handleApi(req, res, url) {
     const currentUser = requireUser(req);
     const videoState = getSqliteVideoAnalysisState();
     return sendJson(req, res, 200, { job: getVideoAnalysisJob(videoState, decodeURIComponent(videoAnalysisJobMatch[1]), currentUser) });
+  }
+
+  if (method === "DELETE" && videoAnalysisJobMatch) {
+    const currentUser = requireUser(req);
+    const videoState = getSqliteVideoAnalysisState();
+    deleteVideoAnalysisJob(videoState, decodeURIComponent(videoAnalysisJobMatch[1]), currentUser);
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 200, getStatePayload(currentUser));
   }
 
   const videoAnalysisPlayersMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)\/players$/);
