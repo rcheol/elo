@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+import json
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from app.config import Settings
@@ -90,27 +91,51 @@ async def detect_player_slots_with_gemma(
         youtube_url,
         max_frames=max_frames,
         max_height=settings.gemma_frame_max_height,
-        start_ratio=0.05,
-        end_ratio=0.35,
+        jpeg_quality=settings.gemma_frame_jpeg_quality,
+        start_ratio=0.03,
+        end_ratio=0.70,
     )
-    payload = _build_chat_payload(
-        model=settings.gemma_model,
-        system="You label four anonymous badminton doubles players from reference frames. Return JSON only.",
-        prompt=_build_player_slot_prompt(hint, frames),
-        frames=frames,
-        max_tokens=1000,
-    )
-    raw, error = await _post_gemma_chat(settings, payload)
-    if error:
-        return _reference_frames(frames), [], [error], raw if save_raw else None
 
-    try:
-        parsed = extract_json_object(_extract_chat_text(raw))
-        slots, warnings = _parse_player_slots(parsed)
-    except ValueError as exc:
-        return _reference_frames(frames), [], [str(exc)], raw if save_raw else None
+    warnings: List[str] = []
+    best_candidate: Optional[Tuple[ExtractedFrame, List[PlayerSlot], List[str], Optional[Dict], float]] = None
 
-    return _reference_frames(frames), slots, warnings, raw if save_raw else None
+    for index, frame in enumerate(frames, start=1):
+        payload = _build_chat_payload(
+            model=settings.gemma_model,
+            system="You label four anonymous badminton doubles players from one reference frame. Return JSON only.",
+            prompt=_build_single_frame_player_slot_prompt(hint, frame, index=index, total=len(frames)),
+            frames=[frame],
+            max_tokens=1000,
+        )
+        raw, error = await _post_gemma_chat(settings, payload)
+        if error:
+            warnings.append(f"{frame.timestamp_label}: {error}")
+            continue
+
+        try:
+            parsed = extract_json_object(_extract_chat_text(raw))
+            slots, slot_warnings = _parse_player_slots(parsed)
+            candidate_score = _player_slot_candidate_score(parsed, slots)
+        except ValueError as exc:
+            warnings.append(f"{frame.timestamp_label}: {exc}")
+            continue
+
+        candidate = (frame, slots, slot_warnings, raw if save_raw else None, candidate_score)
+        if not best_candidate or candidate_score > best_candidate[4]:
+            best_candidate = candidate
+
+        if _player_slot_candidate_is_found(parsed, slots):
+            return _reference_frames([frame]), slots, warnings + slot_warnings + [
+                f"Selected one reference frame at {frame.timestamp_label} where all four players appear visible."
+            ], raw if save_raw else None
+
+    if best_candidate:
+        frame, slots, slot_warnings, raw, _score = best_candidate
+        return _reference_frames([frame]), slots, warnings + slot_warnings + [
+            f"Could not fully verify all four players at once; using the clearest single frame at {frame.timestamp_label}."
+        ], raw
+
+    raise RuntimeError("Could not find a usable reference frame for player mapping. " + " ".join(warnings[-3:]))
 
 
 async def analyze_score_scan_with_gemma(
@@ -126,6 +151,7 @@ async def analyze_score_scan_with_gemma(
         interval_seconds=request.scan_interval_seconds or settings.gemma_score_scan_interval_seconds,
         max_frames=request.max_frames or settings.gemma_score_scan_max_frames,
         max_height=settings.gemma_frame_max_height,
+        jpeg_quality=settings.gemma_frame_jpeg_quality,
     )
     warnings: List[str] = [f"Gemma scanned {len(frames)} frame(s) from the video timeline."]
     readings: List[ScoreReading] = []
@@ -204,6 +230,14 @@ def _build_chat_payload(
 
 
 async def _post_gemma_chat(settings: Settings, payload: Dict) -> Tuple[Dict, Optional[str]]:
+    payload_size = _json_payload_size(payload)
+    if payload_size > settings.gemma_request_max_bytes:
+        return {}, (
+            f"Gemma request payload is {payload_size} bytes, above "
+            f"GEMMA_REQUEST_MAX_BYTES={settings.gemma_request_max_bytes}. "
+            "Lower GEMMA_FRAME_MAX_HEIGHT, raise GEMMA_FRAME_JPEG_QUALITY, or reduce batch size."
+        )
+
     headers = {
         "Authorization": f"Bearer {settings.gemma_api_key}",
         "Content-Type": "application/json",
@@ -216,9 +250,18 @@ async def _post_gemma_chat(settings: Settings, payload: Dict) -> Tuple[Dict, Opt
         response = await client.post(settings.gemma_chat_completions_url, headers=headers, json=payload)
 
     if response.status_code >= 400:
-        return _try_json(response) or {}, f"Gemma API error {response.status_code}: {response.text[:1000]}"
+        if response.status_code == 403 and "Access Upload Denied" in response.text:
+            return _try_json(response) or {}, (
+                "Gemma API upload was blocked by company policy. "
+                "The worker will need smaller frames or fewer frames per request."
+            )
+        return _try_json(response) or {}, f"Gemma API error {response.status_code}: {response.text[:500]}"
 
     return response.json(), None
+
+
+def _json_payload_size(payload: Dict) -> int:
+    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 def _build_frame_inputs(request: AnalyzeRequest, settings: Settings) -> List[ExtractedFrame]:
@@ -233,6 +276,7 @@ def _build_frame_inputs(request: AnalyzeRequest, settings: Settings) -> List[Ext
         tail_seconds=request.frame_tail_seconds or settings.gemma_frame_tail_seconds,
         max_frames=request.frame_max_frames or settings.gemma_frame_max_frames,
         max_height=settings.gemma_frame_max_height,
+        jpeg_quality=settings.gemma_frame_jpeg_quality,
     )
 
 
@@ -289,6 +333,37 @@ Rules:
 - Team B means the right/bottom/opposite team from the camera perspective.
 - Keep descriptions short but useful: clothes color, side of court, near/far position, dominant visual cue.
 - Frame timestamps: {timestamps}
+- User hint: {user_hint}
+""".strip()
+
+
+def _build_single_frame_player_slot_prompt(hint: str, frame: ExtractedFrame, *, index: int, total: int) -> str:
+    user_hint = hint.strip() or "Find a single clear frame where all four doubles players are visible at once."
+    return f"""
+Analyze this single badminton doubles frame and decide whether all four players are visible enough for a user to identify them.
+
+Return only this JSON object:
+{{
+  "found": true or false,
+  "visiblePlayers": 0,
+  "reason": "short explanation",
+  "slots": [
+    {{"slotId": "A1", "team": "A", "label": "near-left", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
+    {{"slotId": "A2", "team": "A", "label": "near-right", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
+    {{"slotId": "B1", "team": "B", "label": "far-left", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
+    {{"slotId": "B2", "team": "B", "label": "far-right", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}}
+  ],
+  "warnings": ["optional warning"]
+}}
+
+Rules:
+- Analyze only this one frame. Do not use other timestamps.
+- Set found=true only when four actual badminton players are simultaneously visible and distinguishable.
+- Do not identify real names. The user will map these anonymous slots to real players.
+- Team A is the near/bottom/first-side team from the camera perspective. Team B is the far/top/opposite-side team.
+- Within each team, left/right is from the camera perspective.
+- Keep descriptions short and useful: clothing color, court side, near/far, left/right, stance, or racket hand.
+- Candidate frame {index} of {total}, timestamp: {frame.timestamp_label}
 - User hint: {user_hint}
 """.strip()
 
@@ -363,6 +438,22 @@ def _parse_player_slots(payload: Dict) -> Tuple[List[PlayerSlot], List[str]]:
     if len(slots_by_id) < 4:
         warnings.append("Gemma did not confidently label all four player slots; default slots were filled in.")
     return slots, warnings
+
+
+def _player_slot_candidate_is_found(payload: Dict, slots: List[PlayerSlot]) -> bool:
+    found = _truthy(payload.get("found") or payload.get("allPlayersVisible") or payload.get("all_players_visible"))
+    visible_players = _safe_int(payload.get("visiblePlayers", payload.get("visible_players")), default=0)
+    described_slots = sum(1 for slot in slots if slot.description.strip())
+    confident_slots = sum(1 for slot in slots if slot.confidence >= 0.35)
+    return found and visible_players >= 4 and described_slots >= 4 and confident_slots >= 3
+
+
+def _player_slot_candidate_score(payload: Dict, slots: List[PlayerSlot]) -> float:
+    visible_players = _safe_int(payload.get("visiblePlayers", payload.get("visible_players")), default=0)
+    described_slots = sum(1 for slot in slots if slot.description.strip())
+    confidence_total = sum(slot.confidence for slot in slots)
+    found_bonus = 4.0 if _truthy(payload.get("found") or payload.get("allPlayersVisible") or payload.get("all_players_visible")) else 0.0
+    return found_bonus + min(4, visible_players) + described_slots * 0.5 + confidence_total
 
 
 def _parse_score_readings(payload: Dict) -> Tuple[List[ScoreReading], List[Evidence], List[str]]:
@@ -466,6 +557,21 @@ def _safe_float(value: object, *, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _safe_int(value: object, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "found"}
+    return bool(value)
 
 
 def _extract_chat_text(raw: Dict) -> str:

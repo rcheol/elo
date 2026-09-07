@@ -291,11 +291,14 @@ def parse_player_mapping(job: Dict[str, Any]) -> Dict[str, SlotPlayer]:
 
 
 def parse_score_request(job: Dict[str, Any]) -> ScoreScanRequest:
+    settings = get_settings()
     raw = job.get("scoreRequest") or {}
+    configured_batch_size = max(1, int(settings.gemma_score_scan_batch_size or 1))
+    requested_batch_size = int(raw.get("batchSize") or configured_batch_size)
     return ScoreScanRequest(
         scan_interval_seconds=int(raw.get("scanIntervalSeconds") or 20),
         max_frames=int(raw.get("maxFrames") or 96),
-        batch_size=int(raw.get("batchSize") or 8),
+        batch_size=min(requested_batch_size, configured_batch_size),
         hint=str(raw.get("hint") or job.get("hint") or ""),
         save_raw=bool(raw.get("saveRaw") or False),
     )

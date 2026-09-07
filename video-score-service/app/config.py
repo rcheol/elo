@@ -26,6 +26,8 @@ class Settings:
     gemma_frame_tail_seconds: int
     gemma_frame_max_frames: int
     gemma_frame_max_height: int
+    gemma_frame_jpeg_quality: int
+    gemma_request_max_bytes: int
     gemma_score_scan_interval_seconds: int
     gemma_score_scan_max_frames: int
     gemma_score_scan_batch_size: int
@@ -63,10 +65,12 @@ def get_settings() -> Settings:
         gemma_verify_tls=_env_bool("GEMMA_VERIFY_TLS", True),
         gemma_frame_tail_seconds=int(os.getenv("GEMMA_FRAME_TAIL_SECONDS", "600")),
         gemma_frame_max_frames=int(os.getenv("GEMMA_FRAME_MAX_FRAMES", "12")),
-        gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "720")),
+        gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "360")),
+        gemma_frame_jpeg_quality=int(os.getenv("GEMMA_FRAME_JPEG_QUALITY", "16")),
+        gemma_request_max_bytes=int(os.getenv("GEMMA_REQUEST_MAX_BYTES", "40000")),
         gemma_score_scan_interval_seconds=int(os.getenv("GEMMA_SCORE_SCAN_INTERVAL_SECONDS", "20")),
         gemma_score_scan_max_frames=int(os.getenv("GEMMA_SCORE_SCAN_MAX_FRAMES", "96")),
-        gemma_score_scan_batch_size=int(os.getenv("GEMMA_SCORE_SCAN_BATCH_SIZE", "8")),
+        gemma_score_scan_batch_size=int(os.getenv("GEMMA_SCORE_SCAN_BATCH_SIZE", "1")),
     )
 
 

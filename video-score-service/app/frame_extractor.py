@@ -28,6 +28,7 @@ def extract_tail_frames_from_youtube(
     tail_seconds: int,
     max_frames: int,
     max_height: int,
+    jpeg_quality: int = 7,
 ) -> List[ExtractedFrame]:
     info = _load_youtube_info(youtube_url)
     duration = float(info.get("duration") or 0)
@@ -39,6 +40,7 @@ def extract_tail_frames_from_youtube(
         duration_seconds=clip_duration,
         max_frames=max_frames,
         max_height=max_height,
+        jpeg_quality=jpeg_quality,
     )
 
 
@@ -47,6 +49,7 @@ def extract_evenly_spaced_frames_from_youtube(
     *,
     max_frames: int,
     max_height: int,
+    jpeg_quality: int = 7,
     start_ratio: float = 0.05,
     end_ratio: float = 0.95,
 ) -> List[ExtractedFrame]:
@@ -59,6 +62,7 @@ def extract_evenly_spaced_frames_from_youtube(
             duration_seconds=max_frames,
             max_frames=max_frames,
             max_height=max_height,
+            jpeg_quality=jpeg_quality,
         )
 
     safe_start_ratio = min(0.95, max(0.0, start_ratio))
@@ -71,6 +75,7 @@ def extract_evenly_spaced_frames_from_youtube(
         duration_seconds=clip_duration,
         max_frames=max_frames,
         max_height=max_height,
+        jpeg_quality=jpeg_quality,
     )
 
 
@@ -80,6 +85,7 @@ def extract_score_scan_frames_from_youtube(
     interval_seconds: int,
     max_frames: int,
     max_height: int,
+    jpeg_quality: int = 7,
 ) -> List[ExtractedFrame]:
     info = _load_youtube_info(youtube_url)
     duration = float(info.get("duration") or 0)
@@ -90,6 +96,7 @@ def extract_score_scan_frames_from_youtube(
             duration_seconds=max_frames * interval_seconds,
             max_frames=max_frames,
             max_height=max_height,
+            jpeg_quality=jpeg_quality,
         )
 
     frame_count = min(max_frames, max(1, int(duration // interval_seconds) + 1))
@@ -99,6 +106,7 @@ def extract_score_scan_frames_from_youtube(
         duration_seconds=duration,
         max_frames=frame_count,
         max_height=max_height,
+        jpeg_quality=jpeg_quality,
     )
 
 
@@ -109,6 +117,7 @@ def extract_frames_from_youtube_info(
     duration_seconds: float,
     max_frames: int,
     max_height: int,
+    jpeg_quality: int = 7,
 ) -> List[ExtractedFrame]:
     ffmpeg_path = find_ffmpeg()
     if not ffmpeg_path:
@@ -140,7 +149,7 @@ def extract_frames_from_youtube_info(
             "-frames:v",
             str(max_frames),
             "-q:v",
-            "7",
+            str(max(2, min(31, int(jpeg_quality)))),
             output_pattern,
         ]
         subprocess.run(command, check=True)
