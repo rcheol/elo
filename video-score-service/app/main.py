@@ -8,6 +8,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 
 from app.config import get_settings
 from app.models import AnalyzeRequest, AnalyzeResponse, JobCreated, JobRecord, JobStatus, ProviderInfo
+from app.providers.gemma_frames import analyze_with_gemma_frames
 from app.providers.gemini import analyze_with_gemini
 from app.providers.heuristics import extract_youtube_video_id
 
@@ -36,6 +37,13 @@ def models() -> List[ProviderInfo]:
             model=settings.gemini_video_model,
             role="primary",
             note="Direct public YouTube URL video understanding.",
+        ),
+        ProviderInfo(
+            provider="gemma_frames",
+            enabled=settings.gemma_enabled,
+            model=settings.gemma_model,
+            role="secondary verifier",
+            note="Extract tail frames from YouTube and send them to base/gemma-4-31b-it through an OpenAI-compatible API.",
         ),
         ProviderInfo(
             provider="twelvelabs",
@@ -129,12 +137,17 @@ async def _analyze_request(request: AnalyzeRequest) -> AnalyzeResponse:
     settings = get_settings()
     provider = request.provider
     if provider == "auto":
-        provider = "gemini" if settings.gemini_enabled else "local_ocr"
+        provider = "gemini" if settings.gemini_enabled else "gemma_frames" if settings.gemma_enabled else "local_ocr"
 
     if provider == "gemini":
         if not settings.gemini_enabled:
             raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured.")
         return await analyze_with_gemini(request, settings)
+
+    if provider == "gemma_frames":
+        if not settings.gemma_enabled:
+            raise HTTPException(status_code=503, detail="GEMMA_API_KEY and GEMMA_CHAT_COMPLETIONS_URL are not configured.")
+        return await analyze_with_gemma_frames(request, settings)
 
     if provider == "twelvelabs":
         raise HTTPException(status_code=501, detail="TwelveLabs adapter is planned but not implemented yet.")

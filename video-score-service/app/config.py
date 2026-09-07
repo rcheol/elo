@@ -19,6 +19,12 @@ class Settings:
     request_timeout_seconds: float
     twelvelabs_api_key: str
     openai_api_key: str
+    gemma_api_key: str
+    gemma_chat_completions_url: str
+    gemma_model: str
+    gemma_frame_tail_seconds: int
+    gemma_frame_max_frames: int
+    gemma_frame_max_height: int
 
     @property
     def gemini_enabled(self) -> bool:
@@ -32,6 +38,10 @@ class Settings:
     def openai_frames_enabled(self) -> bool:
         return bool(self.openai_api_key)
 
+    @property
+    def gemma_enabled(self) -> bool:
+        return bool(self.gemma_api_key and self.gemma_chat_completions_url)
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -43,5 +53,10 @@ def get_settings() -> Settings:
         request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "300")),
         twelvelabs_api_key=os.getenv("TWELVELABS_API_KEY", "").strip(),
         openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        gemma_api_key=os.getenv("GEMMA_API_KEY", "").strip(),
+        gemma_chat_completions_url=os.getenv("GEMMA_CHAT_COMPLETIONS_URL", "").strip(),
+        gemma_model=os.getenv("GEMMA_MODEL", "base/gemma-4-31b-it").strip(),
+        gemma_frame_tail_seconds=int(os.getenv("GEMMA_FRAME_TAIL_SECONDS", "600")),
+        gemma_frame_max_frames=int(os.getenv("GEMMA_FRAME_MAX_FRAMES", "12")),
+        gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "720")),
     )
-

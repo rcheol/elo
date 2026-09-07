@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-ProviderName = Literal["auto", "gemini", "twelvelabs", "openai_frames", "local_ocr"]
+ProviderName = Literal["auto", "gemini", "gemma_frames", "twelvelabs", "openai_frames", "local_ocr"]
 AnalyzeStatus = Literal["succeeded", "failed"]
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 Winner = Literal["A", "B", "unknown"]
@@ -17,6 +17,9 @@ class AnalyzeRequest(BaseModel):
     expected_players: List[str] = Field(default_factory=list, max_length=8)
     hint: str = Field(default="", max_length=1000)
     save_raw: bool = False
+    frame_image_urls: List[str] = Field(default_factory=list, max_length=20)
+    frame_tail_seconds: Optional[int] = Field(default=None, ge=30, le=3600)
+    frame_max_frames: Optional[int] = Field(default=None, ge=1, le=30)
 
     @field_validator("expected_players")
     @classmethod

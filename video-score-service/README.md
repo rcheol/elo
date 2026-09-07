@@ -9,12 +9,17 @@
    - agentic video processing을 우선 사용해서 긴 영상에서도 필요한 구간을 모델이 탐색하도록 둡니다.
    - 결과는 `found`, `scoreA`, `scoreB`, `winner`, `confidence`, `evidence` 형태의 JSON으로 제한합니다.
 
-2. Fallback 후보: TwelveLabs Pegasus / Jockey
+2. Secondary verifier: base/gemma-4-31b-it
+   - 직접 GPU 서버를 띄우지 않고, 보유한 API 키로 호출하는 전제를 둡니다.
+   - YouTube URL을 직접 넘기지 않고, 서비스가 `yt-dlp + ffmpeg`로 마지막 구간 프레임을 샘플링한 뒤 OpenAI-compatible chat/completions API에 이미지로 전달합니다.
+   - 긴 경기 전체를 한 번에 보는 모델이 아니라, 최종 점수판 후보 프레임 검증용으로 씁니다.
+
+3. Fallback 후보: TwelveLabs Pegasus / Jockey
    - 영상 분석 전문 API입니다.
    - 한 영상에 대한 질문/분석과 structured JSON 응답에 강점이 있습니다.
    - 현재 서비스에는 후보로만 남겨두고, 실제 키가 준비되면 provider를 추가합니다.
 
-3. 정확도 보강 후보: yt-dlp + ffmpeg + PaddleOCR
+4. 정확도 보강 후보: yt-dlp + ffmpeg + PaddleOCR
    - 영상에서 마지막 구간과 점수판 후보 프레임을 샘플링합니다.
    - OCR로 숫자를 읽고 시간축 투표를 해서 최종 스코어를 보강합니다.
    - 점수판 위치가 일정한 동호회 영상이 쌓이면 이 경로가 가장 안정적인 검증 레이어가 됩니다.
@@ -57,7 +62,9 @@ Content-Type: application/json
   "youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID",
   "provider": "auto",
   "expected_players": ["류철", "박성수", "백지영", "홍석기"],
-  "hint": "점수판은 화면 상단에 있고, 마지막에 표시되는 경기 최종 점수를 우선해줘."
+  "hint": "점수판은 화면 상단에 있고, 마지막에 표시되는 경기 최종 점수를 우선해줘.",
+  "frame_tail_seconds": 600,
+  "frame_max_frames": 12
 }
 ```
 
@@ -109,6 +116,9 @@ GET /jobs/{job_id}
   - `GEMINI_API_KEY`: Google AI Studio API key
   - `GEMINI_VIDEO_MODEL`: `gemini-3.8-flash`
   - `GEMINI_VIDEO_PROCESSING`: `agentic`
+  - `GEMMA_API_KEY`: base/gemma-4-31b-it 호출 키
+  - `GEMMA_CHAT_COMPLETIONS_URL`: OpenAI-compatible `/v1/chat/completions` URL
+  - `GEMMA_MODEL`: `base/gemma-4-31b-it`
 
 Docker로 배포하는 경우 `Dockerfile`을 그대로 사용하면 됩니다.
 
@@ -118,5 +128,6 @@ Docker로 배포하는 경우 `Dockerfile`을 그대로 사용하면 됩니다.
 
 1. 유튜브 URL을 넣으면 후보 스코어와 근거 timestamp를 반환
 2. 관리자 화면에서 사람이 확인 후 경기 기록 저장
-3. 영상 샘플이 20개 정도 쌓이면 오답 유형을 보고 OCR fallback 추가
-4. 점수판 위치가 일정하면 마지막 20% 구간 OCR + Gemini 검증 조합으로 강화
+3. Gemini 결과가 애매하면 `provider=gemma_frames`로 마지막 구간 프레임을 재검증
+4. 영상 샘플이 20개 정도 쌓이면 오답 유형을 보고 OCR fallback 추가
+5. 점수판 위치가 일정하면 마지막 20% 구간 OCR + Gemini/Gemma 검증 조합으로 강화
