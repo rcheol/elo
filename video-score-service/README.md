@@ -2,6 +2,8 @@
 
 유튜브 경기 영상 링크에서 배드민턴 복식 최종 스코어를 추출하기 위한 별도 백엔드입니다. 현재 실제로 사용할 수 있는 멀티모달 모델을 `base/gemma-4-31b-it` 하나로 보고, 영상은 직접 모델에 통째로 넣지 않고 프레임으로 쪼개 분석합니다.
 
+Render 배포 서버에서는 Gemma API가 사내 IP 제한으로 timeout될 수 있으므로, 운영 구조는 “메인 사이트가 DB 큐를 저장하고, 회사망 PC의 로컬 worker가 큐를 polling해서 Gemma를 호출하는 방식”입니다.
+
 ## 선택한 방향
 
 1. Primary: base/gemma-4-31b-it
@@ -32,8 +34,97 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
-# .env 파일에 GEMINI_API_KEY 입력
+# .env 파일에 GEMMA_API_KEY, GEMMA_CHAT_COMPLETIONS_URL 입력
 uvicorn app.main:app --reload --port 8088
+```
+
+## 메인 사이트 큐 worker 실행
+
+메인 랭킹 사이트(`honeyserve-elo.onrender.com`)에서 유튜브 링크를 등록하면, 작업은 Neon/Postgres의 `app_state.videoAnalysisJobs`에 저장됩니다. 회사망 PC에서는 아래 worker를 켜두면 됩니다.
+
+Render 메인 사이트 환경변수:
+
+- `VIDEO_WORKER_TOKEN`: 긴 랜덤 문자열 하나를 설정합니다.
+- `VIDEO_JOB_LOCK_MINUTES`: 선택값, 기본 60분입니다. worker가 중간에 죽으면 이 시간이 지난 뒤 작업이 다시 큐에 잡힙니다.
+
+회사망 PC `video-score-service\.env`:
+
+```powershell
+WORKER_API_BASE_URL=https://honeyserve-elo.onrender.com
+VIDEO_WORKER_TOKEN=Render에 넣은 값과 동일하게
+GEMMA_API_KEY=보유한 Gemma 호출 키
+GEMMA_CHAT_COMPLETIONS_URL=https://infinia-api.dev-aibixby.com/oai/v1/chat/completions
+GEMMA_MODEL=base/gemma-4-31b-it
+GEMMA_VERIFY_TLS=false
+REQUEST_TIMEOUT_SECONDS=300
+```
+
+실행:
+
+```powershell
+cd E:\github\badminton-elo-ranking\video-score-service
+.\..\tmp\video-score-venv\Scripts\Activate.ps1
+python worker.py
+```
+
+worker 흐름:
+
+1. `GET /api/video-analysis/worker/jobs/next`로 다음 작업을 가져옵니다.
+2. `player_detection`이면 유튜브 프레임을 추출하고 Gemma로 `A1/A2/B1/B2` 슬롯을 만듭니다.
+3. 사용자가 사이트에서 슬롯별 선수를 고르면 작업이 `score_analysis`로 다시 큐에 들어갑니다.
+4. worker가 영상 전체 점수판을 읽어 최종 스코어 후보를 저장합니다.
+5. 사용자가 “이 점수로 경기 저장”을 누르면 기존 경기 등록 API와 같은 ELO 재계산 경로로 기록됩니다.
+
+## 메인 사이트 큐 API
+
+### 영상 작업 생성
+
+```http
+POST /api/video-analysis/jobs
+Content-Type: application/json
+```
+
+```json
+{
+  "youtubeUrl": "https://www.youtube.com/watch?v=VIDEO_ID"
+}
+```
+
+### 영상 작업 조회
+
+```http
+GET /api/video-analysis/jobs/{jobId}
+```
+
+### 선수 매핑 저장 및 점수 분석 큐 등록
+
+```http
+PUT /api/video-analysis/jobs/{jobId}/players
+Content-Type: application/json
+```
+
+```json
+{
+  "slots": {
+    "A1": { "playerId": "player-a1" },
+    "A2": { "playerId": "player-a2" },
+    "B1": { "playerId": "player-b1" },
+    "B2": { "playerId": "player-b2" }
+  }
+}
+```
+
+### 점수 확인 후 경기 등록
+
+```http
+POST /api/video-analysis/jobs/{jobId}/confirm
+Content-Type: application/json
+```
+
+```json
+{
+  "playedAt": "2026-09-07T20:30:00+09:00"
+}
 ```
 
 ## API
@@ -178,9 +269,9 @@ Content-Type: application/json
 GET /jobs/{job_id}
 ```
 
-## Render 배포 메모
+## 선택형 별도 분석 서비스 배포 메모
 
-새 Web Service를 별도로 만들 때:
+사내 IP 제한이 없는 모델 키를 쓰게 될 때만 새 Web Service를 별도로 만들면 됩니다. 현재 Infinia/Gemma 키는 Render에서 timeout될 수 있으므로, 위의 로컬 worker 방식을 우선 사용합니다.
 
 - Root Directory: `video-score-service`
 - Build Command: `pip install -r requirements.txt`
@@ -189,8 +280,8 @@ GET /jobs/{job_id}
   - `GEMINI_API_KEY`: Google AI Studio API key
   - `GEMINI_VIDEO_MODEL`: `gemini-3.8-flash`
   - `GEMINI_VIDEO_PROCESSING`: `agentic`
-  - `GEMMA_API_KEY`: base/gemma-4-31b-it 호출 키
-  - `GEMMA_CHAT_COMPLETIONS_URL`: OpenAI-compatible `/v1/chat/completions` URL
+  - `GEMMA_API_KEY`: Render에서 접근 가능한 base/gemma-4-31b-it 호출 키
+  - `GEMMA_CHAT_COMPLETIONS_URL`: Render에서 접근 가능한 OpenAI-compatible `/v1/chat/completions` URL
   - `GEMMA_MODEL`: `base/gemma-4-31b-it`
   - `GEMMA_VERIFY_TLS`: curl의 `-k`가 필요한 사내 dev endpoint라면 `false`
 
@@ -200,8 +291,8 @@ Docker로 배포하는 경우 `Dockerfile`을 그대로 사용하면 됩니다.
 
 처음부터 자동 등록까지 한 번에 연결하지 말고, 아래 순서로 가는 것을 권장합니다.
 
-1. 유튜브 URL을 넣으면 후보 스코어와 근거 timestamp를 반환
-2. 관리자 화면에서 사람이 확인 후 경기 기록 저장
-3. Gemini 결과가 애매하면 `provider=gemma_frames`로 마지막 구간 프레임을 재검증
-4. 영상 샘플이 20개 정도 쌓이면 오답 유형을 보고 OCR fallback 추가
-5. 점수판 위치가 일정하면 마지막 20% 구간 OCR + Gemini/Gemma 검증 조합으로 강화
+1. 유튜브 URL을 넣으면 worker가 선수 슬롯 후보와 기준 프레임을 반환
+2. 사용자가 A1/A2/B1/B2를 실제 선수와 연결
+3. worker가 영상 전체를 scan해서 후보 스코어와 근거 timestamp를 반환
+4. 사용자가 점수를 확인하면 기존 경기 기록 저장 API로 등록
+5. 영상 샘플이 20개 정도 쌓이면 오답 유형을 보고 OCR fallback 추가

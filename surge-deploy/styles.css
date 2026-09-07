@@ -462,6 +462,117 @@ h2 {
   color: var(--coral);
 }
 
+.video-analysis-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #dce8dc;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
+
+.video-analysis-panel[hidden] {
+  display: none;
+}
+
+.video-analysis-status {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.video-analysis-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.video-analysis-frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.video-analysis-frame {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.video-analysis-frame img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-soft);
+}
+
+.video-analysis-frame span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.video-analysis-slots {
+  display: grid;
+  gap: 8px;
+}
+
+.video-slot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px);
+  gap: 8px;
+  align-items: center;
+}
+
+.video-slot-copy {
+  min-width: 0;
+}
+
+.video-slot-copy strong {
+  display: block;
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+.video-slot-copy small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.video-analysis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.video-analysis-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  width: fit-content;
+  padding: 8px 10px;
+  border: 1px solid #d9eadb;
+  border-radius: var(--radius-sm);
+  background: #f5fbf5;
+  color: var(--ink);
+  font-weight: 950;
+}
+
+.video-analysis-score strong {
+  font-size: 1.2rem;
+}
+
 .team-box {
   min-width: 0;
   padding: 16px;
@@ -2404,6 +2515,14 @@ tbody tr:last-child td {
 
   .video-score-tool .icon-text-button {
     width: 100%;
+  }
+
+  .video-analysis-frames {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .video-slot-row {
+    grid-template-columns: 1fr;
   }
 
   .match-section-head {

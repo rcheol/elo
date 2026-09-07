@@ -14,11 +14,24 @@ const dbPath = process.env.DATABASE_PATH || path.join(__dirname, "data", "badmin
 const sessionMaxAgeMs = 1000 * 60 * 60 * 24 * 30;
 const visitorMaxAgeMs = 1000 * 60 * 60 * 24 * 400;
 const visitorCookieName = "visitor_id";
-const maxBodyBytes = 2 * 1024 * 1024;
+const maxBodyBytes = 8 * 1024 * 1024;
 const healthPaths = new Set(["/api/health", "/healthz", "/health"]);
 const videoScoreTextLimit = 12000;
 const videoScoreFetchTimeoutMs = 10000;
 const openAiVideoScoreModel = process.env.OPENAI_VIDEO_SCORE_MODEL || "gpt-5-mini";
+const videoWorkerToken = process.env.VIDEO_WORKER_TOKEN || "";
+const videoJobLockMs = clampNumber(Number(process.env.VIDEO_JOB_LOCK_MINUTES || 60), 5, 720) * 60 * 1000;
+const videoAnalysisSlotIds = ["A1", "A2", "B1", "B2"];
+const videoAnalysisStatuses = new Set([
+  "queued_player_detection",
+  "running_player_detection",
+  "waiting_player_mapping",
+  "queued_score_analysis",
+  "running_score_analysis",
+  "waiting_confirmation",
+  "registered",
+  "failed",
+]);
 
 const defaultSettings = {
   baseRating: 1500,
@@ -72,6 +85,7 @@ const playerCardStickerIdSet = new Set(playerCardStickerIds);
 
 let db = null;
 let pgPool = null;
+let sqliteVideoAnalysisJobs = [];
 
 if (!usePostgres && dbPath !== ":memory:") {
   fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
@@ -767,6 +781,17 @@ function getCardStickers(currentUser = null) {
     .map((row) => cardStickerFromRow(row, currentUser));
 }
 
+function getSqliteVideoAnalysisState() {
+  return {
+    players: getPlayers({ includePending: true }),
+    videoAnalysisJobs: sqliteVideoAnalysisJobs,
+  };
+}
+
+function saveSqliteVideoAnalysisState(videoState) {
+  sqliteVideoAnalysisJobs = Array.isArray(videoState.videoAnalysisJobs) ? videoState.videoAnalysisJobs : [];
+}
+
 function getStatePayload(currentUser) {
   const safeCurrentUser = currentUser
     ? {
@@ -783,6 +808,7 @@ function getStatePayload(currentUser) {
     matches: getMatches(),
     mannerVotes: getMannerVotes(),
     cardStickers: getCardStickers(safeCurrentUser),
+    videoAnalysisJobs: getVideoAnalysisJobsForUser(getSqliteVideoAnalysisState(), safeCurrentUser),
     settings: getSettings(),
     visitorStats: getVisitorStats(),
     queuePlayerIds: getQueuePlayerIds(),
@@ -1198,6 +1224,7 @@ function insertMatch(input, currentUser) {
     fullMatch.updatedAt,
   );
   recalculateMatchesFromOrder(fullMatch);
+  return fullMatch;
 }
 
 function insertBulkTextMatches(input, currentUser) {
@@ -2406,6 +2433,7 @@ function resetData() {
   db.prepare("DELETE FROM matches").run();
   db.prepare("DELETE FROM queue_players").run();
   db.prepare("DELETE FROM players").run();
+  sqliteVideoAnalysisJobs = [];
   saveSettings(defaultSettings);
   ensurePendingPlayersForUsers();
 }
@@ -2495,6 +2523,7 @@ function createDefaultPostgresState() {
     matches: [],
     mannerVotes: [],
     cardStickers: [],
+    videoAnalysisJobs: [],
     settings: cloneSettings(defaultSettings),
     visitorStats: createDefaultVisitorStats(),
     queuePlayerIds: [],
@@ -2652,6 +2681,158 @@ function normalizeStoredCardSticker(sticker, activeUserIds, activePlayerIds, see
   };
 }
 
+function normalizeStoredReferenceFrame(frame) {
+  const timestamp = String(frame?.timestamp ?? frame?.timestamp_label ?? "").trim();
+  const imageDataUrl = String(frame?.imageDataUrl ?? frame?.image_data_url ?? frame?.dataUrl ?? frame?.data_url ?? "").trim();
+  if (!timestamp && !imageDataUrl) {
+    return null;
+  }
+  return { timestamp, imageDataUrl };
+}
+
+function normalizeStoredPlayerSlot(slot) {
+  const slotId = String(slot?.slotId ?? slot?.slot_id ?? "").toUpperCase();
+  if (!videoAnalysisSlotIds.includes(slotId)) {
+    return null;
+  }
+  return {
+    slotId,
+    team: slotId.startsWith("A") ? "A" : "B",
+    label: String(slot?.label || defaultVideoSlotLabel(slotId)),
+    description: String(slot?.description || "").slice(0, 500),
+    timestamp: String(slot?.timestamp || "").slice(0, 40),
+    confidence: round3(clampNumber(Number(slot?.confidence || 0), 0, 1)),
+  };
+}
+
+function normalizeStoredVideoScore(score) {
+  if (!score || typeof score !== "object") {
+    return null;
+  }
+  const teamA = Number(score.teamA ?? score.team_a);
+  const teamB = Number(score.teamB ?? score.team_b);
+  if (!Number.isFinite(teamA) || !Number.isFinite(teamB)) {
+    return null;
+  }
+  return {
+    teamA: Math.max(0, Math.floor(teamA)),
+    teamB: Math.max(0, Math.floor(teamB)),
+    winner: score.winner === "B" ? "B" : score.winner === "A" ? "A" : "unknown",
+    confidence: round3(clampNumber(Number(score.confidence || 0), 0, 1)),
+  };
+}
+
+function normalizeStoredVideoScoreResult(result, activePlayerIds) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const score = normalizeStoredVideoScore(result.score);
+  const readings = Array.isArray(result.readings)
+    ? result.readings.slice(0, 300).map((reading) => {
+        const scoreA = Number(reading?.scoreA ?? reading?.score_a);
+        const scoreB = Number(reading?.scoreB ?? reading?.score_b);
+        if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB)) {
+          return null;
+        }
+        return {
+          timestamp: String(reading?.timestamp || "").slice(0, 40),
+          scoreA: Math.max(0, Math.floor(scoreA)),
+          scoreB: Math.max(0, Math.floor(scoreB)),
+          confidence: round3(clampNumber(Number(reading?.confidence || 0), 0, 1)),
+          note: String(reading?.note || "").slice(0, 500),
+        };
+      }).filter(Boolean)
+    : [];
+  const evidence = Array.isArray(result.evidence)
+    ? result.evidence.slice(0, 24).map((item) => ({
+        timestamp: String(item?.timestamp || "").slice(0, 40),
+        text: String(item?.text || item || "").slice(0, 500),
+      })).filter((item) => item.timestamp || item.text)
+    : [];
+  const warnings = Array.isArray(result.warnings)
+    ? result.warnings.slice(0, 24).map((item) => String(item || "").slice(0, 500)).filter(Boolean)
+    : [];
+  const matchPayload = normalizeVideoMatchPayload(result.matchPayload ?? result.match_payload, activePlayerIds, { allowPartial: true });
+
+  return {
+    score,
+    readings,
+    evidence,
+    warnings,
+    needsConfirmation: result.needsConfirmation ?? result.needs_confirmation ?? true,
+    matchPayload,
+  };
+}
+
+function normalizeStoredVideoPlayerMapping(mapping, activePlayerIds, players) {
+  if (!mapping || typeof mapping !== "object") {
+    return {};
+  }
+
+  const normalized = {};
+  videoAnalysisSlotIds.forEach((slotId) => {
+    const source = mapping[slotId] ?? mapping[slotId.toLowerCase()];
+    const playerId = String(source?.playerId ?? source?.player_id ?? "").trim();
+    if (!activePlayerIds.has(playerId)) {
+      return;
+    }
+    const player = players.find((candidate) => candidate.id === playerId);
+    normalized[slotId] = {
+      playerId,
+      playerName: player?.name || String(source?.playerName ?? source?.player_name ?? "").slice(0, 80),
+    };
+  });
+  return normalized;
+}
+
+function normalizeStoredVideoAnalysisJob(job, activeUserIds, activePlayerIds, players, seenIds) {
+  const id = String(job?.id || job?.jobId || job?.job_id || uid());
+  const createdBy = String(job?.createdBy ?? job?.created_by ?? "");
+  if (seenIds.has(id) || !activeUserIds.has(createdBy)) {
+    return null;
+  }
+
+  const status = videoAnalysisStatuses.has(String(job?.status || "")) ? String(job.status) : "failed";
+  const youtubeUrl = String(job?.youtubeUrl ?? job?.youtube_url ?? "").trim();
+  const videoId = String(job?.videoId ?? job?.video_id ?? extractYouTubeVideoId(youtubeUrl) ?? "").trim();
+  if (!youtubeUrl || !videoId) {
+    return null;
+  }
+
+  seenIds.add(id);
+  return {
+    id,
+    status,
+    stage: String(job?.stage || videoJobStageFromStatus(status)),
+    youtubeUrl,
+    videoId,
+    hint: String(job?.hint || "").slice(0, 1000),
+    calibrationMaxFrames: Math.floor(clampNumber(Number(job?.calibrationMaxFrames ?? job?.calibration_max_frames ?? 4), 1, 12)),
+    scoreRequest: normalizeVideoScoreRequest(job?.scoreRequest ?? job?.score_request),
+    createdBy,
+    createdByName: normalizeDisplayName(job?.createdByName ?? job?.created_by_name, "알 수 없음") || "알 수 없음",
+    referenceFrames: Array.isArray(job?.referenceFrames ?? job?.reference_frames)
+      ? (job.referenceFrames ?? job.reference_frames).map(normalizeStoredReferenceFrame).filter(Boolean).slice(0, 12)
+      : [],
+    playerSlots: Array.isArray(job?.playerSlots ?? job?.player_slots)
+      ? normalizeVideoPlayerSlots(job.playerSlots ?? job.player_slots)
+      : [],
+    playerMapping: normalizeStoredVideoPlayerMapping(job?.playerMapping ?? job?.player_mapping, activePlayerIds, players),
+    scoreResult: normalizeStoredVideoScoreResult(job?.scoreResult ?? job?.score_result, activePlayerIds),
+    matchId: job?.matchId ?? job?.match_id ? String(job?.matchId ?? job?.match_id) : null,
+    lockedAt: job?.lockedAt ?? job?.locked_at ? safeIsoDate(job?.lockedAt ?? job?.locked_at, nowIso()) : null,
+    lockedBy: job?.lockedBy ?? job?.locked_by ? String(job?.lockedBy ?? job?.locked_by).slice(0, 120) : "",
+    attempts: Math.max(0, Math.floor(Number(job?.attempts || 0))),
+    error: job?.error ? String(job.error).slice(0, 1000) : "",
+    warnings: Array.isArray(job?.warnings)
+      ? job.warnings.slice(0, 24).map((item) => String(item || "").slice(0, 500)).filter(Boolean)
+      : [],
+    createdAt: safeIsoDate(job?.createdAt ?? job?.created_at, nowIso()),
+    updatedAt: safeIsoDate(job?.updatedAt ?? job?.updated_at ?? job?.createdAt ?? job?.created_at, nowIso()),
+  };
+}
+
 function normalizePostgresState(value) {
   const source = value && typeof value === "object" ? value : {};
   const state = {
@@ -2662,6 +2843,7 @@ function normalizePostgresState(value) {
     matches: [],
     mannerVotes: [],
     cardStickers: [],
+    videoAnalysisJobs: [],
     settings: cloneSettings(source.settings),
     visitorStats: normalizeVisitorStats(source.visitorStats),
     queuePlayerIds: [],
@@ -2723,6 +2905,13 @@ function normalizePostgresState(value) {
   const stickerKeys = new Set();
   state.cardStickers = (Array.isArray(source.cardStickers) ? source.cardStickers : [])
     .map((sticker) => normalizeStoredCardSticker(sticker, activeUserIds, activePlayerIdsForStickers, stickerKeys))
+    .filter(Boolean)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+  const videoJobIds = new Set();
+  const activePlayerIdsForVideo = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+  state.videoAnalysisJobs = (Array.isArray(source.videoAnalysisJobs) ? source.videoAnalysisJobs : [])
+    .map((job) => normalizeStoredVideoAnalysisJob(job, activeUserIds, activePlayerIdsForVideo, state.players, videoJobIds))
     .filter(Boolean)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 
@@ -2890,6 +3079,420 @@ function pgGetCardStickers(state, currentUser = null) {
     .map((sticker) => pgCardStickerFromStored(sticker, currentUser));
 }
 
+function defaultVideoSlotLabel(slotId) {
+  return (
+    {
+      A1: "A팀 선수 1",
+      A2: "A팀 선수 2",
+      B1: "B팀 선수 1",
+      B2: "B팀 선수 2",
+    }[slotId] || slotId
+  );
+}
+
+function videoJobStageFromStatus(status) {
+  if (status === "queued_player_detection" || status === "running_player_detection") {
+    return "player_detection";
+  }
+  if (status === "waiting_player_mapping") {
+    return "player_mapping";
+  }
+  if (status === "queued_score_analysis" || status === "running_score_analysis") {
+    return "score_analysis";
+  }
+  if (status === "waiting_confirmation") {
+    return "confirmation";
+  }
+  return status;
+}
+
+function normalizeVideoScoreRequest(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    scanIntervalSeconds: Math.floor(clampNumber(Number(source.scanIntervalSeconds ?? source.scan_interval_seconds ?? 20), 5, 180)),
+    maxFrames: Math.floor(clampNumber(Number(source.maxFrames ?? source.max_frames ?? 96), 8, 240)),
+    batchSize: Math.floor(clampNumber(Number(source.batchSize ?? source.batch_size ?? 8), 1, 20)),
+    hint: String(source.hint || "").slice(0, 1000),
+    saveRaw: Boolean(source.saveRaw ?? source.save_raw ?? false),
+  };
+}
+
+function normalizeVideoReferenceFrames(frames) {
+  return (Array.isArray(frames) ? frames : [])
+    .map(normalizeStoredReferenceFrame)
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizeVideoPlayerSlots(slots) {
+  const byId = new Map();
+  (Array.isArray(slots) ? slots : []).forEach((slot) => {
+    const normalized = normalizeStoredPlayerSlot(slot);
+    if (normalized) {
+      byId.set(normalized.slotId, normalized);
+    }
+  });
+  return videoAnalysisSlotIds.map((slotId) => byId.get(slotId) || {
+    slotId,
+    team: slotId.startsWith("A") ? "A" : "B",
+    label: defaultVideoSlotLabel(slotId),
+    description: "",
+    timestamp: "",
+    confidence: 0,
+  });
+}
+
+function normalizeVideoMatchPayload(input, activePlayerIds, options = {}) {
+  const teamA = Array.isArray(input?.teamA ?? input?.team_a) ? (input.teamA ?? input.team_a).map(String) : [];
+  const teamB = Array.isArray(input?.teamB ?? input?.team_b) ? (input.teamB ?? input.team_b).map(String) : [];
+  const scoreA = Number(input?.scoreA ?? input?.score_a);
+  const scoreB = Number(input?.scoreB ?? input?.score_b);
+  const ids = [...teamA, ...teamB];
+  const valid =
+    teamA.length === 2 &&
+    teamB.length === 2 &&
+    ids.every((id) => activePlayerIds.has(id)) &&
+    new Set(ids).size === 4 &&
+    Number.isFinite(scoreA) &&
+    Number.isFinite(scoreB);
+
+  if (!valid) {
+    if (options.allowPartial) {
+      return null;
+    }
+    throw new HttpError(400, "VIDEO_MATCH_PAYLOAD_INVALID", "영상 분석 경기 정보를 확인하세요.");
+  }
+
+  const payload = {
+    teamA,
+    teamB,
+    scoreA: Math.max(0, Math.floor(scoreA)),
+    scoreB: Math.max(0, Math.floor(scoreB)),
+  };
+  const playedAt = input?.playedAt ?? input?.played_at ?? input?.matchAt;
+  if (playedAt) {
+    payload.playedAt = normalizeMatchDate(playedAt);
+  }
+  return payload;
+}
+
+function videoAnalysisJobPublicView(job, currentUser = null, options = {}) {
+  const includeDetails = options.summary !== true;
+  const scoreResult = job.scoreResult
+    ? includeDetails
+      ? job.scoreResult
+      : {
+          score: job.scoreResult.score || null,
+          warnings: Array.isArray(job.scoreResult.warnings) ? job.scoreResult.warnings.slice(0, 3) : [],
+          matchPayload: job.scoreResult.matchPayload || null,
+        }
+    : null;
+  return {
+    id: job.id,
+    status: job.status,
+    stage: job.stage || videoJobStageFromStatus(job.status),
+    youtubeUrl: job.youtubeUrl,
+    videoId: job.videoId,
+    hint: job.hint || "",
+    calibrationMaxFrames: Number(job.calibrationMaxFrames || 4),
+    scoreRequest: normalizeVideoScoreRequest(job.scoreRequest),
+    createdBy: job.createdBy,
+    createdByName: job.createdByName || "알 수 없음",
+    referenceFrames: includeDetails ? normalizeVideoReferenceFrames(job.referenceFrames) : [],
+    playerSlots: includeDetails ? normalizeVideoPlayerSlots(job.playerSlots) : [],
+    playerMapping: job.playerMapping || {},
+    scoreResult,
+    matchId: job.matchId || null,
+    attempts: Number(job.attempts || 0),
+    lockedAt: job.lockedAt || null,
+    lockedBy: job.lockedBy || "",
+    error: job.error || "",
+    warnings: Array.isArray(job.warnings) ? job.warnings : [],
+    workerConfigured: Boolean(videoWorkerToken),
+    canEdit: Boolean(currentUser && (currentUser.role === "admin" || currentUser.id === job.createdBy)),
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function videoAnalysisJobWorkerView(job) {
+  const status = job.status;
+  return {
+    id: job.id,
+    stage: status === "queued_score_analysis" || status === "running_score_analysis" ? "score_analysis" : "player_detection",
+    status: job.status,
+    youtubeUrl: job.youtubeUrl,
+    videoId: job.videoId,
+    hint: job.hint || "",
+    calibrationMaxFrames: Number(job.calibrationMaxFrames || 4),
+    scoreRequest: normalizeVideoScoreRequest(job.scoreRequest),
+    playerMapping: job.playerMapping || {},
+    attempts: Number(job.attempts || 0),
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function getVideoAnalysisJobsForUser(state, currentUser) {
+  if (!currentUser) {
+    return [];
+  }
+
+  return state.videoAnalysisJobs
+    .filter((job) => currentUser.role === "admin" || job.createdBy === currentUser.id)
+    .slice(-20)
+    .reverse()
+    .map((job) => videoAnalysisJobPublicView(job, currentUser, { summary: true }));
+}
+
+function findVideoAnalysisJob(state, jobId) {
+  const job = state.videoAnalysisJobs.find((candidate) => candidate.id === jobId);
+  if (!job) {
+    throw new HttpError(404, "VIDEO_JOB_NOT_FOUND", "영상 분석 작업을 찾을 수 없습니다.");
+  }
+  return job;
+}
+
+function ensureCanAccessVideoAnalysisJob(job, currentUser) {
+  if (currentUser?.role === "admin" || job.createdBy === currentUser?.id) {
+    return;
+  }
+  throw new HttpError(403, "VIDEO_JOB_ACCESS_FORBIDDEN", "이 영상 분석 작업에 접근할 수 없습니다.");
+}
+
+function createVideoAnalysisJob(state, input, currentUser) {
+  const videoId = extractYouTubeVideoId(input?.youtubeUrl || input?.url);
+  if (!videoId) {
+    throw new HttpError(400, "VIDEO_URL_UNSUPPORTED", "유튜브 링크를 확인하세요.");
+  }
+
+  const now = nowIso();
+  const job = {
+    id: uid(),
+    status: "queued_player_detection",
+    stage: "player_detection",
+    youtubeUrl: normalizedYouTubeWatchUrl(videoId),
+    videoId,
+    hint: String(input?.hint || "").slice(0, 1000),
+    calibrationMaxFrames: Math.floor(clampNumber(Number(input?.calibrationMaxFrames ?? input?.calibration_max_frames ?? 4), 1, 12)),
+    scoreRequest: normalizeVideoScoreRequest(input?.scoreRequest ?? input?.score_request ?? {}),
+    createdBy: currentUser.id,
+    createdByName: currentUser.displayName || currentUser.username || "알 수 없음",
+    referenceFrames: [],
+    playerSlots: [],
+    playerMapping: {},
+    scoreResult: null,
+    matchId: null,
+    lockedAt: null,
+    lockedBy: "",
+    attempts: 0,
+    error: "",
+    warnings: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  state.videoAnalysisJobs.push(job);
+  return videoAnalysisJobPublicView(job, currentUser);
+}
+
+function getVideoAnalysisJob(state, jobId, currentUser) {
+  const job = findVideoAnalysisJob(state, jobId);
+  ensureCanAccessVideoAnalysisJob(job, currentUser);
+  return videoAnalysisJobPublicView(job, currentUser);
+}
+
+function normalizeVideoPlayerMappingInput(state, input) {
+  const source = input?.slots || input?.playerMapping || input?.player_mapping || {};
+  const activePlayers = state.players.filter((player) => player.seedRating != null);
+  const activePlayerIds = new Set(activePlayers.map((player) => player.id));
+  const mapping = {};
+  const ids = [];
+
+  videoAnalysisSlotIds.forEach((slotId) => {
+    const slot = source[slotId] || source[slotId.toLowerCase()] || {};
+    const playerId = String(slot.playerId ?? slot.player_id ?? "").trim();
+    const player = activePlayers.find((candidate) => candidate.id === playerId);
+    if (!player) {
+      throw new HttpError(400, "VIDEO_PLAYER_MAPPING_INVALID", "영상 속 선수 4명을 모두 선택하세요.");
+    }
+    mapping[slotId] = {
+      playerId: player.id,
+      playerName: player.name,
+    };
+    ids.push(player.id);
+  });
+
+  if (new Set(ids).size !== 4 || ids.some((id) => !activePlayerIds.has(id))) {
+    throw new HttpError(400, "VIDEO_PLAYER_MAPPING_INVALID", "영상 속 선수는 서로 다른 4명이어야 합니다.");
+  }
+
+  return mapping;
+}
+
+function queueVideoScoreAnalysisJob(state, job, input = {}) {
+  if (job.status !== "waiting_player_mapping" && job.status !== "waiting_confirmation" && job.status !== "failed") {
+    throw new HttpError(409, "VIDEO_JOB_NOT_READY", "아직 선수 확인을 할 수 없는 상태입니다.");
+  }
+  if (new Set(videoAnalysisSlotIds.map((slotId) => job.playerMapping?.[slotId]?.playerId).filter(Boolean)).size !== 4) {
+    throw new HttpError(409, "VIDEO_PLAYER_MAPPING_REQUIRED", "영상 속 선수 4명을 먼저 확정하세요.");
+  }
+
+  job.status = "queued_score_analysis";
+  job.stage = "score_analysis";
+  job.scoreRequest = normalizeVideoScoreRequest(input?.scoreRequest ?? input?.score_request ?? input);
+  job.scoreResult = null;
+  job.matchId = null;
+  job.error = "";
+  job.lockedAt = null;
+  job.lockedBy = "";
+  job.updatedAt = nowIso();
+}
+
+function saveVideoAnalysisPlayers(state, jobId, input, currentUser) {
+  const job = findVideoAnalysisJob(state, jobId);
+  ensureCanAccessVideoAnalysisJob(job, currentUser);
+  if (job.status !== "waiting_player_mapping" && job.status !== "failed" && job.status !== "waiting_confirmation") {
+    throw new HttpError(409, "VIDEO_JOB_NOT_READY", "선수 식별이 끝난 뒤 선수 매핑을 저장할 수 있습니다.");
+  }
+
+  job.playerMapping = normalizeVideoPlayerMappingInput(state, input);
+  queueVideoScoreAnalysisJob(state, job, input?.scoreRequest ?? input?.score_request ?? {});
+  return videoAnalysisJobPublicView(job, currentUser);
+}
+
+function requeueExpiredVideoAnalysisJobs(state) {
+  const nowMs = Date.now();
+  state.videoAnalysisJobs.forEach((job) => {
+    if (!job.lockedAt) {
+      return;
+    }
+    const lockedAtMs = new Date(job.lockedAt).getTime();
+    if (Number.isNaN(lockedAtMs) || nowMs - lockedAtMs < videoJobLockMs) {
+      return;
+    }
+    if (job.status === "running_player_detection") {
+      job.status = "queued_player_detection";
+      job.stage = "player_detection";
+      job.warnings = [...(job.warnings || []), "Worker lock expired; player detection was requeued."].slice(-24);
+    } else if (job.status === "running_score_analysis") {
+      job.status = "queued_score_analysis";
+      job.stage = "score_analysis";
+      job.warnings = [...(job.warnings || []), "Worker lock expired; score analysis was requeued."].slice(-24);
+    }
+    if (job.status === "queued_player_detection" || job.status === "queued_score_analysis") {
+      job.lockedAt = null;
+      job.lockedBy = "";
+      job.updatedAt = nowIso();
+    }
+  });
+}
+
+function claimNextVideoAnalysisJob(state, workerId) {
+  requeueExpiredVideoAnalysisJobs(state);
+  const job = state.videoAnalysisJobs.find((candidate) => (
+    candidate.status === "queued_player_detection" ||
+    candidate.status === "queued_score_analysis"
+  ));
+  if (!job) {
+    return null;
+  }
+
+  const now = nowIso();
+  job.status = job.status === "queued_player_detection" ? "running_player_detection" : "running_score_analysis";
+  job.stage = videoJobStageFromStatus(job.status);
+  job.lockedAt = now;
+  job.lockedBy = String(workerId || "local-worker").slice(0, 120);
+  job.attempts = Number(job.attempts || 0) + 1;
+  job.error = "";
+  job.updatedAt = now;
+  return videoAnalysisJobWorkerView(job);
+}
+
+function saveVideoAnalysisWorkerResult(state, jobId, input) {
+  const job = findVideoAnalysisJob(state, jobId);
+  const stage = String(input?.stage || videoAnalysisJobWorkerView(job).stage || "");
+  const status = String(input?.status || "").toLowerCase();
+  const now = nowIso();
+
+  job.lockedAt = null;
+  job.lockedBy = "";
+  job.updatedAt = now;
+
+  if (status === "failed" || input?.error) {
+    job.status = "failed";
+    job.stage = `${stage || "video"}_failed`;
+    job.error = String(input?.error || "영상 분석 작업이 실패했습니다.").slice(0, 1000);
+    job.warnings = Array.isArray(input?.warnings) ? input.warnings.map(String).slice(0, 24) : job.warnings || [];
+    return videoAnalysisJobPublicView(job, null);
+  }
+
+  if (stage === "player_detection") {
+    job.referenceFrames = normalizeVideoReferenceFrames(input?.referenceFrames ?? input?.reference_frames ?? input?.frames);
+    job.playerSlots = normalizeVideoPlayerSlots(input?.playerSlots ?? input?.player_slots ?? input?.slots);
+    job.warnings = Array.isArray(input?.warnings) ? input.warnings.map(String).slice(0, 24) : [];
+    job.status = "waiting_player_mapping";
+    job.stage = "player_mapping";
+    job.error = "";
+    return videoAnalysisJobPublicView(job, null);
+  }
+
+  if (stage === "score_analysis") {
+    const activePlayerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+    const scoreResult = normalizeStoredVideoScoreResult(input?.scoreResult ?? input?.score_result ?? input?.result ?? input, activePlayerIds);
+    if (!scoreResult?.score || !scoreResult.matchPayload) {
+      job.status = "failed";
+      job.stage = "score_analysis_failed";
+      job.scoreResult = scoreResult;
+      job.error = "영상에서 최종 스코어를 찾지 못했습니다.";
+      return videoAnalysisJobPublicView(job, null);
+    }
+
+    job.scoreResult = scoreResult;
+    job.warnings = scoreResult.warnings || [];
+    job.status = "waiting_confirmation";
+    job.stage = "confirmation";
+    job.error = "";
+    return videoAnalysisJobPublicView(job, null);
+  }
+
+  throw new HttpError(400, "VIDEO_WORKER_STAGE_INVALID", "영상 분석 단계가 올바르지 않습니다.");
+}
+
+function confirmVideoAnalysisJob(state, jobId, input, currentUser, insertMatchFn) {
+  const job = findVideoAnalysisJob(state, jobId);
+  ensureCanAccessVideoAnalysisJob(job, currentUser);
+  if (job.status !== "waiting_confirmation" || !job.scoreResult?.matchPayload) {
+    throw new HttpError(409, "VIDEO_SCORE_NOT_READY", "확정할 스코어가 아직 준비되지 않았습니다.");
+  }
+
+  const activePlayerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
+  const matchPayload = normalizeVideoMatchPayload(job.scoreResult.matchPayload, activePlayerIds);
+  const playedAt = input?.playedAt ?? input?.played_at;
+  if (playedAt) {
+    matchPayload.playedAt = normalizeMatchDate(playedAt);
+  }
+
+  const match = insertMatchFn(matchPayload, currentUser);
+  job.status = "registered";
+  job.stage = "registered";
+  job.matchId = match?.id || null;
+  job.updatedAt = nowIso();
+  return { job: videoAnalysisJobPublicView(job, currentUser), match };
+}
+
+function requireVideoWorker(req) {
+  if (!videoWorkerToken) {
+    throw new HttpError(503, "VIDEO_WORKER_UNCONFIGURED", "VIDEO_WORKER_TOKEN 환경변수가 필요합니다.");
+  }
+
+  const auth = String(req.headers.authorization || "");
+  const bearerToken = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const headerToken = String(req.headers["x-video-worker-token"] || "").trim();
+  if (bearerToken !== videoWorkerToken && headerToken !== videoWorkerToken) {
+    throw new HttpError(401, "VIDEO_WORKER_UNAUTHORIZED", "worker 인증 토큰을 확인하세요.");
+  }
+}
+
 function pgRecordVisitorVisit(state, req) {
   state.visitorStats = normalizeVisitorStats(state.visitorStats);
   const cookies = parseCookies(req.headers.cookie);
@@ -2934,6 +3537,7 @@ function pgGetStatePayload(state, currentUser) {
     matches: pgGetMatches(state),
     mannerVotes: pgGetMannerVotes(state),
     cardStickers: pgGetCardStickers(state, safeCurrentUser),
+    videoAnalysisJobs: getVideoAnalysisJobsForUser(state, safeCurrentUser),
     settings: cloneSettings(state.settings),
     visitorStats: publicVisitorStats(state.visitorStats),
     queuePlayerIds: [...state.queuePlayerIds],
@@ -3072,6 +3676,7 @@ function pgInsertMatch(state, input, currentUser) {
   };
   state.matches.push(fullMatch);
   pgRecalculateMatchesFromOrder(state, fullMatch);
+  return fullMatch;
 }
 
 function pgInsertBulkTextMatches(state, input, currentUser) {
@@ -3480,6 +4085,7 @@ function pgReplaceData(state, input, currentUser) {
   state.matches = [];
   state.mannerVotes = [];
   state.cardStickers = [];
+  state.videoAnalysisJobs = [];
   state.settings = cloneSettings(settings);
   state.queuePlayerIds = [];
 
@@ -3500,6 +4106,7 @@ function pgResetData(state) {
   state.matches = [];
   state.mannerVotes = [];
   state.cardStickers = [];
+  state.videoAnalysisJobs = [];
   state.settings = cloneSettings(defaultSettings);
   state.queuePlayerIds = [];
   pgEnsurePendingPlayersForUsers(state);
@@ -3582,6 +4189,76 @@ async function handleApiPostgres(req, res, url) {
     await withPostgresState((state) => pgRequireUser(req, state));
     const payload = await analyzeVideoScore(body);
     return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "POST" && pathname === "/api/video-analysis/jobs") {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      const job = createVideoAnalysisJob(state, body, currentUser);
+      return { job, videoAnalysisJobs: getVideoAnalysisJobsForUser(state, currentUser) };
+    });
+    return sendJson(req, res, 201, payload);
+  }
+
+  if (method === "GET" && pathname === "/api/video-analysis/worker/jobs/next") {
+    requireVideoWorker(req);
+    const workerId = String(req.headers["x-video-worker-id"] || url.searchParams.get("workerId") || "local-worker");
+    const payload = await withPostgresState((state) => ({
+      job: claimNextVideoAnalysisJob(state, workerId),
+    }));
+    return sendJson(req, res, 200, payload);
+  }
+
+  const videoAnalysisWorkerResultMatch = pathname.match(/^\/api\/video-analysis\/worker\/jobs\/([^/]+)\/result$/);
+  if (method === "POST" && videoAnalysisWorkerResultMatch) {
+    requireVideoWorker(req);
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => ({
+      job: saveVideoAnalysisWorkerResult(state, decodeURIComponent(videoAnalysisWorkerResultMatch[1]), body),
+    }));
+    return sendJson(req, res, 200, payload);
+  }
+
+  const videoAnalysisJobMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)$/);
+  if (method === "GET" && videoAnalysisJobMatch) {
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      return { job: getVideoAnalysisJob(state, decodeURIComponent(videoAnalysisJobMatch[1]), currentUser) };
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  const videoAnalysisPlayersMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)\/players$/);
+  if (method === "PUT" && videoAnalysisPlayersMatch) {
+    const body = await readJsonBody(req);
+    const payload = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      const job = saveVideoAnalysisPlayers(state, decodeURIComponent(videoAnalysisPlayersMatch[1]), body, currentUser);
+      return { job, videoAnalysisJobs: getVideoAnalysisJobsForUser(state, currentUser) };
+    });
+    return sendJson(req, res, 200, payload);
+  }
+
+  const videoAnalysisConfirmMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)\/confirm$/);
+  if (method === "POST" && videoAnalysisConfirmMatch) {
+    const body = await readJsonBody(req);
+    const result = await withPostgresState((state) => {
+      const currentUser = pgRequireUser(req, state);
+      const confirmation = confirmVideoAnalysisJob(
+        state,
+        decodeURIComponent(videoAnalysisConfirmMatch[1]),
+        body,
+        currentUser,
+        (matchPayload, user) => pgInsertMatch(state, matchPayload, user),
+      );
+      return {
+        ...pgGetStatePayload(state, currentUser),
+        videoAnalysisJob: confirmation.job,
+        createdMatchId: confirmation.match?.id || null,
+      };
+    });
+    return sendJson(req, res, 201, result);
   }
 
   const playerStickerMatch = pathname.match(/^\/api\/players\/([^/]+)\/stickers\/([^/]+)$/);
@@ -3827,6 +4504,74 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const payload = await analyzeVideoScore(body);
     return sendJson(req, res, 200, payload);
+  }
+
+  if (method === "POST" && pathname === "/api/video-analysis/jobs") {
+    const currentUser = requireUser(req);
+    const body = await readJsonBody(req);
+    const videoState = getSqliteVideoAnalysisState();
+    const job = createVideoAnalysisJob(videoState, body, currentUser);
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 201, { job, videoAnalysisJobs: getVideoAnalysisJobsForUser(videoState, currentUser) });
+  }
+
+  if (method === "GET" && pathname === "/api/video-analysis/worker/jobs/next") {
+    requireVideoWorker(req);
+    const workerId = String(req.headers["x-video-worker-id"] || url.searchParams.get("workerId") || "local-worker");
+    const videoState = getSqliteVideoAnalysisState();
+    const job = claimNextVideoAnalysisJob(videoState, workerId);
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 200, { job });
+  }
+
+  const videoAnalysisWorkerResultMatch = pathname.match(/^\/api\/video-analysis\/worker\/jobs\/([^/]+)\/result$/);
+  if (method === "POST" && videoAnalysisWorkerResultMatch) {
+    requireVideoWorker(req);
+    const body = await readJsonBody(req);
+    const videoState = getSqliteVideoAnalysisState();
+    const job = saveVideoAnalysisWorkerResult(videoState, decodeURIComponent(videoAnalysisWorkerResultMatch[1]), body);
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 200, { job });
+  }
+
+  const videoAnalysisJobMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)$/);
+  if (method === "GET" && videoAnalysisJobMatch) {
+    const currentUser = requireUser(req);
+    const videoState = getSqliteVideoAnalysisState();
+    return sendJson(req, res, 200, { job: getVideoAnalysisJob(videoState, decodeURIComponent(videoAnalysisJobMatch[1]), currentUser) });
+  }
+
+  const videoAnalysisPlayersMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)\/players$/);
+  if (method === "PUT" && videoAnalysisPlayersMatch) {
+    const currentUser = requireUser(req);
+    const body = await readJsonBody(req);
+    const videoState = getSqliteVideoAnalysisState();
+    const job = saveVideoAnalysisPlayers(videoState, decodeURIComponent(videoAnalysisPlayersMatch[1]), body, currentUser);
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 200, { job, videoAnalysisJobs: getVideoAnalysisJobsForUser(videoState, currentUser) });
+  }
+
+  const videoAnalysisConfirmMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)\/confirm$/);
+  if (method === "POST" && videoAnalysisConfirmMatch) {
+    const currentUser = requireUser(req);
+    const body = await readJsonBody(req);
+    const videoState = getSqliteVideoAnalysisState();
+    let confirmation = null;
+    runInTransaction(() => {
+      confirmation = confirmVideoAnalysisJob(
+        videoState,
+        decodeURIComponent(videoAnalysisConfirmMatch[1]),
+        body,
+        currentUser,
+        (matchPayload, user) => insertMatch(matchPayload, user),
+      );
+    });
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 201, {
+      ...getStatePayload(currentUser),
+      videoAnalysisJob: confirmation.job,
+      createdMatchId: confirmation.match?.id || null,
+    });
   }
 
   const playerStickerMatch = pathname.match(/^\/api\/players\/([^/]+)\/stickers\/([^/]+)$/);

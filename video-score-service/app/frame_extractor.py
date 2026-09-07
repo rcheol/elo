@@ -138,6 +138,8 @@ def extract_frames_from_youtube_info(
             f"fps={sample_fps:.6f},scale=-2:min({max_height}\\,ih)",
             "-frames:v",
             str(max_frames),
+            "-q:v",
+            "7",
             output_pattern,
         ]
         subprocess.run(command, check=True)

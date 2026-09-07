@@ -14,6 +14,7 @@ const paginationPagerIds = {
   history: "historyPager",
   users: "userPager",
 };
+const videoAnalysisJobStorageKey = "honeyserveVideoAnalysisJobId";
 const playerStickerCatalog = [
   { id: "shuttle", emoji: "🏸", label: "셔틀콕" },
   { id: "racket", emoji: "💥", label: "스매시" },
@@ -73,6 +74,8 @@ let editingMatchId = null;
 let openCardPlayerId = "";
 let stickerDrag = null;
 let videoScoreBusy = false;
+let currentVideoAnalysisJob = null;
+let videoAnalysisPollTimer = null;
 let paginationState = {
   myHistory: 1,
   partnerStats: 1,
@@ -130,6 +133,16 @@ const errorMessages = {
   USERNAME_TAKEN: "이미 등록된 아이디입니다.",
   USERNAME_TOO_SHORT: "아이디는 3자 이상 입력하세요.",
   VIDEO_SCORE_NOT_FOUND: "영상에서 최종 스코어를 찾지 못했습니다.",
+  VIDEO_JOB_ACCESS_FORBIDDEN: "이 영상 분석 작업에 접근할 수 없습니다.",
+  VIDEO_JOB_NOT_FOUND: "영상 분석 작업을 찾을 수 없습니다.",
+  VIDEO_JOB_NOT_READY: "아직 영상 분석 작업을 진행할 수 없는 상태입니다.",
+  VIDEO_MATCH_PAYLOAD_INVALID: "영상 분석 경기 정보를 확인하세요.",
+  VIDEO_PLAYER_MAPPING_INVALID: "영상 속 선수 4명을 모두 선택하세요.",
+  VIDEO_PLAYER_MAPPING_REQUIRED: "영상 속 선수 4명을 먼저 확정하세요.",
+  VIDEO_SCORE_NOT_READY: "확정할 스코어가 아직 준비되지 않았습니다.",
+  VIDEO_WORKER_UNCONFIGURED: "Render 환경변수 VIDEO_WORKER_TOKEN 설정이 필요합니다.",
+  VIDEO_WORKER_STAGE_INVALID: "worker 영상 분석 단계를 확인하세요.",
+  VIDEO_WORKER_UNAUTHORIZED: "worker 인증 토큰을 확인하세요.",
   VIDEO_TEXT_UNAVAILABLE: "영상의 제목, 설명, 자막을 가져오지 못했습니다.",
   VIDEO_URL_UNSUPPORTED: "유튜브 링크를 확인하세요.",
 };
@@ -140,6 +153,7 @@ function createDefaultState() {
     matches: [],
     mannerVotes: [],
     cardStickers: [],
+    videoAnalysisJobs: [],
     users: [],
     currentUser: null,
     settings: { ...defaultSettings },
@@ -332,6 +346,101 @@ function normalizeUser(user) {
   };
 }
 
+function normalizeVideoAnalysisJob(job) {
+  if (!job || !job.id) {
+    return null;
+  }
+
+  const normalizeScore = (score) => {
+    if (!score) return null;
+    const teamA = Number(score.teamA ?? score.team_a);
+    const teamB = Number(score.teamB ?? score.team_b);
+    if (!Number.isFinite(teamA) || !Number.isFinite(teamB)) return null;
+    return {
+      teamA,
+      teamB,
+      winner: score.winner === "B" ? "B" : score.winner === "A" ? "A" : "unknown",
+      confidence: Number(score.confidence || 0),
+    };
+  };
+  const normalizeMapping = (mapping) => Object.fromEntries(
+    Object.entries(mapping || {}).map(([slotId, player]) => [
+      slotId.toUpperCase(),
+      {
+        playerId: String(player?.playerId ?? player?.player_id ?? ""),
+        playerName: String(player?.playerName ?? player?.player_name ?? ""),
+      },
+    ]),
+  );
+  const rawResult = job.scoreResult ?? job.score_result ?? null;
+  const matchPayload = rawResult?.matchPayload ?? rawResult?.match_payload ?? null;
+
+  return {
+    id: String(job.id),
+    status: String(job.status || ""),
+    stage: String(job.stage || ""),
+    youtubeUrl: String(job.youtubeUrl ?? job.youtube_url ?? ""),
+    videoId: String(job.videoId ?? job.video_id ?? ""),
+    hint: String(job.hint || ""),
+    createdBy: String(job.createdBy ?? job.created_by ?? ""),
+    createdByName: String(job.createdByName ?? job.created_by_name ?? "알 수 없음"),
+    calibrationMaxFrames: Number(job.calibrationMaxFrames ?? job.calibration_max_frames ?? 4),
+    scoreRequest: {
+      scanIntervalSeconds: Number(job.scoreRequest?.scanIntervalSeconds ?? job.score_request?.scan_interval_seconds ?? 20),
+      maxFrames: Number(job.scoreRequest?.maxFrames ?? job.score_request?.max_frames ?? 96),
+      batchSize: Number(job.scoreRequest?.batchSize ?? job.score_request?.batch_size ?? 8),
+      hint: String(job.scoreRequest?.hint ?? job.score_request?.hint ?? ""),
+    },
+    referenceFrames: Array.isArray(job.referenceFrames ?? job.reference_frames)
+      ? (job.referenceFrames ?? job.reference_frames).map((frame) => ({
+          timestamp: String(frame?.timestamp || ""),
+          imageDataUrl: String(frame?.imageDataUrl ?? frame?.image_data_url ?? ""),
+        })).filter((frame) => frame.imageDataUrl)
+      : [],
+    playerSlots: Array.isArray(job.playerSlots ?? job.player_slots)
+      ? (job.playerSlots ?? job.player_slots).map((slot) => ({
+          slotId: String(slot?.slotId ?? slot?.slot_id ?? "").toUpperCase(),
+          team: String(slot?.team || ""),
+          label: String(slot?.label || ""),
+          description: String(slot?.description || ""),
+          timestamp: String(slot?.timestamp || ""),
+          confidence: Number(slot?.confidence || 0),
+        })).filter((slot) => slot.slotId)
+      : [],
+    playerMapping: normalizeMapping(job.playerMapping ?? job.player_mapping),
+    scoreResult: rawResult ? {
+      score: normalizeScore(rawResult.score),
+      readings: Array.isArray(rawResult.readings)
+        ? rawResult.readings.map((reading) => ({
+            timestamp: String(reading?.timestamp || ""),
+            scoreA: Number(reading?.scoreA ?? reading?.score_a ?? 0),
+            scoreB: Number(reading?.scoreB ?? reading?.score_b ?? 0),
+            confidence: Number(reading?.confidence || 0),
+            note: String(reading?.note || ""),
+          }))
+        : [],
+      evidence: Array.isArray(rawResult.evidence) ? rawResult.evidence.map((item) => ({
+        timestamp: String(item?.timestamp || ""),
+        text: String(item?.text || item || ""),
+      })) : [],
+      warnings: Array.isArray(rawResult.warnings) ? rawResult.warnings.map(String) : [],
+      matchPayload: matchPayload ? {
+        teamA: Array.isArray(matchPayload.teamA ?? matchPayload.team_a) ? (matchPayload.teamA ?? matchPayload.team_a).map(String) : [],
+        teamB: Array.isArray(matchPayload.teamB ?? matchPayload.team_b) ? (matchPayload.teamB ?? matchPayload.team_b).map(String) : [],
+        scoreA: Number(matchPayload.scoreA ?? matchPayload.score_a ?? 0),
+        scoreB: Number(matchPayload.scoreB ?? matchPayload.score_b ?? 0),
+      } : null,
+    } : null,
+    matchId: job.matchId ? String(job.matchId) : null,
+    error: String(job.error || ""),
+    warnings: Array.isArray(job.warnings) ? job.warnings.map(String) : [],
+    workerConfigured: Boolean(job.workerConfigured ?? job.worker_configured),
+    canEdit: Boolean(job.canEdit ?? job.can_edit),
+    createdAt: safeIsoDate(job.createdAt ?? job.created_at),
+    updatedAt: safeIsoDate(job.updatedAt ?? job.updated_at ?? job.createdAt ?? job.created_at),
+  };
+}
+
 function normalizeState(input) {
   const fallback = createDefaultState();
   const players = Array.isArray(input?.players)
@@ -445,12 +554,16 @@ function normalizeState(input) {
           return true;
         })
     : [];
+  const videoAnalysisJobs = Array.isArray(input?.videoAnalysisJobs)
+    ? input.videoAnalysisJobs.map(normalizeVideoAnalysisJob).filter(Boolean)
+    : [];
 
   return {
     players,
     matches,
     mannerVotes,
     cardStickers,
+    videoAnalysisJobs,
     users: Array.isArray(input?.users) ? input.users.map(normalizeUser).filter(Boolean) : [],
     currentUser: normalizeUser(input?.currentUser),
     visitorStats: {
@@ -575,6 +688,7 @@ function applyServerState(payload, options = {}) {
   const dialogPlayerId = openCardPlayerId;
   const scrollSnapshot = shouldPreserveScroll(options) ? captureAppScroll() : null;
   state = normalizeState(payload);
+  syncCurrentVideoAnalysisJobFromState(payload);
   render(options);
   restoreAppScroll(scrollSnapshot);
   if (dialogPlayerId && $("#playerCardDialog")?.open) {
@@ -2447,15 +2561,16 @@ function setVideoScoreBusy(busy) {
   const button = $("#videoScoreAnalyzeBtn");
   const input = $("#youtubeMatchUrl");
   const loggedIn = Boolean(getCurrentUser());
+  const activeJob = isVideoAnalysisActive();
   if (button) {
-    button.disabled = busy || !loggedIn;
+    button.disabled = busy || !loggedIn || activeJob;
     const label = $("span", button);
     if (label) {
-      label.textContent = busy ? "분석 중" : "스코어 추출";
+      label.textContent = busy ? "처리 중" : activeJob ? "작업 진행중" : "스코어 추출";
     }
   }
   if (input) {
-    input.disabled = busy || !loggedIn;
+    input.disabled = busy || !loggedIn || activeJob;
   }
 }
 
@@ -2467,6 +2582,286 @@ function setVideoScoreResult(message, status = "") {
   result.textContent = message || "";
   result.classList.toggle("is-success", status === "success");
   result.classList.toggle("is-error", status === "error");
+}
+
+function isVideoAnalysisPollingStatus(status) {
+  return [
+    "queued_player_detection",
+    "running_player_detection",
+    "queued_score_analysis",
+    "running_score_analysis",
+  ].includes(status);
+}
+
+function isVideoAnalysisActive(job = currentVideoAnalysisJob) {
+  return Boolean(job && !["failed", "registered"].includes(job.status));
+}
+
+function mergeVideoAnalysisJobDetail(previous, incoming) {
+  if (!previous) {
+    return incoming;
+  }
+  if (!incoming) {
+    return previous;
+  }
+  if (previous.id !== incoming.id) {
+    return incoming;
+  }
+  return {
+    ...previous,
+    ...incoming,
+    referenceFrames: incoming.referenceFrames?.length ? incoming.referenceFrames : previous.referenceFrames,
+    playerSlots: incoming.playerSlots?.length ? incoming.playerSlots : previous.playerSlots,
+    scoreResult: incoming.scoreResult || previous.scoreResult,
+  };
+}
+
+function syncCurrentVideoAnalysisJobFromState(payload = {}) {
+  if (!state.currentUser) {
+    currentVideoAnalysisJob = null;
+    localStorage.removeItem(videoAnalysisJobStorageKey);
+    stopVideoAnalysisPolling();
+    return;
+  }
+
+  const payloadJob = normalizeVideoAnalysisJob(payload.videoAnalysisJob || payload.job);
+  if (payloadJob) {
+    currentVideoAnalysisJob = mergeVideoAnalysisJobDetail(currentVideoAnalysisJob, payloadJob);
+    persistVideoAnalysisJobId(payloadJob);
+    return;
+  }
+
+  const jobId = currentVideoAnalysisJob?.id || localStorage.getItem(videoAnalysisJobStorageKey);
+  if (!jobId) {
+    return;
+  }
+
+  const job = state.videoAnalysisJobs.find((entry) => entry.id === jobId);
+  if (job) {
+    currentVideoAnalysisJob = mergeVideoAnalysisJobDetail(currentVideoAnalysisJob, job);
+    persistVideoAnalysisJobId(currentVideoAnalysisJob);
+  }
+}
+
+function persistVideoAnalysisJobId(job) {
+  if (job && !["failed", "registered"].includes(job.status)) {
+    localStorage.setItem(videoAnalysisJobStorageKey, job.id);
+  } else {
+    localStorage.removeItem(videoAnalysisJobStorageKey);
+  }
+}
+
+function setCurrentVideoAnalysisJob(job) {
+  currentVideoAnalysisJob = mergeVideoAnalysisJobDetail(currentVideoAnalysisJob, normalizeVideoAnalysisJob(job));
+  persistVideoAnalysisJobId(currentVideoAnalysisJob);
+  renderVideoAnalysisPanel();
+}
+
+function stopVideoAnalysisPolling() {
+  if (videoAnalysisPollTimer) {
+    window.clearInterval(videoAnalysisPollTimer);
+    videoAnalysisPollTimer = null;
+  }
+}
+
+function startVideoAnalysisPolling(jobId) {
+  stopVideoAnalysisPolling();
+  videoAnalysisPollTimer = window.setInterval(() => {
+    pollVideoAnalysisJob(jobId);
+  }, 5000);
+}
+
+async function pollVideoAnalysisJob(jobId) {
+  if (!jobId || !getCurrentUser()) {
+    stopVideoAnalysisPolling();
+    return;
+  }
+
+  try {
+    const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}`);
+    setCurrentVideoAnalysisJob(payload.job);
+    if (!isVideoAnalysisPollingStatus(currentVideoAnalysisJob?.status)) {
+      stopVideoAnalysisPolling();
+    }
+  } catch (error) {
+    stopVideoAnalysisPolling();
+    setVideoScoreResult(apiMessage(error), "error");
+  }
+}
+
+function videoAnalysisStatusText(job) {
+  return (
+    {
+      queued_player_detection: "영상 작업이 등록되었습니다. 회사망 worker가 선수 기준 프레임을 준비할 차례입니다.",
+      running_player_detection: "worker가 영상에서 선수 4명 기준 프레임을 찾는 중입니다.",
+      waiting_player_mapping: "영상 속 선수 4명을 실제 선수로 연결하세요.",
+      queued_score_analysis: "선수 매핑이 완료되었습니다. worker가 점수 분석을 시작할 차례입니다.",
+      running_score_analysis: "worker가 영상 전체를 훑으면서 점수판을 읽는 중입니다.",
+      waiting_confirmation: "최종 스코어 후보가 준비되었습니다. 점수를 확인한 뒤 저장하세요.",
+      registered: "영상 분석 결과로 경기 기록을 저장했습니다.",
+      failed: "영상 분석 작업이 실패했습니다.",
+    }[job?.status] || "영상 분석 작업을 확인 중입니다."
+  );
+}
+
+function videoAnalysisPlayerOptions(selectedId = "") {
+  const players = getStandings()
+    .slice()
+    .sort((a, b) => playerDisplayName(a).localeCompare(playerDisplayName(b), "ko-KR"));
+  return [
+    `<option value="">선수 선택</option>`,
+    ...players.map((player) => (
+      `<option value="${escapeHtml(player.id)}" ${player.id === selectedId ? "selected" : ""}>${escapeHtml(playerDisplayName(player))}</option>`
+    )),
+  ].join("");
+}
+
+function defaultVideoSlotPlayerId(slotId) {
+  return (
+    {
+      A1: $("#teamA1")?.value || "",
+      A2: $("#teamA2")?.value || "",
+      B1: $("#teamB1")?.value || "",
+      B2: $("#teamB2")?.value || "",
+    }[slotId] || ""
+  );
+}
+
+function renderVideoAnalysisFrames(job) {
+  if (!job.referenceFrames.length) {
+    return "";
+  }
+  return `
+    <div class="video-analysis-frames">
+      ${job.referenceFrames.map((frame) => `
+        <figure class="video-analysis-frame">
+          <img src="${escapeHtml(frame.imageDataUrl)}" alt="영상 기준 프레임 ${escapeHtml(frame.timestamp)}">
+          <span>${escapeHtml(frame.timestamp || "기준 프레임")}</span>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderVideoAnalysisMapping(job) {
+  if (job.status !== "waiting_player_mapping") {
+    return "";
+  }
+  const slots = job.playerSlots.length ? job.playerSlots : ["A1", "A2", "B1", "B2"].map((slotId) => ({ slotId, label: slotId }));
+  return `
+    <div class="video-analysis-slots">
+      ${slots.map((slot) => {
+        const selectedId = job.playerMapping?.[slot.slotId]?.playerId || defaultVideoSlotPlayerId(slot.slotId);
+        return `
+          <label class="video-slot-row">
+            <span class="video-slot-copy">
+              <strong>${escapeHtml(slot.label || slot.slotId)}</strong>
+              <small>${escapeHtml([slot.description, slot.timestamp].filter(Boolean).join(" · ") || "영상 속 위치를 확인하세요.")}</small>
+            </span>
+            <select data-video-slot="${escapeHtml(slot.slotId)}">${videoAnalysisPlayerOptions(selectedId)}</select>
+          </label>
+        `;
+      }).join("")}
+    </div>
+    <div class="video-analysis-actions">
+      <button class="button button--primary" type="button" data-video-confirm-players="${escapeHtml(job.id)}">
+        <i data-lucide="users"></i>
+        <span>선수 확정 후 점수 분석</span>
+      </button>
+      <button class="button button--neutral" type="button" data-video-clear-job>
+        <span>새 링크 입력</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderVideoAnalysisScore(job) {
+  const score = job.scoreResult?.score;
+  if (job.status !== "waiting_confirmation" || !score) {
+    return "";
+  }
+  const confidence = Number.isFinite(Number(score.confidence))
+    ? `신뢰도 ${Math.round(Number(score.confidence) * 100)}%`
+    : "신뢰도 확인 필요";
+  const evidence = job.scoreResult.evidence.slice(0, 3).map((item) => (
+    `<p class="video-analysis-sub">${escapeHtml([item.timestamp, item.text].filter(Boolean).join(" · "))}</p>`
+  )).join("");
+  return `
+    <div class="video-analysis-score">
+      <strong>${score.teamA} : ${score.teamB}</strong>
+      <span>${escapeHtml(confidence)}</span>
+    </div>
+    ${evidence}
+    <div class="video-analysis-actions">
+      <button class="button button--primary" type="button" data-video-confirm-score="${escapeHtml(job.id)}">
+        <i data-lucide="check"></i>
+        <span>이 점수로 경기 저장</span>
+      </button>
+      <button class="button button--neutral" type="button" data-video-apply-score="${escapeHtml(job.id)}">
+        <span>입력칸에만 반영</span>
+      </button>
+      <button class="button button--neutral" type="button" data-video-clear-job>
+        <span>새 링크 입력</span>
+      </button>
+    </div>
+  `;
+}
+
+function renderVideoAnalysisPanel() {
+  const panel = $("#videoAnalysisPanel");
+  if (!panel) {
+    return;
+  }
+  const job = currentVideoAnalysisJob;
+  panel.hidden = !job;
+  if (!job) {
+    stopVideoAnalysisPolling();
+    return;
+  }
+
+  if (isVideoAnalysisPollingStatus(job.status)) {
+    startVideoAnalysisPolling(job.id);
+  } else {
+    stopVideoAnalysisPolling();
+  }
+
+  const workerWarning = !job.workerConfigured
+    ? `<p class="video-analysis-sub">Render에 VIDEO_WORKER_TOKEN을 설정하고 로컬 worker를 실행해야 진행됩니다.</p>`
+    : "";
+  const errorText = job.error ? `<p class="video-score-result is-error">${escapeHtml(job.error)}</p>` : "";
+  const warningText = job.warnings?.length
+    ? `<p class="video-analysis-sub">${escapeHtml(job.warnings.slice(0, 2).join(" · "))}</p>`
+    : "";
+  const clearAction = ["failed", "registered"].includes(job.status)
+    ? `<div class="video-analysis-actions"><button class="button button--neutral" type="button" data-video-clear-job><span>새 링크 입력</span></button></div>`
+    : "";
+
+  panel.innerHTML = `
+    <p class="video-analysis-status">${escapeHtml(videoAnalysisStatusText(job))}</p>
+    <p class="video-analysis-sub">${escapeHtml(job.youtubeUrl)}</p>
+    ${workerWarning}
+    ${errorText}
+    ${warningText}
+    ${renderVideoAnalysisFrames(job)}
+    ${renderVideoAnalysisMapping(job)}
+    ${renderVideoAnalysisScore(job)}
+    ${clearAction}
+  `;
+  if (window.lucide) {
+    window.lucide.createIcons();
+  }
+}
+
+async function resumeStoredVideoAnalysisJob() {
+  const jobId = localStorage.getItem(videoAnalysisJobStorageKey);
+  if (!jobId || !getCurrentUser()) {
+    return;
+  }
+  const existing = state.videoAnalysisJobs.find((job) => job.id === jobId);
+  if (existing) {
+    setCurrentVideoAnalysisJob(existing);
+  }
+  await pollVideoAnalysisJob(jobId);
 }
 
 async function analyzeVideoScoreFromUrl() {
@@ -2481,28 +2876,106 @@ async function analyzeVideoScoreFromUrl() {
   }
 
   setVideoScoreBusy(true);
-  setVideoScoreResult("분석 중...");
+  setVideoScoreResult("영상 분석 작업 등록 중...");
   try {
-    const payload = await apiFetch("/api/video-score", {
+    const payload = await apiFetch("/api/video-analysis/jobs", {
       method: "POST",
-      body: { url },
+      body: { youtubeUrl: url },
     });
-    $("#scoreA").value = String(payload.scoreA);
-    $("#scoreB").value = String(payload.scoreB);
-    renderPreview();
-
-    const confidenceText = Number.isFinite(Number(payload.confidence))
-      ? ` · 신뢰도 ${Math.round(Number(payload.confidence))}%`
-      : "";
-    const titleText = payload.title ? ` · ${payload.title}` : "";
-    setVideoScoreResult(`${payload.scoreA} : ${payload.scoreB} 반영${confidenceText}${titleText}`, "success");
-    showToast(`${payload.scoreA} : ${payload.scoreB} 스코어를 반영했습니다.`);
+    setCurrentVideoAnalysisJob(payload.job);
+    setVideoScoreResult("작업을 등록했습니다. 로컬 worker가 분석하면 다음 단계가 표시됩니다.", "success");
+    showToast("영상 분석 작업을 등록했습니다.");
   } catch (error) {
     setVideoScoreResult(apiMessage(error), "error");
     showApiError(error);
   } finally {
     setVideoScoreBusy(false);
   }
+}
+
+async function submitVideoPlayerMapping(jobId) {
+  if (!requireLogin()) return;
+  const slots = {};
+  const selectedIds = [];
+  ["A1", "A2", "B1", "B2"].forEach((slotId) => {
+    const playerId = $(`[data-video-slot="${slotId}"]`)?.value || "";
+    const player = state.players.find((entry) => entry.id === playerId);
+    slots[slotId] = {
+      playerId,
+      playerName: player?.name || "",
+    };
+    selectedIds.push(playerId);
+  });
+
+  if (selectedIds.some((id) => !id) || new Set(selectedIds).size !== 4) {
+    showToast("영상 속 선수 4명을 서로 다르게 선택하세요.");
+    return;
+  }
+
+  setVideoScoreBusy(true);
+  try {
+    const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}/players`, {
+      method: "PUT",
+      body: { slots },
+    });
+    setCurrentVideoAnalysisJob(payload.job);
+    showToast("선수 매핑을 저장하고 점수 분석을 시작했습니다.");
+  } catch (error) {
+    showApiError(error);
+  } finally {
+    setVideoScoreBusy(false);
+  }
+}
+
+function applyVideoScoreToInputs(job = currentVideoAnalysisJob) {
+  const payload = job?.scoreResult?.matchPayload;
+  if (!payload) {
+    return false;
+  }
+  const values = [...payload.teamA, ...payload.teamB];
+  selectIds.forEach((selectId, index) => {
+    const select = $(`#${selectId}`);
+    if (select) {
+      select.value = values[index] || "";
+    }
+  });
+  $("#scoreA").value = String(payload.scoreA);
+  $("#scoreB").value = String(payload.scoreB);
+  renderPreview();
+  return true;
+}
+
+async function confirmVideoScoreJob(jobId) {
+  if (!requireLogin()) return;
+  const playedAt = dateTimeLocalToIso($("#matchPlayedAt").value);
+  if (!playedAt) {
+    showToast("경기 일시를 확인하세요.");
+    return;
+  }
+
+  setVideoScoreBusy(true);
+  try {
+    const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}/confirm`, {
+      method: "POST",
+      body: { playedAt },
+    });
+    applyServerState(payload, { preserveScroll: true });
+    setCurrentVideoAnalysisJob(payload.videoAnalysisJob);
+    resetMatchEntryDefaults();
+    showToast("영상 분석 스코어로 경기 결과를 저장했습니다.");
+  } catch (error) {
+    showApiError(error);
+  } finally {
+    setVideoScoreBusy(false);
+  }
+}
+
+function clearCurrentVideoAnalysisJob() {
+  currentVideoAnalysisJob = null;
+  localStorage.removeItem(videoAnalysisJobStorageKey);
+  stopVideoAnalysisPolling();
+  setVideoScoreResult("");
+  renderVideoAnalysisPanel();
 }
 
 async function recordMatch() {
@@ -2632,6 +3105,7 @@ function render(options = {}) {
   renderOpponentStats(options);
   renderHistory(options);
   renderPreview();
+  renderVideoAnalysisPanel();
   renderAccess();
   if (window.lucide) {
     window.lucide.createIcons();
@@ -3692,6 +4166,31 @@ function bindEvents() {
       return;
     }
 
+    const videoConfirmPlayersButton = target.closest("[data-video-confirm-players]");
+    if (videoConfirmPlayersButton) {
+      submitVideoPlayerMapping(videoConfirmPlayersButton.dataset.videoConfirmPlayers);
+      return;
+    }
+
+    const videoConfirmScoreButton = target.closest("[data-video-confirm-score]");
+    if (videoConfirmScoreButton) {
+      confirmVideoScoreJob(videoConfirmScoreButton.dataset.videoConfirmScore);
+      return;
+    }
+
+    const videoApplyScoreButton = target.closest("[data-video-apply-score]");
+    if (videoApplyScoreButton) {
+      if (applyVideoScoreToInputs(currentVideoAnalysisJob)) {
+        showToast("영상 분석 스코어를 입력칸에 반영했습니다.");
+      }
+      return;
+    }
+
+    if (target.closest("[data-video-clear-job]")) {
+      clearCurrentVideoAnalysisJob();
+      return;
+    }
+
     const playerCardButton = target.closest("[data-show-player-card]");
     if (playerCardButton) {
       openPlayerCardDialog(playerCardButton.dataset.showPlayerCard);
@@ -3796,6 +4295,7 @@ async function init() {
   render();
   try {
     await refreshState();
+    await resumeStoredVideoAnalysisJob();
   } catch (error) {
     showApiError(error);
   } finally {
