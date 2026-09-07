@@ -66,6 +66,21 @@ def auth_headers() -> Dict[str, str]:
     }
 
 
+def validate_worker_settings() -> None:
+    settings = get_settings()
+    missing = []
+    if not settings.gemma_api_key:
+        missing.append("GEMMA_API_KEY")
+    if not settings.gemma_chat_completions_url:
+        missing.append("GEMMA_CHAT_COMPLETIONS_URL")
+    if missing:
+        raise RuntimeError(
+            "Missing required Gemma worker setting(s): "
+            + ", ".join(missing)
+            + ". Put them in video-score-service\\.env before starting worker. No video job was claimed."
+        )
+
+
 async def fetch_next_job(client: httpx.AsyncClient) -> Optional[Dict[str, Any]]:
     response = await client.get("/api/video-analysis/worker/jobs/next")
     response.raise_for_status()
@@ -208,6 +223,7 @@ async def run_job(client: httpx.AsyncClient, job: Dict[str, Any]) -> None:
 
 
 async def main() -> None:
+    validate_worker_settings()
     headers = auth_headers()
     base_url = api_base_url()
     interval = poll_seconds()
