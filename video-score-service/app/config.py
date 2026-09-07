@@ -31,6 +31,10 @@ class Settings:
     gemma_score_scan_interval_seconds: int
     gemma_score_scan_max_frames: int
     gemma_score_scan_batch_size: int
+    gemma_rally_frame_max_height: int
+    gemma_rally_frame_jpeg_quality: int
+    gemma_rally_window_frames: int
+    gemma_rally_min_confidence: float
 
     @property
     def gemini_enabled(self) -> bool:
@@ -68,9 +72,13 @@ def get_settings() -> Settings:
         gemma_frame_max_height=int(os.getenv("GEMMA_FRAME_MAX_HEIGHT", "360")),
         gemma_frame_jpeg_quality=int(os.getenv("GEMMA_FRAME_JPEG_QUALITY", "16")),
         gemma_request_max_bytes=int(os.getenv("GEMMA_REQUEST_MAX_BYTES", "40000")),
-        gemma_score_scan_interval_seconds=int(os.getenv("GEMMA_SCORE_SCAN_INTERVAL_SECONDS", "20")),
-        gemma_score_scan_max_frames=int(os.getenv("GEMMA_SCORE_SCAN_MAX_FRAMES", "96")),
+        gemma_score_scan_interval_seconds=int(os.getenv("GEMMA_SCORE_SCAN_INTERVAL_SECONDS", "1")),
+        gemma_score_scan_max_frames=int(os.getenv("GEMMA_SCORE_SCAN_MAX_FRAMES", "1200")),
         gemma_score_scan_batch_size=int(os.getenv("GEMMA_SCORE_SCAN_BATCH_SIZE", "1")),
+        gemma_rally_frame_max_height=int(os.getenv("GEMMA_RALLY_FRAME_MAX_HEIGHT", "160")),
+        gemma_rally_frame_jpeg_quality=int(os.getenv("GEMMA_RALLY_FRAME_JPEG_QUALITY", "24")),
+        gemma_rally_window_frames=int(os.getenv("GEMMA_RALLY_WINDOW_FRAMES", "4")),
+        gemma_rally_min_confidence=float(os.getenv("GEMMA_RALLY_MIN_CONFIDENCE", "0.55")),
     )
 
 

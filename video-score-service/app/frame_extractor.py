@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import base64
+import math
 import os
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,30 @@ class ExtractedFrame:
         total = max(0, int(self.timestamp_seconds))
         minutes, seconds = divmod(total, 60)
         return f"{minutes:02d}:{seconds:02d}"
+
+
+@dataclass(frozen=True)
+class ExtractedFrameWindow:
+    timestamp_seconds: float
+    data_url: str
+    panel_timestamps: Tuple[float, ...]
+
+    @property
+    def timestamp_label(self) -> str:
+        return _format_timestamp(self.timestamp_seconds)
+
+    @property
+    def panel_timestamp_labels(self) -> Tuple[str, ...]:
+        return tuple(_format_timestamp(value) for value in self.panel_timestamps)
+
+    @property
+    def time_range_label(self) -> str:
+        labels = self.panel_timestamp_labels
+        if not labels:
+            return self.timestamp_label
+        if labels[0] == labels[-1]:
+            return labels[0]
+        return f"{labels[0]}-{labels[-1]}"
 
 
 def extract_tail_frames_from_youtube(
@@ -108,6 +133,108 @@ def extract_score_scan_frames_from_youtube(
         max_height=max_height,
         jpeg_quality=jpeg_quality,
     )
+
+
+def extract_timeline_frame_windows_from_youtube(
+    youtube_url: str,
+    *,
+    interval_seconds: int,
+    max_sampled_frames: int,
+    max_height: int,
+    jpeg_quality: int = 20,
+    frames_per_window: int = 3,
+) -> List[ExtractedFrameWindow]:
+    info = _load_youtube_info(youtube_url)
+    return extract_timeline_frame_windows_from_youtube_info(
+        info,
+        interval_seconds=interval_seconds,
+        max_sampled_frames=max_sampled_frames,
+        max_height=max_height,
+        jpeg_quality=jpeg_quality,
+        frames_per_window=frames_per_window,
+    )
+
+
+def extract_timeline_frame_windows_from_youtube_info(
+    info: dict,
+    *,
+    interval_seconds: int,
+    max_sampled_frames: int,
+    max_height: int,
+    jpeg_quality: int = 20,
+    frames_per_window: int = 3,
+) -> List[ExtractedFrameWindow]:
+    ffmpeg_path = find_ffmpeg()
+    if not ffmpeg_path:
+        raise RuntimeError("ffmpeg is required for Gemma frame extraction. Install imageio-ffmpeg or put ffmpeg on PATH.")
+
+    stream_url = _select_video_stream_url(info, max_height=max_height)
+    if not stream_url:
+        raise RuntimeError("Could not find a playable YouTube video stream.")
+
+    requested_interval = max(1.0, float(interval_seconds))
+    safe_frames_per_window = max(2, min(4, int(frames_per_window)))
+    duration = float(info.get("duration") or 0)
+    max_samples = max(1, int(max_sampled_frames))
+    duration_sample_count = int(duration // requested_interval) + 1 if duration > 0 else max_samples
+    sample_count = max(1, min(max_samples, duration_sample_count))
+    sample_interval = requested_interval
+    if duration > 0 and duration_sample_count > max_samples and max_samples > 1:
+        sample_interval = duration / float(max_samples - 1)
+    window_count = max(1, math.ceil(sample_count / safe_frames_per_window))
+    clip_duration = max(1.0, (sample_count - 1) * sample_interval + 0.25)
+    if duration > 0:
+        clip_duration = min(duration, clip_duration)
+
+    with tempfile.TemporaryDirectory(prefix="honeyserve-rally-windows-") as temp_dir:
+        output_pattern = str(Path(temp_dir) / "window_%03d.jpg")
+        command = [
+            ffmpeg_path,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            stream_url,
+            "-t",
+            f"{clip_duration:.3f}",
+            "-vf",
+            (
+                f"fps=1/{sample_interval:.6f},"
+                f"scale=-2:min({max_height}\\,ih),"
+                f"tile={safe_frames_per_window}x1:padding=4:margin=4:color=black"
+            ),
+            "-frames:v",
+            str(window_count),
+            "-q:v",
+            str(max(2, min(31, int(jpeg_quality)))),
+            output_pattern,
+        ]
+        subprocess.run(command, check=True)
+
+        paths = sorted(Path(temp_dir).glob("window_*.jpg"))
+        if not paths:
+            raise RuntimeError("ffmpeg did not extract any rally timeline windows.")
+
+        windows: List[ExtractedFrameWindow] = []
+        for index, path in enumerate(paths):
+            first_sample_index = index * safe_frames_per_window
+            panel_timestamps = tuple(
+                min(duration, float((first_sample_index + offset) * sample_interval)) if duration > 0
+                else float((first_sample_index + offset) * sample_interval)
+                for offset in range(safe_frames_per_window)
+                if first_sample_index + offset < sample_count
+            )
+            if not panel_timestamps:
+                panel_timestamps = (float(first_sample_index * sample_interval),)
+            windows.append(
+                ExtractedFrameWindow(
+                    timestamp_seconds=panel_timestamps[0],
+                    panel_timestamps=panel_timestamps,
+                    data_url=_jpeg_to_data_url(path),
+                )
+            )
+        return windows
 
 
 def extract_frames_from_youtube_info(
@@ -232,3 +359,9 @@ def _select_video_stream_url(info: dict, *, max_height: int) -> Optional[str]:
 def _jpeg_to_data_url(path: Path) -> str:
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def _format_timestamp(value: float) -> str:
+    total = max(0, int(value))
+    minutes, seconds = divmod(total, 60)
+    return f"{minutes:02d}:{seconds:02d}"

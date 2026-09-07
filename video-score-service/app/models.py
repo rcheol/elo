@@ -125,8 +125,8 @@ class PlayerMappingRequest(BaseModel):
 
 
 class ScoreScanRequest(BaseModel):
-    scan_interval_seconds: Optional[int] = Field(default=None, ge=5, le=180)
-    max_frames: Optional[int] = Field(default=None, ge=8, le=240)
+    scan_interval_seconds: Optional[int] = Field(default=None, ge=1, le=180)
+    max_frames: Optional[int] = Field(default=None, ge=8, le=2400)
     batch_size: Optional[int] = Field(default=None, ge=1, le=20)
     hint: str = Field(default="", max_length=1000)
     save_raw: bool = False

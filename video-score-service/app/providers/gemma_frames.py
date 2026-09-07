@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import httpx
 import json
-from typing import Dict, Iterable, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from app.config import Settings
 from app.frame_extractor import (
     ExtractedFrame,
+    ExtractedFrameWindow,
     extract_evenly_spaced_frames_from_youtube,
-    extract_score_scan_frames_from_youtube,
     extract_tail_frames_from_youtube,
+    extract_timeline_frame_windows_from_youtube,
 )
 from app.models import (
     AnalyzeRequest,
@@ -24,6 +26,16 @@ from app.models import (
     VideoScoreResult,
 )
 from app.providers.heuristics import extract_json_object, infer_winner, normalize_gemini_payload, score_has_badminton_shape
+
+
+@dataclass(frozen=True)
+class RallyEvent:
+    timestamp: str
+    event_type: str
+    rally_winner: str
+    serving_team: str
+    confidence: float
+    note: str
 
 
 async def analyze_with_gemma_frames(request: AnalyzeRequest, settings: Settings) -> AnalyzeResponse:
@@ -146,52 +158,148 @@ async def analyze_score_scan_with_gemma(
     settings: Settings,
     request: ScoreScanRequest,
 ) -> VideoScoreResult:
-    frames = extract_score_scan_frames_from_youtube(
+    windows = extract_timeline_frame_windows_from_youtube(
         youtube_url,
         interval_seconds=request.scan_interval_seconds or settings.gemma_score_scan_interval_seconds,
-        max_frames=request.max_frames or settings.gemma_score_scan_max_frames,
-        max_height=settings.gemma_frame_max_height,
-        jpeg_quality=settings.gemma_frame_jpeg_quality,
+        max_sampled_frames=request.max_frames or settings.gemma_score_scan_max_frames,
+        max_height=settings.gemma_rally_frame_max_height,
+        jpeg_quality=settings.gemma_rally_frame_jpeg_quality,
+        frames_per_window=settings.gemma_rally_window_frames,
     )
-    warnings: List[str] = [f"Gemma scanned {len(frames)} frame(s) from the video timeline."]
+    warnings: List[str] = [
+        f"Gemma analyzed {len(windows)} timeline window(s) with rally-flow scoring."
+    ]
     readings: List[ScoreReading] = []
+    scoreboard_readings: List[ScoreReading] = []
     evidence: List[Evidence] = []
     raw_batches: List[Dict] = []
+    recent_events: List[str] = []
+    score_a = 0
+    score_b = 0
+    accepted_rallies = 0
+    ignored_rallies = 0
+    min_confidence = max(0.0, min(1.0, settings.gemma_rally_min_confidence))
 
-    batch_size = request.batch_size or settings.gemma_score_scan_batch_size
-    for batch_index, batch in enumerate(_chunks(frames, batch_size), start=1):
+    for window_index, window in enumerate(windows, start=1):
         payload = _build_chat_payload(
             model=settings.gemma_model,
-            system="You read badminton scoreboard frames and return structured JSON only.",
-            prompt=_build_score_scan_prompt(
-                batch,
+            system="You analyze badminton doubles rally flow from short timeline image strips. Return structured JSON only.",
+            prompt=_build_rally_scan_prompt(
+                window,
                 player_mapping=player_mapping,
                 hint=hint or request.hint,
-                batch_index=batch_index,
+                window_index=window_index,
+                current_score_a=score_a,
+                current_score_b=score_b,
+                recent_events=recent_events,
             ),
-            frames=batch,
-            max_tokens=1200,
+            frames=[window],
+            max_tokens=1100,
         )
         raw, error = await _post_gemma_chat(settings, payload)
         if error:
-            warnings.append(error)
+            warnings.append(f"{window.time_range_label}: {error}")
             if raw:
                 raw_batches.append(raw)
             continue
 
-        raw_batches.append(raw)
+        if request.save_raw:
+            raw_batches.append(raw)
         try:
             parsed = extract_json_object(_extract_chat_text(raw))
-            batch_readings, batch_evidence, batch_warnings = _parse_score_readings(parsed)
-            readings.extend(batch_readings)
+            events, batch_scoreboards, batch_evidence, batch_warnings = _parse_rally_window_analysis(parsed)
+            for reading in batch_scoreboards:
+                if not reading.timestamp:
+                    reading.timestamp = window.timestamp_label
+            scoreboard_readings.extend(batch_scoreboards)
             evidence.extend(batch_evidence)
-            warnings.extend(batch_warnings)
+            warnings.extend(f"{window.time_range_label}: {item}" for item in batch_warnings)
         except ValueError as exc:
-            warnings.append(f"Batch {batch_index}: {exc}")
+            warnings.append(f"{window.time_range_label}: {exc}")
+            continue
 
-    score, score_warning = _select_final_score(readings)
-    if score_warning:
-        warnings.append(score_warning)
+        for event in sorted(events, key=lambda item: _event_timestamp_seconds(item, fallback=window.timestamp_seconds)):
+            if event.event_type in {"serve", "service", "rally_start"}:
+                recent_events = _append_recent_event(
+                    recent_events,
+                    f"{event.timestamp or window.timestamp_label} serve {event.serving_team}: {event.note}",
+                )
+                continue
+
+            if event.event_type not in {"rally_end", "point", "dead_shuttle", "fault"}:
+                continue
+
+            if event.rally_winner not in {"A", "B"} or event.confidence < min_confidence:
+                ignored_rallies += 1
+                recent_events = _append_recent_event(
+                    recent_events,
+                    f"{event.timestamp or window.timestamp_label} ignored {event.rally_winner}: {event.note}",
+                )
+                continue
+
+            event_seconds = _event_timestamp_seconds(event, fallback=window.timestamp_seconds)
+            if event.rally_winner == "A":
+                score_a += 1
+            else:
+                score_b += 1
+            accepted_rallies += 1
+
+            reading = ScoreReading(
+                timestamp=_format_seconds(event_seconds),
+                score_a=score_a,
+                score_b=score_b,
+                confidence=event.confidence,
+                note=f"{event.rally_winner} rally win. {event.note}".strip(),
+            )
+            readings.append(reading)
+            evidence.append(Evidence(timestamp=reading.timestamp, text=reading.note))
+            recent_events = _append_recent_event(
+                recent_events,
+                f"{reading.timestamp} {event.rally_winner}+1 => {score_a}:{score_b}",
+            )
+
+            if score_has_badminton_shape(score_a, score_b):
+                warnings.append(f"Stopped after a valid badminton final score at {reading.timestamp}.")
+                break
+
+        if readings and score_has_badminton_shape(score_a, score_b):
+            break
+
+        checkpoint = _select_scoreboard_checkpoint(batch_scoreboards, score_a, score_b, accepted_rallies)
+        if checkpoint:
+            score_a = checkpoint.score_a
+            score_b = checkpoint.score_b
+            readings.append(
+                ScoreReading(
+                    timestamp=checkpoint.timestamp,
+                    score_a=score_a,
+                    score_b=score_b,
+                    confidence=checkpoint.confidence,
+                    note=f"Visible scoreboard checkpoint. {checkpoint.note}".strip(),
+                )
+            )
+            evidence.append(Evidence(timestamp=checkpoint.timestamp, text=readings[-1].note))
+            recent_events = _append_recent_event(
+                recent_events,
+                f"{checkpoint.timestamp} scoreboard checkpoint => {score_a}:{score_b}",
+            )
+
+    if readings:
+        score = Score(
+            team_a=score_a,
+            team_b=score_b,
+            winner=infer_winner(score_a, score_b),
+            confidence=_score_confidence_from_readings(readings, score_a, score_b),
+        )
+        warnings.append(f"Accepted {accepted_rallies} rally-ending event(s); ignored {ignored_rallies} unclear event(s).")
+        if not score_has_badminton_shape(score_a, score_b):
+            warnings.append("Rally-flow score does not yet look like a complete badminton game; please verify before registering.")
+    else:
+        score, score_warning = _select_final_score(scoreboard_readings)
+        if score_warning:
+            warnings.append(score_warning)
+        if score:
+            warnings.append("No confident rally endings were found; fell back to visible scoreboard checkpoints.")
 
     return VideoScoreResult(
         score=score,
@@ -208,7 +316,7 @@ def _build_chat_payload(
     model: str,
     system: str,
     prompt: str,
-    frames: List[ExtractedFrame],
+    frames: List[Any],
     max_tokens: int,
 ) -> Dict:
     return {
@@ -404,6 +512,171 @@ Rules:
 - Frame timestamps in order: {timestamps}
 - User hint: {user_hint}
 """.strip()
+
+
+def _build_rally_scan_prompt(
+    window: ExtractedFrameWindow,
+    *,
+    player_mapping: Dict[str, SlotPlayer],
+    hint: str,
+    window_index: int,
+    current_score_a: int,
+    current_score_b: int,
+    recent_events: List[str],
+) -> str:
+    mapping_text = ", ".join(
+        f"{slot}={player.player_name}" for slot, player in sorted(player_mapping.items())
+    ) or "not mapped"
+    labels = window.panel_timestamp_labels
+    panel_text = ", ".join(
+        f"panel {index + 1}={label}" for index, label in enumerate(labels)
+    )
+    user_hint = hint.strip() or "Infer rally flow from serve, shuttle landing/dead-ball moments, player reactions, and court position."
+    recent_text = "; ".join(recent_events[-6:]) if recent_events else "none"
+    return f"""
+Analyze this badminton doubles timeline image strip.
+
+The image is one horizontal contact sheet, ordered left to right:
+{panel_text}
+
+Return only this JSON object:
+{{
+  "events": [
+    {{
+      "timestamp": "MM:SS",
+      "type": "serve" or "rally_end" or "rally_in_progress" or "let" or "unclear",
+      "servingTeam": "A" or "B" or "unknown",
+      "rallyWinner": "A" or "B" or "unknown",
+      "confidence": 0.0,
+      "note": "short visual reason"
+    }}
+  ],
+  "scoreboard": {{
+    "visible": true or false,
+    "scoreA": 0,
+    "scoreB": 0,
+    "confidence": 0.0,
+    "note": "short reason"
+  }},
+  "evidence": [
+    {{"timestamp": "MM:SS", "text": "short visual evidence"}}
+  ],
+  "warnings": ["optional warning"]
+}}
+
+Rules:
+- Window number: {window_index}
+- Team mapping: {mapping_text}
+- Current accepted score before this window: A {current_score_a} : B {current_score_b}
+- Team A is A1/A2. Team B is B1/B2. Use the established side mapping from the user confirmation.
+- This is rally-point badminton: the winner of every completed rally receives exactly one point.
+- A rally starts when the serve is struck and ends when the shuttle touches the court, lands out, hits the net and is not returned, a fault is clear, or all players stop and prepare for the next serve.
+- Detect serve moments and rally-ending/dead-shuttle moments. Use player posture, shuttle direction, retrieval, celebration, reset behavior, and court side.
+- Add a rally_end only when this strip shows enough evidence that one completed rally ended in this time range.
+- If two panels show the same rally already ending, report only one rally_end.
+- If the shuttle is too small or the winner is uncertain, use type="unclear" or rallyWinner="unknown"; do not guess.
+- Do not output cumulative scores in events. The application will add one point for each accepted rally_end.
+- The scoreboard object is only a checkpoint when on-screen digits are clearly visible; do not invent scoreboard digits.
+- Recent accepted context: {recent_text}
+- Extra hint: {user_hint}
+""".strip()
+
+
+def _parse_rally_window_analysis(payload: Dict[str, Any]) -> Tuple[List[RallyEvent], List[ScoreReading], List[Evidence], List[str]]:
+    warnings = [str(item) for item in payload.get("warnings", []) if item]
+    events: List[RallyEvent] = []
+    for item in payload.get("events", []):
+        if not isinstance(item, dict):
+            continue
+        event_type = str(item.get("type") or item.get("eventType") or item.get("event_type") or "").strip().lower()
+        if not event_type:
+            event_type = "unclear"
+        rally_winner = str(item.get("rallyWinner") or item.get("rally_winner") or item.get("winner") or "unknown").strip().upper()
+        serving_team = str(item.get("servingTeam") or item.get("serving_team") or "unknown").strip().upper()
+        events.append(
+            RallyEvent(
+                timestamp=str(item.get("timestamp") or ""),
+                event_type=event_type,
+                rally_winner=rally_winner if rally_winner in {"A", "B"} else "unknown",
+                serving_team=serving_team if serving_team in {"A", "B"} else "unknown",
+                confidence=max(0.0, min(1.0, _safe_float(item.get("confidence"), default=0.0))),
+                note=str(item.get("note") or item.get("reason") or ""),
+            )
+        )
+
+    scoreboards: List[ScoreReading] = []
+    board = payload.get("scoreboard")
+    if isinstance(board, dict) and _truthy(board.get("visible")):
+        try:
+            score_a = int(board.get("scoreA", board.get("score_a")))
+            score_b = int(board.get("scoreB", board.get("score_b")))
+        except (TypeError, ValueError):
+            warnings.append("Scoreboard was marked visible but scoreA/scoreB were not numeric.")
+        else:
+            if 0 <= score_a <= 40 and 0 <= score_b <= 40:
+                scoreboards.append(
+                    ScoreReading(
+                        timestamp=str(board.get("timestamp") or ""),
+                        score_a=score_a,
+                        score_b=score_b,
+                        confidence=max(0.0, min(1.0, _safe_float(board.get("confidence"), default=0.0))),
+                        note=str(board.get("note") or ""),
+                    )
+                )
+
+    evidence: List[Evidence] = []
+    for item in payload.get("evidence", []):
+        if isinstance(item, dict):
+            evidence.append(Evidence(timestamp=str(item.get("timestamp") or ""), text=str(item.get("text") or "")))
+        elif item:
+            evidence.append(Evidence(text=str(item)))
+
+    return events, scoreboards, evidence, warnings
+
+
+def _select_scoreboard_checkpoint(
+    readings: List[ScoreReading],
+    score_a: int,
+    score_b: int,
+    accepted_rallies: int,
+) -> Optional[ScoreReading]:
+    valid = [
+        reading for reading in readings
+        if reading.confidence >= 0.75
+        and reading.score_a >= score_a
+        and reading.score_b >= score_b
+    ]
+    if not valid:
+        return None
+
+    selected = max(valid, key=lambda item: (_timestamp_to_seconds(item.timestamp), item.confidence))
+    jump = (selected.score_a - score_a) + (selected.score_b - score_b)
+    if jump <= 0:
+        return None
+    if accepted_rallies == 0 and jump <= 4:
+        return selected
+    if jump <= 2:
+        return selected
+    return None
+
+
+def _event_timestamp_seconds(event: RallyEvent, *, fallback: float) -> int:
+    value = _timestamp_to_seconds(event.timestamp)
+    return value if value > 0 else int(fallback)
+
+
+def _append_recent_event(items: List[str], item: str) -> List[str]:
+    return (items + [item])[-8:]
+
+
+def _score_confidence_from_readings(readings: List[ScoreReading], score_a: int, score_b: int) -> float:
+    if not readings:
+        return 0.0
+    recent = readings[-12:]
+    average = sum(item.confidence for item in recent) / len(recent)
+    if score_has_badminton_shape(score_a, score_b):
+        return max(0.55, min(0.92, average))
+    return max(0.25, min(0.5, average))
 
 
 def _parse_player_slots(payload: Dict) -> Tuple[List[PlayerSlot], List[str]]:

@@ -10,7 +10,7 @@ Render 배포 서버에서는 Gemma API가 사내 IP 제한으로 timeout될 수
    - 직접 GPU 서버를 띄우지 않고, 보유한 API 키로 호출하는 전제를 둡니다.
    - YouTube URL을 직접 넘기지 않고, 서비스가 `yt-dlp + ffmpeg`로 프레임을 샘플링한 뒤 OpenAI-compatible chat/completions API에 이미지로 전달합니다.
    - 먼저 초반/중반 프레임으로 4명 슬롯을 만들고, 사용자가 각 슬롯을 실제 선수로 매핑합니다.
-   - 이후 전체 영상 프레임을 여러 batch로 분석해서 점수판 readings를 모으고, 마지막 유효 스코어를 최종 후보로 반환합니다.
+   - 이후 전체 영상을 짧은 타임라인 이미지로 쪼개서 서브/랠리 종료 흐름을 판정하고, 랠리 승자에게 1점씩 누적해 최종 후보를 반환합니다.
 
 2. Optional legacy fallback: Gemini 3.8 Flash video understanding
    - Gemini 키가 있으면 public YouTube URL 직접 분석 경로도 남겨둘 수 있습니다.
@@ -59,7 +59,13 @@ GEMMA_VERIFY_TLS=false
 GEMMA_FRAME_MAX_HEIGHT=360
 GEMMA_FRAME_JPEG_QUALITY=16
 GEMMA_REQUEST_MAX_BYTES=40000
+GEMMA_SCORE_SCAN_INTERVAL_SECONDS=1
+GEMMA_SCORE_SCAN_MAX_FRAMES=1200
 GEMMA_SCORE_SCAN_BATCH_SIZE=1
+GEMMA_RALLY_FRAME_MAX_HEIGHT=160
+GEMMA_RALLY_FRAME_JPEG_QUALITY=24
+GEMMA_RALLY_WINDOW_FRAMES=4
+GEMMA_RALLY_MIN_CONFIDENCE=0.55
 YTDLP_VERIFY_TLS=false
 WORKER_VERIFY_TLS=false
 WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES=40000
@@ -85,7 +91,7 @@ worker 흐름:
 1. `GET /api/video-analysis/worker/jobs/next`로 다음 작업을 가져옵니다.
 2. `player_detection`이면 유튜브 프레임을 추출하고 Gemma로 `A1/A2/B1/B2` 슬롯을 만듭니다.
 3. 사용자가 사이트에서 슬롯별 선수를 고르면 작업이 `score_analysis`로 다시 큐에 들어갑니다.
-4. worker가 영상 전체 점수판을 읽어 최종 스코어 후보를 저장합니다.
+4. worker가 영상 전체의 서브/랠리 종료 흐름을 분석해 최종 스코어 후보를 저장합니다.
 5. 사용자가 “이 점수로 경기 저장”을 누르면 기존 경기 등록 API와 같은 ELO 재계산 경로로 기록됩니다.
 
 ## 메인 사이트 큐 API

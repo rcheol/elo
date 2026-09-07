@@ -3109,8 +3109,8 @@ function videoJobStageFromStatus(status) {
 function normalizeVideoScoreRequest(input = {}) {
   const source = input && typeof input === "object" ? input : {};
   return {
-    scanIntervalSeconds: Math.floor(clampNumber(Number(source.scanIntervalSeconds ?? source.scan_interval_seconds ?? 20), 5, 180)),
-    maxFrames: Math.floor(clampNumber(Number(source.maxFrames ?? source.max_frames ?? 96), 8, 240)),
+    scanIntervalSeconds: Math.floor(clampNumber(Number(source.scanIntervalSeconds ?? source.scan_interval_seconds ?? 1), 1, 180)),
+    maxFrames: Math.floor(clampNumber(Number(source.maxFrames ?? source.max_frames ?? 1200), 8, 2400)),
     batchSize: Math.floor(clampNumber(Number(source.batchSize ?? source.batch_size ?? 1), 1, 20)),
     hint: String(source.hint || "").slice(0, 1000),
     saveRaw: Boolean(source.saveRaw ?? source.save_raw ?? false),
