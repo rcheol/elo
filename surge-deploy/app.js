@@ -346,6 +346,47 @@ function normalizeUser(user) {
   };
 }
 
+function videoSlotLabel(slotId) {
+  return {
+    A1: "Player 1",
+    A2: "Player 2",
+    B1: "Player 3",
+    B2: "Player 4",
+  }[slotId] || slotId;
+}
+
+function videoSlotNumber(slotId) {
+  return {
+    A1: "1",
+    A2: "2",
+    B1: "3",
+    B2: "4",
+  }[slotId] || "";
+}
+
+function videoSlotTeamLabel(slot) {
+  return String(slot?.team || slot?.slotId || "").startsWith("B") ? "B팀" : "A팀";
+}
+
+function defaultVideoSlotBoxPercent(slotId) {
+  return {
+    A1: { x: 12, y: 34, w: 18, h: 44 },
+    A2: { x: 34, y: 34, w: 18, h: 44 },
+    B1: { x: 48, y: 16, w: 14, h: 34 },
+    B2: { x: 66, y: 16, w: 14, h: 34 },
+  }[slotId] || { x: 40, y: 25, w: 20, h: 45 };
+}
+
+function normalizeVideoSlotBoxPercent(value, slotId = "") {
+  const fallback = defaultVideoSlotBoxPercent(slotId);
+  const source = value && typeof value === "object" ? value : fallback;
+  const x = clampNumber(Number(source.x ?? source.left ?? fallback.x), 0, 99);
+  const y = clampNumber(Number(source.y ?? source.top ?? fallback.y), 0, 99);
+  const w = clampNumber(Number(source.w ?? source.width ?? fallback.w), 1, Math.max(1, 100 - x));
+  const h = clampNumber(Number(source.h ?? source.height ?? fallback.h), 1, Math.max(1, 100 - y));
+  return { x, y, w, h };
+}
+
 function normalizeVideoAnalysisJob(job) {
   if (!job || !job.id) {
     return null;
@@ -384,7 +425,7 @@ function normalizeVideoAnalysisJob(job) {
     hint: String(job.hint || ""),
     createdBy: String(job.createdBy ?? job.created_by ?? ""),
     createdByName: String(job.createdByName ?? job.created_by_name ?? "알 수 없음"),
-    calibrationMaxFrames: Number(job.calibrationMaxFrames ?? job.calibration_max_frames ?? 18),
+    calibrationMaxFrames: Number(job.calibrationMaxFrames ?? job.calibration_max_frames ?? 10),
     scoreRequest: {
       scanIntervalSeconds: Number(job.scoreRequest?.scanIntervalSeconds ?? job.score_request?.scan_interval_seconds ?? 1),
       maxFrames: Number(job.scoreRequest?.maxFrames ?? job.score_request?.max_frames ?? 1200),
@@ -401,10 +442,11 @@ function normalizeVideoAnalysisJob(job) {
       ? (job.playerSlots ?? job.player_slots).map((slot) => ({
           slotId: String(slot?.slotId ?? slot?.slot_id ?? "").toUpperCase(),
           team: String(slot?.team || ""),
-          label: String(slot?.label || ""),
+          label: videoSlotLabel(String(slot?.slotId ?? slot?.slot_id ?? "").toUpperCase()),
           description: String(slot?.description || ""),
           timestamp: String(slot?.timestamp || ""),
           confidence: Number(slot?.confidence || 0),
+          boxPercent: normalizeVideoSlotBoxPercent(slot?.boxPercent ?? slot?.box_percent ?? slot?.box, String(slot?.slotId ?? slot?.slot_id ?? "").toUpperCase()),
         })).filter((slot) => slot.slotId)
       : [],
     playerMapping: normalizeMapping(job.playerMapping ?? job.player_mapping),
@@ -2731,7 +2773,7 @@ function defaultVideoSlotPlayerId(slotId) {
   );
 }
 
-function renderVideoAnalysisFrames(job) {
+function renderNumberedVideoAnalysisFrames(job) {
   if (!job.referenceFrames.length) {
     return "";
   }
@@ -2747,7 +2789,7 @@ function renderVideoAnalysisFrames(job) {
   `;
 }
 
-function renderVideoAnalysisMapping(job) {
+function renderNumberedVideoAnalysisMapping(job) {
   if (job.status !== "waiting_player_mapping") {
     return "";
   }
@@ -2761,6 +2803,82 @@ function renderVideoAnalysisMapping(job) {
             <span class="video-slot-copy">
               <strong>${escapeHtml(slot.label || slot.slotId)}</strong>
               <small>${escapeHtml([slot.description, slot.timestamp].filter(Boolean).join(" · ") || "영상 속 위치를 확인하세요.")}</small>
+            </span>
+            <select data-video-slot="${escapeHtml(slot.slotId)}">${videoAnalysisPlayerOptions(selectedId)}</select>
+          </label>
+        `;
+      }).join("")}
+    </div>
+    <div class="video-analysis-actions">
+      <button class="button button--primary" type="button" data-video-confirm-players="${escapeHtml(job.id)}">
+        <i data-lucide="users"></i>
+        <span>선수 확정 후 점수 분석</span>
+      </button>
+      <button class="button button--neutral" type="button" data-video-clear-job>
+        <span>새 링크 입력</span>
+      </button>
+    </div>
+  `;
+}
+
+function videoAnalysisSlots(job) {
+  const slotIds = ["A1", "A2", "B1", "B2"];
+  const byId = new Map((job.playerSlots || []).map((slot) => [slot.slotId, slot]));
+  return slotIds.map((slotId) => {
+    const slot = byId.get(slotId) || {};
+    return {
+      ...slot,
+      slotId,
+      team: slotId.startsWith("A") ? "A" : "B",
+      label: videoSlotLabel(slotId),
+      boxPercent: normalizeVideoSlotBoxPercent(slot.boxPercent, slotId),
+    };
+  });
+}
+
+function renderVideoAnalysisFrames(job) {
+  if (!job.referenceFrames.length) {
+    return "";
+  }
+  const slots = videoAnalysisSlots(job);
+  return `
+    <div class="video-analysis-frames video-analysis-frames--numbered">
+      ${job.referenceFrames.map((frame) => `
+        <figure class="video-analysis-frame">
+          <div class="video-analysis-frame__image">
+            <img src="${escapeHtml(frame.imageDataUrl)}" alt="영상 기준 프레임 ${escapeHtml(frame.timestamp)}">
+            <div class="video-analysis-markers" aria-hidden="true">
+              ${slots.map((slot) => {
+                const box = normalizeVideoSlotBoxPercent(slot.boxPercent, slot.slotId);
+                return `
+                  <span class="video-player-marker video-player-marker--${escapeHtml(slot.team.toLowerCase())}" style="left:${box.x}%;top:${box.y}%;width:${box.w}%;height:${box.h}%;">
+                    <b>${escapeHtml(videoSlotNumber(slot.slotId))}</b>
+                  </span>
+                `;
+              }).join("")}
+            </div>
+          </div>
+          <span>${escapeHtml(frame.timestamp || "기준 프레임")}</span>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderVideoAnalysisMapping(job) {
+  if (job.status !== "waiting_player_mapping") {
+    return "";
+  }
+  const slots = videoAnalysisSlots(job);
+  return `
+    <div class="video-analysis-slots">
+      ${slots.map((slot) => {
+        const selectedId = job.playerMapping?.[slot.slotId]?.playerId || defaultVideoSlotPlayerId(slot.slotId);
+        return `
+          <label class="video-slot-row">
+            <span class="video-slot-copy">
+              <strong><span class="video-slot-index">${escapeHtml(videoSlotNumber(slot.slotId))}</span>${escapeHtml(slot.label)} · ${escapeHtml(videoSlotTeamLabel(slot))}</strong>
+              <small>${escapeHtml([slot.description, slot.timestamp].filter(Boolean).join(" · ") || "위 번호 박스를 보고 실제 선수를 선택하세요.")}</small>
             </span>
             <select data-video-slot="${escapeHtml(slot.slotId)}">${videoAnalysisPlayerOptions(selectedId)}</select>
           </label>

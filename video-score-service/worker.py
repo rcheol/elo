@@ -250,12 +250,18 @@ def compact_image_data_url(data_url: str, *, max_height: int, jpeg_quality: int)
             "-y",
             "-i",
             str(input_path),
+            "-threads",
+            "1",
             "-vf",
-            f"scale=-2:min({max_height}\\,ih)",
+            f"{jpeg_scale_filter(max_height)},format=yuvj420p",
             "-frames:v",
             "1",
             "-q:v",
             str(max(2, min(31, int(jpeg_quality)))),
+            "-pix_fmt",
+            "yuvj420p",
+            "-strict",
+            "unofficial",
             str(output_path),
         ]
         try:
@@ -270,6 +276,16 @@ def compact_image_data_url(data_url: str, *, max_height: int, jpeg_quality: int)
         return f"data:image/jpeg;base64,{thumb}"
 
 
+def jpeg_scale_filter(max_height: int) -> str:
+    safe_height = max(2, int(max_height))
+    return (
+        "scale="
+        f"w=trunc(iw*min(1\\,{safe_height}/ih)/2)*2:"
+        f"h=trunc(ih*min(1\\,{safe_height}/ih)/2)*2,"
+        "setsar=1"
+    )
+
+
 async def run_player_detection(job: Dict[str, Any]) -> Dict[str, Any]:
     settings = get_settings()
     if not settings.gemma_enabled:
@@ -279,7 +295,7 @@ async def run_player_detection(job: Dict[str, Any]) -> Dict[str, Any]:
         str(job["youtubeUrl"]),
         hint=str(job.get("hint") or ""),
         settings=settings,
-        max_frames=int(job.get("calibrationMaxFrames") or 4),
+        max_frames=max(4, min(12, int(job.get("calibrationMaxFrames") or 10))),
         save_raw=False,
     )
     return {
@@ -300,6 +316,7 @@ async def run_player_detection(job: Dict[str, Any]) -> Dict[str, Any]:
                 "description": slot.description,
                 "timestamp": slot.timestamp,
                 "confidence": slot.confidence,
+                "boxPercent": slot.box_percent,
             }
             for slot in slots
         ],

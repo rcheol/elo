@@ -86,6 +86,7 @@ class PlayerSlot(BaseModel):
     description: str = ""
     timestamp: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    box_percent: Optional[Dict[str, float]] = None
 
 
 class SlotPlayer(BaseModel):
@@ -97,7 +98,7 @@ class VideoSessionCreateRequest(BaseModel):
     youtube_url: str = Field(..., min_length=8)
     hint: str = Field(default="", max_length=1000)
     save_raw: bool = False
-    calibration_max_frames: int = Field(default=18, ge=1, le=24)
+    calibration_max_frames: int = Field(default=10, ge=1, le=12)
 
 
 class PlayerMappingRequest(BaseModel):

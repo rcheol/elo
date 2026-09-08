@@ -99,16 +99,14 @@ async def detect_player_slots_with_gemma(
     max_frames: int,
     save_raw: bool,
 ) -> Tuple[List[ReferenceFrame], List[PlayerSlot], List[str], Optional[Dict]]:
-    frames = extract_evenly_spaced_frames_from_youtube(
+    warnings: List[str] = []
+    frames, extraction_warnings = _extract_player_mapping_frames_with_fallback(
         youtube_url,
         max_frames=max_frames,
-        max_height=settings.gemma_player_frame_max_height,
-        jpeg_quality=settings.gemma_player_frame_jpeg_quality,
-        start_ratio=0.04,
-        end_ratio=0.88,
+        settings=settings,
     )
+    warnings.extend(extraction_warnings)
 
-    warnings: List[str] = []
     best_candidate: Optional[Tuple[ExtractedFrame, List[PlayerSlot], List[str], Optional[Dict], float, bool]] = None
 
     for index, frame in enumerate(frames, start=1):
@@ -336,6 +334,51 @@ def _build_chat_payload(
     }
 
 
+def _extract_player_mapping_frames_with_fallback(
+    youtube_url: str,
+    *,
+    max_frames: int,
+    settings: Settings,
+) -> Tuple[List[ExtractedFrame], List[str]]:
+    attempts: List[Tuple[int, int]] = []
+    for height, quality in (
+        (settings.gemma_player_frame_max_height, settings.gemma_player_frame_jpeg_quality),
+        (480, 20),
+        (420, 20),
+        (360, 22),
+        (300, 24),
+    ):
+        pair = (int(height), int(quality))
+        if pair not in attempts:
+            attempts.append(pair)
+
+    errors: List[str] = []
+    for height, quality in attempts:
+        try:
+            frames = extract_evenly_spaced_frames_from_youtube(
+                youtube_url,
+                max_frames=max_frames,
+                max_height=height,
+                jpeg_quality=quality,
+                start_ratio=0.04,
+                end_ratio=0.88,
+            )
+        except Exception as exc:
+            errors.append(f"{height}px/q{quality}: {exc}")
+            continue
+
+        warnings = []
+        if errors:
+            warnings.append(
+                "Player mapping frame extraction fell back after ffmpeg errors: "
+                + " | ".join(errors[-2:])
+            )
+        warnings.append(f"Player mapping frames extracted at max height {height}px.")
+        return frames, warnings
+
+    raise RuntimeError("Could not extract player mapping frames. " + " | ".join(errors[-3:]))
+
+
 async def _post_gemma_chat(settings: Settings, payload: Dict) -> Tuple[Dict, Optional[str]]:
     payload_size = _json_payload_size(payload)
     if payload_size > settings.gemma_request_max_bytes:
@@ -458,10 +501,10 @@ Return only this JSON object:
   "identificationQuality": "excellent" or "good" or "fair" or "poor",
   "reason": "short explanation",
   "slots": [
-    {{"slotId": "A1", "team": "A", "label": "near-left", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
-    {{"slotId": "A2", "team": "A", "label": "near-right", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
-    {{"slotId": "B1", "team": "B", "label": "far-left", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}},
-    {{"slotId": "B2", "team": "B", "label": "far-right", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0}}
+    {{"slotId": "A1", "team": "A", "label": "Player 1", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0, "boxPercent": {{"x": 0, "y": 0, "w": 0, "h": 0}}}},
+    {{"slotId": "A2", "team": "A", "label": "Player 2", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0, "boxPercent": {{"x": 0, "y": 0, "w": 0, "h": 0}}}},
+    {{"slotId": "B1", "team": "B", "label": "Player 3", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0, "boxPercent": {{"x": 0, "y": 0, "w": 0, "h": 0}}}},
+    {{"slotId": "B2", "team": "B", "label": "Player 4", "description": "short visual cue", "timestamp": "{frame.timestamp_label}", "confidence": 0.0, "boxPercent": {{"x": 0, "y": 0, "w": 0, "h": 0}}}}
   ],
   "warnings": ["optional warning"]
 }}
@@ -472,6 +515,9 @@ Rules:
 - Do not identify real names. The user will map these anonymous slots to real players.
 - Team A is the near/bottom/first-side team from the camera perspective. Team B is the far/top/opposite-side team.
 - Within each team, left/right is from the camera perspective.
+- Label A1 as Player 1, A2 as Player 2, B1 as Player 3, and B2 as Player 4.
+- boxPercent is the tight visible body box for that player in percentage coordinates of the image: x, y, w, h, each 0-100.
+- Make each box cover the whole visible person including head, torso, legs, racket arm when possible. Do not cover their doubles partner.
 - Prefer frames where all four players are separated, not hidden behind each other, not motion-blurred, and large enough to inspect clothing/body cues.
 - Penalize frames where far-side players are tiny, cropped, blocked, blurred, or all wearing similar clothing with no useful distinguishing cue.
 - qualityScore is 0-100 for user mapping usefulness, not for match action quality.
@@ -700,10 +746,11 @@ def _parse_player_slots(payload: Dict) -> Tuple[List[PlayerSlot], List[str]]:
         slots_by_id[slot_id] = PlayerSlot(
             slot_id=slot_id,
             team=team,
-            label=str(item.get("label") or _default_slot_label(slot_id)),
+            label=_player_slot_label(slot_id, str(item.get("label") or "")),
             description=str(item.get("description") or ""),
             timestamp=str(item.get("timestamp") or ""),
             confidence=max(0.0, min(1.0, confidence)),
+            box_percent=_parse_box_percent(item.get("boxPercent") or item.get("box_percent") or item.get("box")),
         )
 
     slots = []
@@ -713,6 +760,7 @@ def _parse_player_slots(payload: Dict) -> Tuple[List[PlayerSlot], List[str]]:
             team="A" if slot_id.startswith("A") else "B",
             label=_default_slot_label(slot_id),
             confidence=0.0,
+            box_percent=_default_slot_box_percent(slot_id),
         ))
 
     if len(slots_by_id) < 4:
@@ -870,6 +918,60 @@ def _default_slot_label(slot_id: str) -> str:
         "B1": "B팀 선수 1",
         "B2": "B팀 선수 2",
     }.get(slot_id, slot_id)
+
+
+def _default_slot_label(slot_id: str) -> str:
+    return {
+        "A1": "Player 1",
+        "A2": "Player 2",
+        "B1": "Player 3",
+        "B2": "Player 4",
+    }.get(slot_id, slot_id)
+
+
+def _player_slot_label(slot_id: str, value: str) -> str:
+    return _default_slot_label(slot_id)
+
+
+def _parse_box_percent(value: object) -> Optional[Dict[str, float]]:
+    if not isinstance(value, dict):
+        return None
+
+    aliases = {
+        "x": ("x", "left"),
+        "y": ("y", "top"),
+        "w": ("w", "width"),
+        "h": ("h", "height"),
+    }
+    box: Dict[str, float] = {}
+    for key, candidates in aliases.items():
+        raw = None
+        for candidate in candidates:
+            if candidate in value:
+                raw = value[candidate]
+                break
+        try:
+            box[key] = float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    if box["w"] <= 0 or box["h"] <= 0:
+        return None
+
+    x = max(0.0, min(99.0, box["x"]))
+    y = max(0.0, min(99.0, box["y"]))
+    w = max(1.0, min(max(1.0, 100.0 - x), box["w"]))
+    h = max(1.0, min(max(1.0, 100.0 - y), box["h"]))
+    return {"x": round(x, 2), "y": round(y, 2), "w": round(w, 2), "h": round(h, 2)}
+
+
+def _default_slot_box_percent(slot_id: str) -> Dict[str, float]:
+    return {
+        "A1": {"x": 12.0, "y": 34.0, "w": 18.0, "h": 44.0},
+        "A2": {"x": 34.0, "y": 34.0, "w": 18.0, "h": 44.0},
+        "B1": {"x": 48.0, "y": 16.0, "w": 14.0, "h": 34.0},
+        "B2": {"x": 66.0, "y": 16.0, "w": 14.0, "h": 34.0},
+    }.get(slot_id, {"x": 40.0, "y": 25.0, "w": 20.0, "h": 45.0})
 
 
 def _timestamp_to_seconds(value: str) -> int:

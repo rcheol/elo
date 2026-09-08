@@ -2698,10 +2698,11 @@ function normalizeStoredPlayerSlot(slot) {
   return {
     slotId,
     team: slotId.startsWith("A") ? "A" : "B",
-    label: String(slot?.label || defaultVideoSlotLabel(slotId)),
+    label: defaultVideoSlotLabel(slotId),
     description: String(slot?.description || "").slice(0, 500),
     timestamp: String(slot?.timestamp || "").slice(0, 40),
     confidence: round3(clampNumber(Number(slot?.confidence || 0), 0, 1)),
+    boxPercent: normalizeVideoSlotBoxPercent(slot?.boxPercent ?? slot?.box_percent ?? slot?.box, slotId),
   };
 }
 
@@ -2808,7 +2809,7 @@ function normalizeStoredVideoAnalysisJob(job, activeUserIds, activePlayerIds, pl
     youtubeUrl,
     videoId,
     hint: String(job?.hint || "").slice(0, 1000),
-    calibrationMaxFrames: Math.floor(clampNumber(Number(job?.calibrationMaxFrames ?? job?.calibration_max_frames ?? 18), 1, 24)),
+    calibrationMaxFrames: Math.floor(clampNumber(Number(job?.calibrationMaxFrames ?? job?.calibration_max_frames ?? 10), 1, 12)),
     scoreRequest: normalizeVideoScoreRequest(job?.scoreRequest ?? job?.score_request),
     createdBy,
     createdByName: normalizeDisplayName(job?.createdByName ?? job?.created_by_name, "알 수 없음") || "알 수 없음",
@@ -3079,7 +3080,7 @@ function pgGetCardStickers(state, currentUser = null) {
     .map((sticker) => pgCardStickerFromStored(sticker, currentUser));
 }
 
-function defaultVideoSlotLabel(slotId) {
+function videoSlotDisplayLabel(slotId) {
   return (
     {
       A1: "A팀 선수 1",
@@ -3088,6 +3089,43 @@ function defaultVideoSlotLabel(slotId) {
       B2: "B팀 선수 2",
     }[slotId] || slotId
   );
+}
+
+function defaultVideoSlotLabel(slotId) {
+  return (
+    {
+      A1: "Player 1",
+      A2: "Player 2",
+      B1: "Player 3",
+      B2: "Player 4",
+    }[slotId] || slotId
+  );
+}
+
+function defaultVideoSlotBoxPercent(slotId) {
+  return (
+    {
+      A1: { x: 12, y: 34, w: 18, h: 44 },
+      A2: { x: 34, y: 34, w: 18, h: 44 },
+      B1: { x: 48, y: 16, w: 14, h: 34 },
+      B2: { x: 66, y: 16, w: 14, h: 34 },
+    }[slotId] || { x: 40, y: 25, w: 20, h: 45 }
+  );
+}
+
+function normalizeVideoSlotBoxPercent(value, slotId = "") {
+  const fallback = defaultVideoSlotBoxPercent(slotId);
+  const source = value && typeof value === "object" ? value : fallback;
+  const x = clampNumber(Number(source.x ?? source.left ?? fallback.x), 0, 99);
+  const y = clampNumber(Number(source.y ?? source.top ?? fallback.y), 0, 99);
+  const w = clampNumber(Number(source.w ?? source.width ?? fallback.w), 1, Math.max(1, 100 - x));
+  const h = clampNumber(Number(source.h ?? source.height ?? fallback.h), 1, Math.max(1, 100 - y));
+  return {
+    x: round3(x),
+    y: round3(y),
+    w: round3(w),
+    h: round3(h),
+  };
 }
 
 function videoJobStageFromStatus(status) {
@@ -3139,6 +3177,7 @@ function normalizeVideoPlayerSlots(slots) {
     description: "",
     timestamp: "",
     confidence: 0,
+    boxPercent: defaultVideoSlotBoxPercent(slotId),
   });
 }
 
@@ -3194,7 +3233,7 @@ function videoAnalysisJobPublicView(job, currentUser = null, options = {}) {
     youtubeUrl: job.youtubeUrl,
     videoId: job.videoId,
     hint: job.hint || "",
-    calibrationMaxFrames: Number(job.calibrationMaxFrames || 18),
+    calibrationMaxFrames: Number(job.calibrationMaxFrames || 10),
     scoreRequest: normalizeVideoScoreRequest(job.scoreRequest),
     createdBy: job.createdBy,
     createdByName: job.createdByName || "알 수 없음",
@@ -3224,7 +3263,7 @@ function videoAnalysisJobWorkerView(job) {
     youtubeUrl: job.youtubeUrl,
     videoId: job.videoId,
     hint: job.hint || "",
-    calibrationMaxFrames: Number(job.calibrationMaxFrames || 18),
+    calibrationMaxFrames: Number(job.calibrationMaxFrames || 10),
     scoreRequest: normalizeVideoScoreRequest(job.scoreRequest),
     playerMapping: job.playerMapping || {},
     attempts: Number(job.attempts || 0),
@@ -3274,7 +3313,7 @@ function createVideoAnalysisJob(state, input, currentUser) {
     youtubeUrl: normalizedYouTubeWatchUrl(videoId),
     videoId,
     hint: String(input?.hint || "").slice(0, 1000),
-    calibrationMaxFrames: Math.floor(clampNumber(Number(input?.calibrationMaxFrames ?? input?.calibration_max_frames ?? 18), 1, 24)),
+    calibrationMaxFrames: Math.floor(clampNumber(Number(input?.calibrationMaxFrames ?? input?.calibration_max_frames ?? 10), 1, 12)),
     scoreRequest: normalizeVideoScoreRequest(input?.scoreRequest ?? input?.score_request ?? {}),
     createdBy: currentUser.id,
     createdByName: currentUser.displayName || currentUser.username || "알 수 없음",

@@ -196,21 +196,28 @@ def extract_timeline_frame_windows_from_youtube_info(
             "-y",
             "-i",
             stream_url,
+            "-threads",
+            "1",
             "-t",
             f"{clip_duration:.3f}",
             "-vf",
             (
                 f"fps=1/{sample_interval:.6f},"
-                f"scale=-2:min({max_height}\\,ih),"
+                f"{_jpeg_scale_filter(max_height)},"
+                "format=yuvj420p,"
                 f"tile={safe_frames_per_window}x1:padding=4:margin=4:color=black"
             ),
             "-frames:v",
             str(window_count),
             "-q:v",
             str(max(2, min(31, int(jpeg_quality)))),
+            "-pix_fmt",
+            "yuvj420p",
+            "-strict",
+            "unofficial",
             output_pattern,
         ]
-        subprocess.run(command, check=True)
+        _run_ffmpeg(command)
 
         paths = sorted(Path(temp_dir).glob("window_*.jpg"))
         if not paths:
@@ -257,6 +264,17 @@ def extract_frames_from_youtube_info(
     clip_duration = max(1.0, duration_seconds)
     sample_fps = max_frames / clip_duration
 
+    if max_frames <= 30:
+        return _extract_sparse_frames_from_stream(
+            stream_url,
+            ffmpeg_path=ffmpeg_path,
+            start_seconds=start_seconds,
+            duration_seconds=clip_duration,
+            max_frames=max_frames,
+            max_height=max_height,
+            jpeg_quality=jpeg_quality,
+        )
+
     with tempfile.TemporaryDirectory(prefix="honeyserve-frames-") as temp_dir:
         output_pattern = str(Path(temp_dir) / "frame_%03d.jpg")
         command = [
@@ -269,17 +287,23 @@ def extract_frames_from_youtube_info(
             f"{start_seconds:.3f}",
             "-i",
             stream_url,
+            "-threads",
+            "1",
             "-t",
             f"{clip_duration:.3f}",
             "-vf",
-            f"fps={sample_fps:.6f},scale=-2:min({max_height}\\,ih)",
+            f"fps={sample_fps:.6f},{_jpeg_scale_filter(max_height)},format=yuvj420p",
             "-frames:v",
             str(max_frames),
             "-q:v",
             str(max(2, min(31, int(jpeg_quality)))),
+            "-pix_fmt",
+            "yuvj420p",
+            "-strict",
+            "unofficial",
             output_pattern,
         ]
-        subprocess.run(command, check=True)
+        _run_ffmpeg(command)
 
         paths = sorted(Path(temp_dir).glob("frame_*.jpg"))
         if not paths:
@@ -296,6 +320,73 @@ def extract_frames_from_youtube_info(
                 )
             )
         return frames
+
+
+def _extract_sparse_frames_from_stream(
+    stream_url: str,
+    *,
+    ffmpeg_path: str,
+    start_seconds: float,
+    duration_seconds: float,
+    max_frames: int,
+    max_height: int,
+    jpeg_quality: int,
+) -> List[ExtractedFrame]:
+    timestamps = _sample_timestamps(start_seconds, duration_seconds, max_frames)
+    frames: List[ExtractedFrame] = []
+    errors: List[str] = []
+
+    with tempfile.TemporaryDirectory(prefix="honeyserve-sparse-frames-") as temp_dir:
+        for index, timestamp in enumerate(timestamps, start=1):
+            path = Path(temp_dir) / f"frame_{index:03d}.jpg"
+            command = [
+                ffmpeg_path,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                f"{timestamp:.3f}",
+                "-i",
+                stream_url,
+                "-threads",
+                "1",
+                "-frames:v",
+                "1",
+                "-vf",
+                f"{_jpeg_scale_filter(max_height)},format=yuvj420p",
+                "-q:v",
+                str(max(2, min(31, int(jpeg_quality)))),
+                "-pix_fmt",
+                "yuvj420p",
+                "-strict",
+                "unofficial",
+                str(path),
+            ]
+            try:
+                _run_ffmpeg(command, timeout_seconds=30)
+            except RuntimeError as exc:
+                errors.append(f"{_format_timestamp(timestamp)}: {exc}")
+                continue
+            if path.exists():
+                frames.append(
+                    ExtractedFrame(
+                        timestamp_seconds=timestamp,
+                        data_url=_jpeg_to_data_url(path),
+                    )
+                )
+
+    if not frames:
+        raise RuntimeError("ffmpeg did not extract any sparse frames. " + " | ".join(errors[-3:]))
+    return frames
+
+
+def _sample_timestamps(start_seconds: float, duration_seconds: float, max_frames: int) -> List[float]:
+    count = max(1, int(max_frames))
+    if count == 1:
+        return [max(0.0, start_seconds)]
+    interval = max(0.0, duration_seconds) / float(count - 1)
+    return [max(0.0, start_seconds + interval * index) for index in range(count)]
 
 
 def find_ffmpeg() -> Optional[str]:
@@ -352,13 +443,59 @@ def _select_video_stream_url(info: dict, *, max_height: int) -> Optional[str]:
     if not candidates:
         return None
 
-    best = max(candidates, key=lambda item: (int(item.get("height") or 0), float(item.get("tbr") or 0)))
+    direct_candidates = [item for item in candidates if not _is_hls_format(item)]
+    if direct_candidates:
+        candidates = direct_candidates
+
+    best = max(
+        candidates,
+        key=lambda item: (
+            int(item.get("height") or 0),
+            int(item.get("fps") or 0),
+            float(item.get("tbr") or 0),
+        ),
+    )
     return str(best["url"])
+
+
+def _is_hls_format(item: dict) -> bool:
+    protocol = str(item.get("protocol") or "").lower()
+    url = str(item.get("url") or "").lower()
+    return "m3u8" in protocol or "m3u8" in url or "hls_playlist" in url
 
 
 def _jpeg_to_data_url(path: Path) -> str:
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def _run_ffmpeg(command: List[str], *, timeout_seconds: Optional[float] = None) -> None:
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        if len(detail) > 700:
+            detail = detail[-700:]
+        raise RuntimeError(detail or f"ffmpeg exited with code {exc.returncode}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"ffmpeg timed out after {timeout_seconds:g} seconds") from exc
+
+
+def _jpeg_scale_filter(max_height: int) -> str:
+    safe_height = max(2, int(max_height))
+    return (
+        "scale="
+        f"w=trunc(iw*min(1\\,{safe_height}/ih)/2)*2:"
+        f"h=trunc(ih*min(1\\,{safe_height}/ih)/2)*2,"
+        "setsar=1"
+    )
 
 
 def _format_timestamp(value: float) -> str:
