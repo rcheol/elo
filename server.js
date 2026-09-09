@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { hasClaimableVideoJob, readVideoJob, updatePostgresState } from "./lib/postgres-state.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2939,30 +2940,23 @@ async function initPostgresDb() {
 }
 
 async function withPostgresState(callback) {
-  const client = await pgPool.connect();
-  try {
-    await client.query("BEGIN");
-    const result = await client.query("SELECT value FROM app_state WHERE key = $1 FOR UPDATE", [postgresStateKey]);
-    const state = normalizePostgresState(result.rows[0]?.value || createDefaultPostgresState());
-    const callbackResult = await callback(state);
-    const normalizedState = normalizePostgresState(state);
+  return updatePostgresState(pgPool, postgresStateKey, normalizePostgresState, createDefaultPostgresState, callback);
+}
 
-    await client.query(
-      `
-        INSERT INTO app_state (key, value, updated_at)
-        VALUES ($1, $2::jsonb, NOW())
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-      `,
-      [postgresStateKey, JSON.stringify(normalizedState)],
-    );
-    await client.query("COMMIT");
-    return callbackResult;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+async function pgReadVideoJob(req, jobId, knownVersion = "") {
+  const sid = parseCookies(req.headers.cookie).sid;
+  const result = await readVideoJob(pgPool, postgresStateKey, sid, jobId, knownVersion);
+  if (!result.account) {
+    throw new HttpError(401, "UNAUTHORIZED");
   }
+  if (!result.found) {
+    throw new HttpError(404, "VIDEO_JOB_NOT_FOUND", "영상 분석 작업을 찾을 수 없습니다.");
+  }
+  const currentUser = pgUserFromStored(result.account);
+  ensureCanAccessVideoAnalysisJob({ createdBy: result.owner }, currentUser);
+  return result.job
+    ? { job: videoAnalysisJobPublicView(result.job, currentUser), version: result.version }
+    : { unchanged: true, version: result.version };
 }
 
 function pgUserFromStored(user) {
@@ -4231,7 +4225,10 @@ async function handleApiPostgres(req, res, url) {
 
   if (method === "POST" && pathname === "/api/video-score") {
     const body = await readJsonBody(req);
-    await withPostgresState((state) => pgRequireUser(req, state));
+    const session = await readVideoJob(pgPool, postgresStateKey, parseCookies(req.headers.cookie).sid, "");
+    if (!session.account) {
+      throw new HttpError(401, "UNAUTHORIZED");
+    }
     const payload = await analyzeVideoScore(body);
     return sendJson(req, res, 200, payload);
   }
@@ -4249,6 +4246,9 @@ async function handleApiPostgres(req, res, url) {
   if (method === "GET" && pathname === "/api/video-analysis/worker/jobs/next") {
     requireVideoWorker(req);
     const workerId = String(req.headers["x-video-worker-id"] || url.searchParams.get("workerId") || "local-worker");
+    if (!await hasClaimableVideoJob(pgPool, postgresStateKey, videoJobLockMs)) {
+      return sendJson(req, res, 200, { job: null });
+    }
     const payload = await withPostgresState((state) => ({
       job: claimNextVideoAnalysisJob(state, workerId),
     }));
@@ -4267,10 +4267,7 @@ async function handleApiPostgres(req, res, url) {
 
   const videoAnalysisJobMatch = pathname.match(/^\/api\/video-analysis\/jobs\/([^/]+)$/);
   if (method === "GET" && videoAnalysisJobMatch) {
-    const payload = await withPostgresState((state) => {
-      const currentUser = pgRequireUser(req, state);
-      return { job: getVideoAnalysisJob(state, decodeURIComponent(videoAnalysisJobMatch[1]), currentUser) };
-    });
+    const payload = await pgReadVideoJob(req, decodeURIComponent(videoAnalysisJobMatch[1]), url.searchParams.get("version") || "");
     return sendJson(req, res, 200, payload);
   }
 

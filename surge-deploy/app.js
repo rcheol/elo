@@ -76,6 +76,8 @@ let stickerDrag = null;
 let videoScoreBusy = false;
 let currentVideoAnalysisJob = null;
 let videoAnalysisPollTimer = null;
+let videoAnalysisPollInFlight = false;
+let videoAnalysisPollCache = null;
 let paginationState = {
   myHistory: 1,
   partnerStats: 1,
@@ -2694,6 +2696,7 @@ function persistVideoAnalysisJobId(job) {
 }
 
 function setCurrentVideoAnalysisJob(job) {
+  videoAnalysisPollCache = null;
   currentVideoAnalysisJob = mergeVideoAnalysisJobDetail(currentVideoAnalysisJob, normalizeVideoAnalysisJob(job));
   persistVideoAnalysisJobId(currentVideoAnalysisJob);
   renderVideoAnalysisPanel();
@@ -2709,8 +2712,10 @@ function stopVideoAnalysisPolling() {
 function startVideoAnalysisPolling(jobId) {
   stopVideoAnalysisPolling();
   videoAnalysisPollTimer = window.setInterval(() => {
-    pollVideoAnalysisJob(jobId);
-  }, 5000);
+    if (!document.hidden) {
+      pollVideoAnalysisJob(jobId);
+    }
+  }, 15000);
 }
 
 async function pollVideoAnalysisJob(jobId) {
@@ -2719,19 +2724,40 @@ async function pollVideoAnalysisJob(jobId) {
     return;
   }
 
+  if (videoAnalysisPollInFlight) {
+    return;
+  }
+  const previousJob = currentVideoAnalysisJob;
+  const currentUserId = getCurrentUser().id;
+  const version = videoAnalysisPollCache?.jobId === jobId ? videoAnalysisPollCache.version : "";
+  const query = version ? `?version=${encodeURIComponent(version)}` : "";
+  videoAnalysisPollInFlight = true;
+
   try {
-    const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}`);
+    const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}${query}`);
+    if (currentVideoAnalysisJob !== previousJob || getCurrentUser()?.id !== currentUserId) {
+      return;
+    }
+    if (payload.unchanged) {
+      return;
+    }
     setCurrentVideoAnalysisJob(payload.job);
+    videoAnalysisPollCache = payload.version ? { jobId, version: payload.version } : null;
     if (!isVideoAnalysisPollingStatus(currentVideoAnalysisJob?.status)) {
       stopVideoAnalysisPolling();
     }
   } catch (error) {
+    if (currentVideoAnalysisJob !== previousJob || getCurrentUser()?.id !== currentUserId) {
+      return;
+    }
     stopVideoAnalysisPolling();
     if (error.code === "VIDEO_JOB_NOT_FOUND") {
       clearCurrentVideoAnalysisJob({ remote: false });
       return;
     }
     setVideoScoreResult(apiMessage(error), "error");
+  } finally {
+    videoAnalysisPollInFlight = false;
   }
 }
 
@@ -3096,6 +3122,7 @@ async function clearCurrentVideoAnalysisJob(options = {}) {
   const jobId = currentVideoAnalysisJob?.id || localStorage.getItem(videoAnalysisJobStorageKey);
   const remote = options.remote !== false;
   currentVideoAnalysisJob = null;
+  videoAnalysisPollCache = null;
   localStorage.removeItem(videoAnalysisJobStorageKey);
   stopVideoAnalysisPolling();
   setVideoScoreResult("");
