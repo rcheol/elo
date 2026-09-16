@@ -7,7 +7,7 @@ import math
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from app.frame_extractor import _load_youtube_info, _select_video_stream_url, _run_ffmpeg, _jpeg_scale_filter, find_ffmpeg
 
@@ -88,6 +88,7 @@ class ReviewVideo:
         with Image.open(path) as source:
             image = source.convert("RGB")
         draw = ImageDraw.Draw(image)
+        label_font = ImageFont.load_default(size=26)
         for slot in slots:
             box = slot.box_percent
             if not box:
@@ -96,7 +97,8 @@ class ReviewVideo:
             w, h = box.get("w", 0) / 100 * image.width, box.get("h", 0) / 100 * image.height
             color = "#33dd88" if slot.team == "A" else "#ffad55"
             draw.rectangle((x, y, x + w, y + h), outline=color, width=3)
-            draw.text((x + 2, y + 2), slot.slot_id, fill="white", stroke_width=2, stroke_fill="black")
+            draw.text((x + 2, y + 2), slot.slot_id, font=label_font,
+                      fill="white", stroke_width=3, stroke_fill="black")
         return image
 
 
