@@ -182,10 +182,20 @@ def confirm_video_score(session_id: str, request: ConfirmMatchRequest) -> Confir
     result = session.score_result
     if not request.confirmed:
         raise HTTPException(status_code=409, detail="Score was not confirmed.")
-    if not result or not result.match_payload:
+    if not result or (not result.match_payload and result.analysis_version != 2):
         raise HTTPException(status_code=409, detail="No score result is ready to confirm.")
 
-    match_payload = dict(result.match_payload)
+    if result.analysis_version == 2:
+        from app.rally_ledger import resolve_review
+        try:
+            a, b = resolve_review(result.review, request.review)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        match_payload = {"teamA": [session.player_mapping[key].player_id for key in ("A1", "A2")],
+                         "teamB": [session.player_mapping[key].player_id for key in ("B1", "B2")],
+                         "scoreA": a, "scoreB": b}
+    else:
+        match_payload = dict(result.match_payload)
     if request.played_at:
         match_payload["playedAt"] = request.played_at
     return ConfirmMatchResponse(confirmed=True, match_payload=match_payload)
@@ -252,6 +262,7 @@ async def _detect_session_players(session_id: str, request: VideoSessionCreateRe
 async def _run_video_score_scan(session_id: str, request: ScoreScanRequest) -> None:
     settings = get_settings()
     session = _require_video_session(session_id)
+    request = request.model_copy(update={"player_slots": session.player_slots})
     _update_video_session(session_id, status="running", stage="scoring_video")
     try:
         score_result = await analyze_score_scan_with_gemma(
@@ -263,10 +274,10 @@ async def _run_video_score_scan(session_id: str, request: ScoreScanRequest) -> N
         )
         _update_video_session(
             session_id,
-            status="succeeded" if score_result.score else "failed",
-            stage="score_ready" if score_result.score else "score_not_found",
+            status="succeeded" if score_result.score or score_result.review else "failed",
+            stage="score_ready" if score_result.score or score_result.review else "score_not_found",
             score_result=score_result,
-            error=None if score_result.score else "No final score was found.",
+            error=None if score_result.score or score_result.review else "No final score was found.",
         )
     except Exception as exc:  # pragma: no cover - defensive safety net for background work
         _update_video_session(session_id, status="failed", stage="score_scan_failed", error=str(exc))

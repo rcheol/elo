@@ -4,7 +4,8 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { hasClaimableVideoJob, readVideoJob, updatePostgresState } from "./lib/postgres-state.js";
+import { hasClaimableVideoJob, heartbeatVideoJob, readVideoJob, updatePostgresState } from "./lib/postgres-state.js";
+import { normalizeVideoReview, resolveVideoReview } from "./lib/video-review.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2759,6 +2760,9 @@ function normalizeStoredVideoScoreResult(result, activePlayerIds) {
 
   return {
     score,
+    analysisVersion: Number(result.analysisVersion ?? result.analysis_version ?? 1),
+    review: normalizeVideoReview(result.review),
+    reviewConfirmation: result.reviewConfirmation || null,
     readings,
     evidence,
     warnings,
@@ -3146,6 +3150,11 @@ function normalizeVideoScoreRequest(input = {}) {
     batchSize: Math.floor(clampNumber(Number(source.batchSize ?? source.batch_size ?? 1), 1, 20)),
     hint: String(source.hint || "").slice(0, 1000),
     saveRaw: Boolean(source.saveRaw ?? source.save_raw ?? false),
+    startSeconds: clampNumber(Number(source.startSeconds ?? source.start_seconds ?? 0) || 0, 0, 21600),
+    endSeconds: Number(source.endSeconds ?? source.end_seconds) > 0
+      ? clampNumber(Number(source.endSeconds ?? source.end_seconds), 0, 21600) : null,
+    startScoreA: Math.floor(clampNumber(Number(source.startScoreA ?? source.start_score_a ?? 0) || 0, 0, 40)),
+    startScoreB: Math.floor(clampNumber(Number(source.startScoreB ?? source.start_score_b ?? 0) || 0, 0, 40)),
   };
 }
 
@@ -3218,6 +3227,7 @@ function videoAnalysisJobPublicView(job, currentUser = null, options = {}) {
           score: job.scoreResult.score || null,
           warnings: Array.isArray(job.scoreResult.warnings) ? job.scoreResult.warnings.slice(0, 3) : [],
           matchPayload: job.scoreResult.matchPayload || null,
+          analysisVersion: job.scoreResult.analysisVersion || 1,
         }
     : null;
   return {
@@ -3260,6 +3270,7 @@ function videoAnalysisJobWorkerView(job) {
     calibrationMaxFrames: Number(job.calibrationMaxFrames || 10),
     scoreRequest: normalizeVideoScoreRequest(job.scoreRequest),
     playerMapping: job.playerMapping || {},
+    playerSlots: normalizeVideoPlayerSlots(job.playerSlots),
     attempts: Number(job.attempts || 0),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -3379,6 +3390,9 @@ function queueVideoScoreAnalysisJob(state, job, input = {}) {
   job.status = "queued_score_analysis";
   job.stage = "score_analysis";
   job.scoreRequest = normalizeVideoScoreRequest(input?.scoreRequest ?? input?.score_request ?? input);
+  if (job.scoreRequest.endSeconds != null && job.scoreRequest.endSeconds <= job.scoreRequest.startSeconds) {
+    throw new HttpError(400, "VIDEO_RANGE_INVALID", "분석 종료 시간은 시작 시간보다 뒤여야 합니다.");
+  }
   job.scoreResult = null;
   job.matchId = null;
   job.error = "";
@@ -3452,6 +3466,9 @@ function saveVideoAnalysisWorkerResult(state, jobId, input) {
   const stage = String(input?.stage || videoAnalysisJobWorkerView(job).stage || "");
   const status = String(input?.status || "").toLowerCase();
   const now = nowIso();
+  if (job.status !== `running_${stage}` || (input?.attempt != null && Number(input.attempt) !== job.attempts)) {
+    throw new HttpError(409, "VIDEO_LEASE_EXPIRED", "만료되거나 이미 완료된 영상 작업입니다.");
+  }
 
   job.lockedAt = null;
   job.lockedBy = "";
@@ -3478,7 +3495,8 @@ function saveVideoAnalysisWorkerResult(state, jobId, input) {
   if (stage === "score_analysis") {
     const activePlayerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
     const scoreResult = normalizeStoredVideoScoreResult(input?.scoreResult ?? input?.score_result ?? input?.result ?? input, activePlayerIds);
-    if (!scoreResult?.score || !scoreResult.matchPayload) {
+    const reviewReady = scoreResult?.analysisVersion === 2 && scoreResult.review;
+    if (!reviewReady && (!scoreResult?.score || !scoreResult.matchPayload || scoreResult?.analysisVersion === 2)) {
       job.status = "failed";
       job.stage = "score_analysis_failed";
       job.scoreResult = scoreResult;
@@ -3500,18 +3518,38 @@ function saveVideoAnalysisWorkerResult(state, jobId, input) {
 function confirmVideoAnalysisJob(state, jobId, input, currentUser, insertMatchFn) {
   const job = findVideoAnalysisJob(state, jobId);
   ensureCanAccessVideoAnalysisJob(job, currentUser);
-  if (job.status !== "waiting_confirmation" || !job.scoreResult?.matchPayload) {
+  const needsReview = job.scoreResult?.analysisVersion === 2;
+  if (job.status !== "waiting_confirmation" || (!needsReview && !job.scoreResult?.matchPayload)) {
     throw new HttpError(409, "VIDEO_SCORE_NOT_READY", "확정할 스코어가 아직 준비되지 않았습니다.");
   }
 
   const activePlayerIds = new Set(state.players.filter((player) => player.seedRating != null).map((player) => player.id));
-  const matchPayload = normalizeVideoMatchPayload(job.scoreResult.matchPayload, activePlayerIds);
+  let reviewed = null;
+  if (needsReview) {
+    try {
+      reviewed = resolveVideoReview(job.scoreResult.review, input?.review);
+    } catch (error) {
+      throw new HttpError(400, "VIDEO_REVIEW_REQUIRED", error.message);
+    }
+  }
+  const source = reviewed ? {
+    teamA: [job.playerMapping.A1?.playerId, job.playerMapping.A2?.playerId],
+    teamB: [job.playerMapping.B1?.playerId, job.playerMapping.B2?.playerId],
+    scoreA: reviewed.scoreA, scoreB: reviewed.scoreB,
+  } : job.scoreResult.matchPayload;
+  const matchPayload = normalizeVideoMatchPayload(source, activePlayerIds);
   const playedAt = input?.playedAt ?? input?.played_at;
   if (playedAt) {
     matchPayload.playedAt = normalizeMatchDate(playedAt);
   }
 
   const match = insertMatchFn(matchPayload, currentUser);
+  if (reviewed) {
+    job.scoreResult.reviewConfirmation = { ...reviewed, userId: currentUser.id, reviewedAt: nowIso() };
+    job.scoreResult.matchPayload = matchPayload;
+    job.scoreResult.score = { teamA: reviewed.scoreA, teamB: reviewed.scoreB,
+      winner: reviewed.scoreA > reviewed.scoreB ? "A" : "B", confidence: 0 };
+  }
   job.status = "registered";
   job.stage = "registered";
   job.matchId = match?.id || null;
@@ -4255,6 +4293,15 @@ async function handleApiPostgres(req, res, url) {
     return sendJson(req, res, 200, payload);
   }
 
+  const videoHeartbeat = pathname.match(/^\/api\/video-analysis\/worker\/jobs\/([^/]+)\/heartbeat$/);
+  if (method === "POST" && videoHeartbeat) {
+    requireVideoWorker(req);
+    const body = await readJsonBody(req);
+    const active = await heartbeatVideoJob(pgPool, postgresStateKey, decodeURIComponent(videoHeartbeat[1]), body.attempt);
+    if (!active) throw new HttpError(409, "VIDEO_LEASE_EXPIRED", "영상 작업이 취소되었거나 만료되었습니다.");
+    return sendJson(req, res, 200, { ok: true });
+  }
+
   const videoAnalysisWorkerResultMatch = pathname.match(/^\/api\/video-analysis\/worker\/jobs\/([^/]+)\/result$/);
   if (method === "POST" && videoAnalysisWorkerResultMatch) {
     requireVideoWorker(req);
@@ -4573,6 +4620,20 @@ async function handleApi(req, res, url) {
     const job = claimNextVideoAnalysisJob(videoState, workerId);
     saveSqliteVideoAnalysisState(videoState);
     return sendJson(req, res, 200, { job });
+  }
+
+  const videoHeartbeat = pathname.match(/^\/api\/video-analysis\/worker\/jobs\/([^/]+)\/heartbeat$/);
+  if (method === "POST" && videoHeartbeat) {
+    requireVideoWorker(req);
+    const body = await readJsonBody(req);
+    const videoState = getSqliteVideoAnalysisState();
+    const job = findVideoAnalysisJob(videoState, decodeURIComponent(videoHeartbeat[1]));
+    if (!job.status.startsWith("running_") || body.attempt !== job.attempts) {
+      throw new HttpError(409, "VIDEO_LEASE_EXPIRED", "영상 작업이 취소되었거나 만료되었습니다.");
+    }
+    job.lockedAt = nowIso();
+    saveSqliteVideoAnalysisState(videoState);
+    return sendJson(req, res, 200, { ok: true });
   }
 
   const videoAnalysisWorkerResultMatch = pathname.match(/^\/api\/video-analysis\/worker\/jobs\/([^/]+)\/result$/);

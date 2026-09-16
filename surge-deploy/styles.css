@@ -642,6 +642,90 @@ h2 {
   font-size: 1.2rem;
 }
 
+.video-review-range,
+.video-review-gap {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.video-review-range label,
+.video-review-gap label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.75rem;
+}
+
+.video-review-range input,
+.video-review-gap input,
+.video-review-row select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.video-review-list {
+  max-height: 24rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior-y: contain;
+  border-block: 1px solid var(--line);
+}
+
+.video-review-row {
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.video-review-row__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+}
+
+.video-review-row__header a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.video-review-row__header svg {
+  width: 14px;
+  height: 14px;
+}
+
+.video-review-evidence {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.video-review-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block: 12px;
+  font-size: 0.8rem;
+}
+
+.video-review-confirm input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  accent-color: var(--green-deep);
+}
+
 .team-box {
   min-width: 0;
   padding: 16px;

@@ -24,7 +24,6 @@ from app.providers.gemma_frames import analyze_score_scan_with_gemma, detect_pla
 
 DEFAULT_API_BASE_URL = "https://honeyserve-elo.onrender.com"
 MIN_PYTHON_VERSION = (3, 10)
-DEFAULT_RESULT_UPLOAD_SOFT_LIMIT_BYTES = 45 * 1024
 
 
 def env(name: str, default: str = "") -> str:
@@ -66,9 +65,9 @@ def worker_verify_tls() -> bool:
 
 def result_upload_soft_limit_bytes() -> int:
     try:
-        return max(8 * 1024, int(env("WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES", str(DEFAULT_RESULT_UPLOAD_SOFT_LIMIT_BYTES))))
+        return min(40000, max(8 * 1024, int(env("WORKER_RESULT_UPLOAD_SOFT_LIMIT_BYTES", "40000"))))
     except ValueError:
-        return DEFAULT_RESULT_UPLOAD_SOFT_LIMIT_BYTES
+        return 40000
 
 
 def reference_frame_max_height() -> int:
@@ -192,6 +191,17 @@ def fit_result_payload_for_upload(payload: Dict[str, Any], *, drop_images: bool 
 
     if json_payload_size(fitted) > limit:
         fitted.pop("referenceFrames", None)
+
+    review = (fitted.get("scoreResult") or {}).get("review")
+    if isinstance(review, dict):
+        for characters in (60, 0):
+            if json_payload_size(fitted) <= limit:
+                break
+            for row in review.get("rallies", []):
+                row["evidence"] = str(row.get("evidence", ""))[:characters]
+
+    if json_payload_size(fitted) > limit:
+        raise ValueError("Result exceeds the upload limit; refusing to truncate the rally review ledger.")
 
     return fitted
 
@@ -347,6 +357,15 @@ def parse_score_request(job: Dict[str, Any]) -> ScoreScanRequest:
         batch_size=min(requested_batch_size, configured_batch_size),
         hint=str(raw.get("hint") or job.get("hint") or ""),
         save_raw=bool(raw.get("saveRaw") or False),
+        start_seconds=float(raw.get("startSeconds") or 0),
+        end_seconds=float(raw["endSeconds"]) if raw.get("endSeconds") else None,
+        start_score_a=int(raw.get("startScoreA") or 0),
+        start_score_b=int(raw.get("startScoreB") or 0),
+        player_slots=[{
+            "slot_id": slot["slotId"], "team": slot["team"], "label": slot.get("label", ""),
+            "description": slot.get("description", ""), "timestamp": slot.get("timestamp", ""),
+            "confidence": slot.get("confidence", 0), "box_percent": slot.get("boxPercent"),
+        } for slot in job.get("playerSlots", [])],
     )
 
 
@@ -367,6 +386,8 @@ async def run_score_analysis(job: Dict[str, Any]) -> Dict[str, Any]:
         "stage": "score_analysis",
         "status": "succeeded",
         "scoreResult": {
+            "analysisVersion": result.analysis_version,
+            "review": result.review,
             "score": {
                 "teamA": score.team_a,
                 "teamB": score.team_b,
@@ -398,7 +419,33 @@ async def run_score_analysis(job: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def keep_job_alive(client: httpx.AsyncClient, job: Dict[str, Any]) -> None:
+    failures = 0
+    while True:
+        await asyncio.sleep(60)
+        try:
+            response = await client.post(f"/api/video-analysis/worker/jobs/{job['id']}/heartbeat",
+                                         json={"attempt": job.get("attempts", 0)})
+            response.raise_for_status()
+            failures = 0
+        except httpx.HTTPError as exc:
+            failures += 1
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else 0
+            if status in {401, 403, 409} or failures >= 3:
+                raise
+            print(f"Worker heartbeat retry pending ({type(exc).__name__}).")
+
+
 async def run_job(client: httpx.AsyncClient, job: Dict[str, Any]) -> None:
+    heartbeat = asyncio.create_task(keep_job_alive(client, job))
+    try:
+        await run_job_payload(client, job, heartbeat)
+    finally:
+        heartbeat.cancel()
+        await asyncio.gather(heartbeat, return_exceptions=True)
+
+
+async def run_job_payload(client: httpx.AsyncClient, job: Dict[str, Any], heartbeat: asyncio.Task) -> None:
     job_id = str(job["id"])
     stage = str(job.get("stage") or "")
     try:
@@ -416,6 +463,15 @@ async def run_job(client: httpx.AsyncClient, job: Dict[str, Any]) -> None:
             "warnings": [traceback.format_exc(limit=3)],
         }
 
+    if heartbeat.done():
+        try:
+            heartbeat.result()
+        except httpx.HTTPError as exc:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else 0
+            if status in {401, 403, 409}:
+                raise
+            print("Heartbeat connection failed; submitting the result with its attempt number for server validation.")
+    payload["attempt"] = job.get("attempts", 0)
     await submit_result(client, job_id, payload)
 
 

@@ -44,7 +44,8 @@ before(async () => {
       const process = { env: { DATABASE_URL: "postgres://isolated-test", VIDEO_WORKER_TOKEN: "test-worker" } };
     ` + source.slice(0, source.lastIndexOf("\nstart().catch"))
       .replace("const __filename = fileURLToPath(import.meta.url);", `const __filename = ${JSON.stringify(fileURLToPath(serverUrl))};`)
-      .replace('"./lib/postgres-state.js"', JSON.stringify(new URL("../lib/postgres-state.js", import.meta.url).href)) + `
+      .replace('"./lib/postgres-state.js"', JSON.stringify(new URL("../lib/postgres-state.js", import.meta.url).href))
+      .replace('"./lib/video-review.js"', JSON.stringify(new URL("../lib/video-review.js", import.meta.url).href)) + `
       export { handleApiPostgres, normalizePostgresState, createDefaultPostgresState };
       export function setPool(pool) { pgPool = pool; }
     `;
@@ -243,4 +244,44 @@ test("mapping, score completion, confirmation and ELO changes remain persisted",
   assert.equal(state.users.length, 3);
   assert.equal(state.players.length, 4);
   assert.ok(writes().every(({ values }) => !Object.hasOwn(JSON.parse(values[1]), "users")));
+});
+
+test("v2 review blocks unresolved scores, recomputes confirmation and preserves its audit", async () => {
+  const slots = Object.fromEntries(["A1", "A2", "B1", "B2"].map((slot, i) => [slot, { playerId: `p${i + 1}` }]));
+  await request("/api/video-analysis/jobs/job-1/players", { method: "PUT", body: { slots } });
+  const { job } = await request("/api/video-analysis/worker/jobs/next", { worker: true });
+  const result = await request("/api/video-analysis/worker/jobs/job-1/result", {
+    worker: true, method: "POST", body: { attempt: job.attempts, stage: "score_analysis", status: "succeeded", scoreResult: {
+      analysisVersion: 2, score: null, matchPayload: null,
+      review: { version: 2, startSeconds: 0, endSeconds: 120, startScoreA: 20, startScoreB: 19, rallies: [
+        { id: "r1", kind: "rally", start: 0, end: 20, decision: "unknown", suggested: "B" },
+      ] },
+    } },
+  });
+  assert.equal(result.job.status, "waiting_confirmation");
+  await assert.rejects(request("/api/video-analysis/jobs/job-1/confirm", { method: "POST", body: {} }), { status: 400 });
+  await assert.rejects(request("/api/video-analysis/jobs/job-1/confirm", { user: "other", method: "POST", body: {} }), { status: 403 });
+  assert.equal((await storedState()).matches.length, 0);
+  await request("/api/video-analysis/jobs/job-1/confirm", { method: "POST", body: {
+    review: { coverageConfirmed: true, decisions: { r1: { winner: "A" } }, extraPoints: { scoreA: 0, scoreB: 0 } },
+  } });
+  const state = await storedState();
+  assert.equal(state.matches[0].scoreA, 21);
+  assert.equal(state.videoAnalysisJobs[0].scoreResult.reviewConfirmation.userId, "owner");
+  await assert.rejects(request("/api/video-analysis/jobs/job-1/confirm", { method: "POST", body: {} }), { status: 409 });
+});
+
+test("heartbeat only changes the active lease, transfers no images and preserves poll versions", async () => {
+  const state = await storedState();
+  state.videoAnalysisJobs[0].status = "queued_player_detection";
+  await saveFixture(state);
+  const { job } = await request("/api/video-analysis/worker/jobs/next", { worker: true });
+  const before = await request("/api/video-analysis/jobs/job-1");
+  statements.length = 0;
+  await request("/api/video-analysis/worker/jobs/job-1/heartbeat", { worker: true, method: "POST", body: { attempt: job.attempts } });
+  assert.ok(statements.every(({ values }) => JSON.stringify(values).length < 500));
+  const after = await request(`/api/video-analysis/jobs/job-1?version=${before.version}`);
+  assert.equal(after.unchanged, true);
+  await assert.rejects(request("/api/video-analysis/worker/jobs/job-1/heartbeat", { worker: true, method: "POST", body: { attempt: 0 } }), { status: 409 });
+  await assert.rejects(request("/api/video-analysis/worker/jobs/job-1/result", { worker: true, method: "POST", body: { attempt: 0, stage: "player_detection", status: "failed" } }), { status: 409 });
 });

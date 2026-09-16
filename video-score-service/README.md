@@ -1,5 +1,12 @@
 # HoneyServe Video Score Service
 
+## 현재 운영 경로: 무료 랠리 검토 v2
+
+2026-09-16부터 홈페이지의 새 점수 분석은 [REDESIGN.md](REDESIGN.md)의 **랠리 초안 + 사용자 검토 + 서버 합산** 경로를 사용합니다.
+OpenAI 유료 API는 호출하지 않습니다. 기존 worker 가상환경에 `python -m pip install -r requirements.txt`를 실행해 Pillow를 설치한 뒤 worker를 다시 시작하세요.
+구간/시작 점수 입력, 2단계 관찰, 미확인 구간 검토, 확인된 장부의 합산이 추가되었습니다.
+아래의 단순 최종 점수 확인 예시는 v1 호환 API 설명입니다. v2 확인 요청에는 `review`가 필요하며 새 필드/제한/검증 상태는 재설계 문서를 기준으로 합니다.
+
 유튜브 경기 영상 링크에서 배드민턴 복식 최종 스코어를 추출하기 위한 별도 백엔드입니다. 현재 실제로 사용할 수 있는 멀티모달 모델을 `base/gemma-4-31b-it` 하나로 보고, 영상은 직접 모델에 통째로 넣지 않고 프레임으로 쪼개 분석합니다.
 
 Render 배포 서버에서는 Gemma API가 사내 IP 제한으로 timeout될 수 있으므로, 운영 구조는 “메인 사이트가 DB 큐를 저장하고, 회사망 PC의 로컬 worker가 큐를 polling해서 Gemma를 호출하는 방식”입니다.

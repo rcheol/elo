@@ -131,6 +131,11 @@ class ScoreScanRequest(BaseModel):
     batch_size: Optional[int] = Field(default=None, ge=1, le=20)
     hint: str = Field(default="", max_length=1000)
     save_raw: bool = False
+    start_seconds: float = Field(default=0, ge=0, le=21600)
+    end_seconds: Optional[float] = Field(default=None, gt=0, le=21600)
+    start_score_a: int = Field(default=0, ge=0, le=40)
+    start_score_b: int = Field(default=0, ge=0, le=40)
+    player_slots: List[PlayerSlot] = Field(default_factory=list, max_length=4)
 
 
 class ScoreReading(BaseModel):
@@ -148,11 +153,14 @@ class VideoScoreResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     needs_confirmation: bool = True
     match_payload: Optional[Dict[str, Any]] = None
+    analysis_version: int = 1
+    review: Optional[Dict[str, Any]] = None
 
 
 class ConfirmMatchRequest(BaseModel):
     confirmed: bool = True
     played_at: Optional[str] = None
+    review: Optional[Dict[str, Any]] = None
 
 
 class ConfirmMatchResponse(BaseModel):

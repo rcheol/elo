@@ -75,6 +75,7 @@ let openCardPlayerId = "";
 let stickerDrag = null;
 let videoScoreBusy = false;
 let currentVideoAnalysisJob = null;
+let videoReviewDraft = null;
 let videoAnalysisPollTimer = null;
 let videoAnalysisPollInFlight = false;
 let videoAnalysisPollCache = null;
@@ -453,6 +454,8 @@ function normalizeVideoAnalysisJob(job) {
       : [],
     playerMapping: normalizeMapping(job.playerMapping ?? job.player_mapping),
     scoreResult: rawResult ? {
+      analysisVersion: Number(rawResult.analysisVersion ?? rawResult.analysis_version ?? 1),
+      review: rawResult.review || null,
       score: normalizeScore(rawResult.score),
       readings: Array.isArray(rawResult.readings)
         ? rawResult.readings.map((reading) => ({
@@ -2656,13 +2659,17 @@ function mergeVideoAnalysisJobDetail(previous, incoming) {
     ...incoming,
     referenceFrames: incoming.referenceFrames?.length ? incoming.referenceFrames : previous.referenceFrames,
     playerSlots: incoming.playerSlots?.length ? incoming.playerSlots : previous.playerSlots,
-    scoreResult: incoming.scoreResult || previous.scoreResult,
+    scoreResult: incoming.scoreResult ? {
+      ...incoming.scoreResult,
+      review: incoming.scoreResult.review || previous.scoreResult?.review || null,
+    } : previous.scoreResult,
   };
 }
 
 function syncCurrentVideoAnalysisJobFromState(payload = {}) {
   if (!state.currentUser) {
     currentVideoAnalysisJob = null;
+    videoReviewDraft = null;
     localStorage.removeItem(videoAnalysisJobStorageKey);
     stopVideoAnalysisPolling();
     return;
@@ -2762,6 +2769,9 @@ async function pollVideoAnalysisJob(jobId) {
 }
 
 function videoAnalysisStatusText(job) {
+  if (job?.status === "waiting_confirmation" && job.scoreResult?.analysisVersion === 2) {
+    return "랠리 분석 초안 · 결과 확인 필요";
+  }
   return (
     {
       queued_player_detection: "영상 작업이 등록되었습니다. 회사망 worker가 선수 기준 프레임을 준비할 차례입니다.",
@@ -2911,6 +2921,12 @@ function renderVideoAnalysisMapping(job) {
         `;
       }).join("")}
     </div>
+    <div class="video-review-range">
+      <label>시작 (초)<input id="videoRangeStart" type="number" min="0" max="21600" step="0.1" value="0"></label>
+      <label>종료 (초)<input id="videoRangeEnd" type="number" min="0" max="21600" step="0.1" placeholder="영상 끝"></label>
+      <label>시작 A점수<input id="videoStartScoreA" type="number" min="0" max="40" value="0"></label>
+      <label>시작 B점수<input id="videoStartScoreB" type="number" min="0" max="40" value="0"></label>
+    </div>
     <div class="video-analysis-actions">
       <button class="button button--primary" type="button" data-video-confirm-players="${escapeHtml(job.id)}">
         <i data-lucide="users"></i>
@@ -2924,6 +2940,9 @@ function renderVideoAnalysisMapping(job) {
 }
 
 function renderVideoAnalysisScore(job) {
+  if (job.status === "waiting_confirmation" && job.scoreResult?.analysisVersion === 2) {
+    return renderVideoRallyReview(job);
+  }
   const score = job.scoreResult?.score;
   if (job.status !== "waiting_confirmation" || !score) {
     return "";
@@ -2955,12 +2974,98 @@ function renderVideoAnalysisScore(job) {
   `;
 }
 
+function videoReviewTime(seconds) {
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+}
+
+function renderVideoRallyReview(job) {
+  const review = job.scoreResult.review;
+  if (!review) return `<p class="video-analysis-sub">랠리 목록 불러오는 중</p>`;
+  const reasons = {
+    two_pass_agreement: "2차 분석 일치", unverified_outcome: "승리 팀 확인 필요", missing_serve: "서브 미확인",
+    missing_rally_end: "랠리 종료 미확인", cut_or_ambiguous_play: "편집·불명확 구간", unfinished_rally: "종료 미확인",
+    unobserved_interval: "분석 누락", frame_budget_exhausted: "분석 범위 초과", no_rallies_detected: "랠리 식별 실패",
+    too_many_events: "이벤트 과다",
+  };
+  return `
+    <div class="video-analysis-score"><strong id="videoReviewTotal">랠리 합산</strong><span id="videoReviewPending"></span></div>
+    <p class="video-analysis-sub">${videoReviewTime(review.startSeconds)} ~ ${videoReviewTime(review.endSeconds)} · 시작 ${review.startScoreA} : ${review.startScoreB} · 분석 후보</p>
+    <div class="video-review-list">
+      ${review.rallies.map((row) => `
+        <div class="video-review-row" data-review-row="${escapeHtml(row.id)}">
+          <div class="video-review-row__header">
+            <a href="https://www.youtube.com/watch?v=${encodeURIComponent(job.videoId)}&t=${Math.max(0, Math.floor(row.start) - 2)}s" target="_blank" rel="noopener noreferrer" title="해당 구간 영상"><i data-lucide="play"></i>${videoReviewTime(row.start)} ~ ${videoReviewTime(row.end)}</a>
+            <small>${escapeHtml(reasons[row.reason] || "확인 필요")}</small>
+          </div>
+          ${row.kind === "gap" ? `
+            <div class="video-review-gap">
+              <label>A 득점<input type="number" min="0" max="40" step="1" data-review-gap-a="${escapeHtml(row.id)}" aria-label="미확인 구간 A 득점"></label>
+              <label>B 득점<input type="number" min="0" max="40" step="1" data-review-gap-b="${escapeHtml(row.id)}" aria-label="미확인 구간 B 득점"></label>
+            </div>` : `
+            <select data-review-decision="${escapeHtml(row.id)}" aria-label="${videoReviewTime(row.end)} 랠리 결과">
+              ${[["unknown", row.suggested === "unknown" ? "미확인" : `미확인 (${row.suggested === "let" ? "무득점" : row.suggested + "팀"} 후보)`], ["A", "A팀 +1"], ["B", "B팀 +1"], ["let", "무득점 / 중복 제외"]].map(([value, label]) => `<option value="${value}" ${row.decision === value ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
+            </select>`}
+          ${row.evidence ? `<small class="video-review-evidence">${escapeHtml(row.evidence)}</small>` : ""}
+        </div>
+      `).join("")}
+    </div>
+    <div class="video-review-gap">
+      <label>누락 A 득점<input id="videoReviewExtraA" type="number" min="0" max="40" value="0"></label>
+      <label>누락 B 득점<input id="videoReviewExtraB" type="number" min="0" max="40" value="0"></label>
+    </div>
+    <label class="video-review-confirm"><input id="videoReviewCoverage" type="checkbox">경기 구간·누락 랠리·최종 점수 확인 완료</label>
+    <div class="video-analysis-actions">
+      <button class="button button--primary" type="button" data-video-confirm-score="${escapeHtml(job.id)}" disabled><i data-lucide="check"></i><span>확인한 점수로 경기 저장</span></button>
+      <button class="button button--neutral" type="button" data-video-clear-job><span>새 링크 입력</span></button>
+    </div>
+  `;
+}
+
+function readVideoReviewInput(job = currentVideoAnalysisJob) {
+  const review = job?.scoreResult?.review;
+  if (!review) return null;
+  const result = { coverageConfirmed: Boolean($("#videoReviewCoverage")?.checked), decisions: {}, extraPoints: {} };
+  const number = (element) => element?.value.trim() === "" ? null : Number(element?.value);
+  review.rallies.forEach((row) => {
+    result.decisions[row.id] = row.kind === "gap" ? {
+      scoreA: number($(`[data-review-gap-a="${row.id}"]`)), scoreB: number($(`[data-review-gap-b="${row.id}"]`)),
+    } : { winner: $(`[data-review-decision="${row.id}"]`)?.value || "unknown" };
+  });
+  result.extraPoints = { scoreA: number($("#videoReviewExtraA")), scoreB: number($("#videoReviewExtraB")) };
+  return result;
+}
+
+function updateVideoReviewTotal() {
+  const review = currentVideoAnalysisJob?.scoreResult?.review;
+  const total = $("#videoReviewTotal");
+  if (!review || !total) return;
+  const input = readVideoReviewInput();
+  videoReviewDraft = { jobId: currentVideoAnalysisJob.id, source: JSON.stringify(review), input };
+  let a = review.startScoreA, b = review.startScoreB, pending = 0;
+  const validPoints = (value) => Number.isInteger(value) && value >= 0 && value <= 40;
+  for (const choice of [...Object.values(input.decisions), input.extraPoints]) {
+    if ("winner" in choice) {
+      a += choice.winner === "A" ? 1 : 0;
+      b += choice.winner === "B" ? 1 : 0;
+      pending += choice.winner === "unknown" ? 1 : 0;
+    } else if (validPoints(choice.scoreA) && validPoints(choice.scoreB)) {
+      a += choice.scoreA;
+      b += choice.scoreB;
+    } else pending += 1;
+  }
+  total.textContent = `${a} : ${b}`;
+  $("#videoReviewPending").textContent = pending ? `미확인 ${pending}구간` : "랠리 합산";
+  const button = $("#videoAnalysisPanel [data-video-confirm-score]");
+  if (button) button.disabled = pending > 0 || !input.coverageConfirmed || a === b || a > 40 || b > 40;
+}
+
 function renderVideoAnalysisPanel() {
   const panel = $("#videoAnalysisPanel");
   if (!panel) {
     return;
   }
   const job = currentVideoAnalysisJob;
+  const reviewScroll = panel.querySelector(".video-review-list")?.scrollTop || 0;
   panel.hidden = !job;
   if (!job) {
     stopVideoAnalysisPolling();
@@ -2995,6 +3100,24 @@ function renderVideoAnalysisPanel() {
     ${renderVideoAnalysisScore(job)}
     ${clearAction}
   `;
+  panel.oninput = updateVideoReviewTotal;
+  panel.onchange = updateVideoReviewTotal;
+  if (job.status === "waiting_confirmation" && $("#videoReviewCoverage") &&
+      videoReviewDraft?.jobId === job.id && videoReviewDraft.source === JSON.stringify(job.scoreResult?.review)) {
+    const draft = videoReviewDraft.input;
+    for (const [id, choice] of Object.entries(draft.decisions)) {
+      const winner = $(`[data-review-decision="${id}"]`);
+      if (winner) winner.value = choice.winner;
+      for (const team of ["a", "b"]) {
+        const field = $(`[data-review-gap-${team}="${id}"]`);
+        if (field) field.value = choice[`score${team.toUpperCase()}`] ?? "";
+      }
+    }
+    for (const team of ["A", "B"]) $("#videoReviewExtra" + team).value = draft.extraPoints[`score${team}`] ?? "";
+    $("#videoReviewCoverage").checked = draft.coverageConfirmed;
+    $(".video-review-list").scrollTop = reviewScroll;
+  }
+  updateVideoReviewTotal();
   if (window.lucide) {
     window.lucide.createIcons();
   }
@@ -3064,7 +3187,13 @@ async function submitVideoPlayerMapping(jobId) {
   try {
     const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}/players`, {
       method: "PUT",
-      body: { slots },
+      body: { slots, scoreRequest: {
+        maxFrames: 2400,
+        startSeconds: Number($("#videoRangeStart")?.value || 0),
+        endSeconds: $("#videoRangeEnd")?.value ? Number($("#videoRangeEnd").value) : null,
+        startScoreA: Number($("#videoStartScoreA")?.value || 0),
+        startScoreB: Number($("#videoStartScoreB")?.value || 0),
+      } },
     });
     setCurrentVideoAnalysisJob(payload.job);
     showToast("선수 매핑을 저장하고 점수 분석을 시작했습니다.");
@@ -3105,7 +3234,7 @@ async function confirmVideoScoreJob(jobId) {
   try {
     const payload = await apiFetch(`/api/video-analysis/jobs/${encodeURIComponent(jobId)}/confirm`, {
       method: "POST",
-      body: { playedAt },
+      body: { playedAt, review: readVideoReviewInput() },
     });
     applyServerState(payload, { preserveScroll: true });
     setCurrentVideoAnalysisJob(payload.videoAnalysisJob);
