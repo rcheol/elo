@@ -1,5 +1,5 @@
 Honey Serve GitHub push workflow
-Last updated: 2026-08-14
+Last updated: 2026-09-17
 
 Use this workflow for this repo. Do not switch to SSH, GitHub CLI, LFS, or a
 different remote unless the user explicitly asks.
@@ -11,10 +11,29 @@ Known good direction
 - Remote: https://rcheol@github.com/rcheol/elo.git
 - Branch: main
 - GitHub account: rcheol
-- Network-safe push command:
-  git -c http.version=HTTP/1.1 push --verbose origin main
+- Network-safe push command (from the repo, in PowerShell):
+  .\scripts\push-github.ps1
+- This wraps the same HTTPS Git push with HTTP/1.1 and the existing credential
+  helper. It does not commit/stage files or change the remote or credentials.
 - Authentication style:
   HTTPS + Git Credential Manager + Windows Credential Manager.
+
+Connection recovery verified on 2026-09-17
+=========================================
+
+- Direct GitHub TLS connections reset before authentication. NO_PROXY inherited
+  from the machine included github.com, bypassing the configured company proxy.
+- Using the existing HTTPS_PROXY for GitHub returned HTTP 200; git ls-remote
+  succeeded with Windows Schannel and TLS certificate verification enabled.
+- scripts/push-github.ps1 removes only github.com/.github.com from NO_PROXY for
+  its Git child process, then restores the calling shell's original value in
+  finally, even if push fails. User/machine environment settings are untouched.
+- The helper uses Schannel with sslVerify=true for this command. It does not
+  disable certificate checks or rely on the legacy global sslVerify=false.
+- Connection/authentication check without updating GitHub:
+  .\scripts\push-github.ps1 -DryRun
+- Do not request a new token, delete stored credentials, or split commits for a
+  TLS connection reset: that error happens before authentication or upload.
 
 Rules
 =====
@@ -41,7 +60,7 @@ Rules
    - Open an interactive PowerShell in the user session.
    - Run:
      cd E:\github\badminton-elo-ranking
-     git -c http.version=HTTP/1.1 push --verbose origin main
+     .\scripts\push-github.ps1
    - Let Git Credential Manager open its browser/login prompt.
    - The user signs in as rcheol once.
    - After that, normal non-interactive pushes should work again because Windows
