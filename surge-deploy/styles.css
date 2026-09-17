@@ -960,7 +960,12 @@ textarea:focus {
 }
 
 .player-form {
-  grid-template-columns: minmax(0, 1fr) 138px 104px auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.player-form__name,
+.player-form > button {
+  grid-column: 1 / -1;
 }
 
 .permission-note {
