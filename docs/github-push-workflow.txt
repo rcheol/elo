@@ -1,5 +1,5 @@
 Honey Serve GitHub push workflow
-Last updated: 2026-09-17
+Last updated: 2026-10-15
 
 Use this workflow for this repo. Do not switch to SSH, GitHub CLI, LFS, or a
 different remote unless the user explicitly asks.
@@ -66,15 +66,15 @@ Rules
    - After that, normal non-interactive pushes should work again because Windows
      Credential Manager has the correct credential.
 
-4. Keep asset files small.
-   - Player cards should be under 36KB when possible and always under 40KB.
-   - Do not use Git LFS. The user's company environment blocks LFS.
-   - For image/card work, commit and push one image file at a time. The company
-     network can return HTTP 403 when one push pack is around 100KB+ even if
-     every individual file is below 40KB.
-   - If several small commits are already local, push them incrementally:
-     git push origin <commit-sha>:refs/heads/main
-     then repeat with the next commit SHA in chronological order.
+4. Upload size policy (updated by user on 2026-10-15).
+   - The previous company upload-size limit has been removed. Do not assume a
+     40KB file/request limit or split every card into an individual push.
+   - Keep web assets reasonably optimized, but preserve image quality instead
+     of compressing solely to satisfy the obsolete cap.
+   - Related cards, photos, and mappings can be committed and pushed together.
+   - Keep using ordinary Git, not LFS, unless the user asks to change it.
+   - Diagnose any new failure from its actual response; do not assume every
+     HTTP 403 is an upload-size rejection.
 
 5. If a non-interactive push fails with:
    fatal: helper error (-1): authentication prompt was canceled

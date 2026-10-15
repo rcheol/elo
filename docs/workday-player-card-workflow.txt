@@ -1,5 +1,5 @@
 Honey Serve Workday profile photo and player card workflow
-Last updated: 2026-08-14
+Last updated: 2026-10-15
 
 Use this exact workflow for future player-card requests. Do not rediscover the
 browser, screenshot, crop, prompt, compression, or push path from scratch.
@@ -7,12 +7,22 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
 1. Identify the player
    - Fetch live state from https://honeyserve-elo.onrender.com/api/state.
    - Match the requested Korean player name to the player object.
-   - Prefer player.accountUsername as the Workday search id when it exists and
-     looks like a Workday id.
-   - If the user explicitly gives a Workday/search id, use that id instead.
-   - If neither exists, search Workday by the Korean name.
+   - First use the Workday/search id explicitly supplied by the user.
+   - Otherwise use player.accountUsername from the live site. Do not require a
+     dot or guess whether the account username looks like a Workday id.
+   - Only if both are absent, ask for the search id before searching by name.
+   - A different Workday id is an asset/search mapping, not a request to rename
+     the Honey Serve login account.
+   - Check existing profile photos and all requested card tiers before creating
+     assets. Use the player's stored gender, not a guess from name or photo.
 
 2. Control the already-open Workday Edge session
+   - If the user selects the in-app browser, use that exact open Workday tab via
+     the available browser tool. Do not silently switch browser sessions.
+   - Verify the current tool connection before interacting. A visible browser
+     tab alone does not confirm that the automation connection is working.
+   - The following CDP procedure is the historical Edge workflow, to use when
+     the user requests Edge and that session is available:
    - Preferred path: use the old successful CDP connection to the already logged
      in Edge session:
      http://127.0.0.1:9333/json/list
@@ -68,7 +78,10 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
      surge-deploy/assets/player-cards/<identity>-a-figure.jpg
      surge-deploy/assets/player-cards/<identity>-b-figure.jpg
      surge-deploy/assets/player-cards/<identity>-c-figure.jpg
-   - Compress each file under 40KB before committing.
+   - As of 2026-10-15, the user reports that the upload-size limit is removed.
+     Do not enforce the former 40KB cap or split pushes one image at a time.
+     Optimize JPEGs for web delivery without sacrificing facial detail solely
+     to meet that old limit.
    - Inspect the final compressed files with view_image before committing.
 
 8. Wire the assets into the site
@@ -82,8 +95,21 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
    - Do not commit tmp/.
    - Commit only the prompt/doc update, app.js mapping, profile photo, and card
      images.
-   - Use:
-     git -c http.version=HTTP/1.1 push --verbose origin main
+   - Use the saved HTTPS/Windows credential workflow:
+     .\scripts\push-github.ps1
+   - See docs/github-push-workflow.txt for the verified proxy/TLS handling.
    - If GitHub returns 403, check Windows Credential Manager. The correct GitHub
      account for this repo is rcheol. A stale numeric github.com credential can
      cause 403 even when the remote URL contains rcheol.
+
+Pending requests verified on 2026-10-15
+=======================================
+
+- Sanghyun Lee: Honey Serve sh0620.lee; Workday sh0620.lee.
+- Hojin Kim: Honey Serve hojin95; explicit Workday override hojin59.kim.
+- Minjae Na: Honey Serve minjae; explicit Workday override minjaena.na.
+- All three have gender=male in the live roster. No matching existing photo or
+  figure-card asset was found. Prepare S/A/B/C using the approved prompt only
+  after obtaining and verifying each person's own profile photo.
+- This list records lookup decisions only; it is not evidence of completed
+  photo downloads, generated cards, or deployed asset mappings.
