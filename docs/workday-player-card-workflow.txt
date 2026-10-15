@@ -16,49 +16,67 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
    - Check existing profile photos and all requested card tiers before creating
      assets. Use the player's stored gender, not a guess from name or photo.
 
-2. Control the already-open Workday Edge session
-   - If the user selects the in-app browser, use that exact open Workday tab via
-     the available browser tool. Do not silently switch browser sessions.
-   - Verify the current tool connection before interacting. A visible browser
-     tab alone does not confirm that the automation connection is working.
-   - The following CDP procedure is the historical Edge workflow, to use when
-     the user requests Edge and that session is available:
-   - Preferred path: use the old successful CDP connection to the already logged
-     in Edge session:
-     http://127.0.0.1:9333/json/list
-   - Pick the page target whose URL contains "workday", connect to its
-     webSocketDebuggerUrl, enable Runtime, and run DOM/fetch extraction inside
-     the page.
-   - For direct photo extraction, search document.images by the expected English
-     alt text or visible Workday profile result, then fetch img.currentSrc/src
-     with credentials: "include" and save the returned blob.
-   - Do not start by moving Edge to the foreground or doing coordinate-based
-     desktop automation. That is noisy and easy to break.
-   - Only use browser-extension tooling or Win32 foreground/coordinate
-     automation as a fallback when the CDP port is unavailable or stale.
+2. Connect to the requested browser (verified in-app path, 2026-10-15)
+   - Use the user's exact existing Workday tab. Do not silently switch to Edge,
+     create another login session, or move desktop windows to the foreground.
+   - The successful in-app method uses mcp__node_repl.js and the installed
+     browser plugin's public runtime, not native desktop automation:
 
-3. Foreground fallback only
-   - Use the known Workday Edge window from the window list. It usually has:
-     app = MSEdge, title contains Workday.
-   - If the window rectangle is -32000/-32000, it is minimized. Restore it.
-   - Use Win32 ShowWindow(hwnd, 9), SetWindowPos topmost, BringWindowToTop,
-     SetForegroundWindow, then SetWindowPos not-topmost.
-   - Confirm with a screenshot. Do not type until the screenshot clearly shows
-     the Workday search page in front.
+     const { setupBrowserRuntime } = await import(
+       'C:/Users/cheol.ryu/.codex/plugins/cache/openai-bundled/browser/26.1007.71326/scripts/browser-client.mjs'
+     );
+     const agent = await setupBrowserRuntime();
+     nodeRepl.write(await agent.browsers.list());
+
+   - Select the listed Codex In-app Browser with type "iab". Then list its tabs
+     and get the existing Workday tab by its returned id. Do not hardcode ids:
+     browser id "2" and tab id "1" were this session's values only.
+   - Read await browser.documentation() and use only its supported APIs.
+   - Reuse agent/browser/workday handles while they remain valid. If a tab goes
+     stale, reacquire the tab from the same browser, not another browser.
+   - The installed plugin version/path may change after an update. Locate its
+     current public runtime when necessary; do not probe private transports.
+   - A missing legacy cua tool does not mean the in-app browser is inaccessible.
+
+3. Browser safety and recovery
+   - For an explicitly requested Edge session, use the currently available
+     browser tool and its documented connection method. Historical port 9333
+     is not proof that a current session is reachable.
+   - Do not use raw CDP, Win32 foreground automation, or hidden page APIs as a
+     workaround for the supported browser connection.
+   - If login or user action is required, report the observed page state and
+     leave the requested tab available. Do not repeatedly reopen browsers.
 
 4. Search Workday
-   - Click the centered Workday search box, paste the search id via clipboard,
-     then press Enter.
-   - Wait for Workday. It is slow, so use a real delay and take a screenshot
-     after loading.
+   - Read workday.playwright.domSnapshot() before interacting.
+   - In the verified Korean UI, click the button named "검색" (exact), then
+     fill the combobox named "Workday 검색" with the search id and press Enter.
+     Confirm those locators in the current DOM rather than assuming they exist.
+   - Workday is slow. The first snapshot after Enter can still be the home page;
+     wait for the search results and inspect again instead of submitting twice.
    - Verify the result name and email/id visually before using the photo.
+   - Verified example: hojin59.kim returned HOJIN KIM with the matching account.
+     Both search-field operation and the search-result screenshot succeeded.
+   - Save a screenshot as proof, excluding unrelated contact/HR details. Leave
+     the user's tab open; markHandoff() when work continues in a later turn.
 
 5. Save the profile photo
-   - Screenshot the Workday result page.
-   - Crop the profile avatar from the screenshot into:
-     surge-deploy/assets/player-photos/<identity>.jpg
-   - Resize to 256x256 JPEG.
-   - Keep the photo small. Around 4KB to 30KB is normal.
+   - Click the verified search-result name to open the person's profile. Wait
+     for the profile heading, then click that person's employee-photo button.
+     This opens the "larger image" alertdialog with a full-resolution image.
+   - Locate the image by its exact alt text from the current DOM. Do not confuse
+     it with the signed-in user's top-right avatar or a manager's photo.
+   - Call locator.downloadMedia({ timeoutMs: 120000 }) on that image. This was
+     verified for all three members on 2026-10-15, returning local JPEG paths.
+   - If the image is still loading and an initial download times out, inspect
+     the current DOM and image src again, then retry the same supported method.
+     Do not switch to screen cropping or another browser merely for a slow load.
+   - Copy the downloaded file to its identity path and inspect it with view_image.
+     Close the photo dialog and verify it is closed before the next search.
+   - If the page exposes no downloadable image, use a supported screenshot
+     capture/crop path as permitted by the current tools and inspect the result.
+   - Save the final photo as surge-deploy/assets/player-photos/<identity>.jpg.
+     Preserve useful facial detail; the former upload-size cap no longer applies.
 
 6. Generate player cards
    - Use the built-in image_gen tool, not a custom script, for card generation.
@@ -72,7 +90,10 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
      only for stylized facial-design cues, not literal face copying.
 
 7. Save and compress generated cards
-   - Resize generated cards to 260x390.
+   - Preserve the 2:3 aspect ratio. New cards use 520x780 JPEG at quality 90 for
+     sharper high-density displays; old 260x390 assets need not be rewritten.
+   - Profile photos can be optimized to at most 512x512 without upscaling.
+     Strip source metadata and retain downloaded/generated originals locally.
    - Save as JPEG:
      surge-deploy/assets/player-cards/<identity>-s-figure.jpg
      surge-deploy/assets/player-cards/<identity>-a-figure.jpg
@@ -102,14 +123,23 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
      account for this repo is rcheol. A stale numeric github.com credential can
      cause 403 even when the remote URL contains rcheol.
 
-Pending requests verified on 2026-10-15
-=======================================
+Member assets generated on 2026-10-15
+===================================
 
 - Sanghyun Lee: Honey Serve sh0620.lee; Workday sh0620.lee.
 - Hojin Kim: Honey Serve hojin95; explicit Workday override hojin59.kim.
 - Minjae Na: Honey Serve minjae; explicit Workday override minjaena.na.
-- All three have gender=male in the live roster. No matching existing photo or
-  figure-card asset was found. Prepare S/A/B/C using the approved prompt only
-  after obtaining and verifying each person's own profile photo.
-- This list records lookup decisions only; it is not evidence of completed
-  photo downloads, generated cards, or deployed asset mappings.
+- All three have gender=male in the live roster. Names and Workday ids were
+  verified before downloading their own full-resolution profile photos.
+- Asset identities: sanghyun-lee, hojin-kim, minjae-na. Each has one profile JPEG
+  and S/A/B/C figure-card JPEGs connected through playerAssetProfiles in app.js.
+- Generated with the built-in image_gen tool. The approved personal-figure
+  prompt in docs/player-card-prompts.txt was unchanged (medium-low-plus likeness).
+  Each call used the person's photo as reference 1 and male-<tier>-figure.jpg as
+  reference 2, with this additional input-label prefix:
+  "Image 1 is <person>'s profile photograph (identity reference only). Image 2
+  is the male <tier>-tier base card (primary edit target). Produce this player's
+  <tier>-tier personalized figure card."
+- No login ids, player ratings, or match records were changed. Workday overrides
+  remain separate from login ids. Git push and deployment must be verified from
+  command output and the live site; generated files alone do not prove deployment.
