@@ -1,11 +1,43 @@
 Honey Serve GitHub push workflow
 Last updated: 2026-10-15
 
-Use this workflow for this repo. Do not switch to SSH, GitHub CLI, LFS, or a
-different remote unless the user explicitly asks.
+Use this workflow for this repo. The user approved the Codex GitHub connector
+on 2026-10-15. Do not switch to SSH, GitHub CLI, LFS, or a different remote
+unless the user explicitly asks.
 
-Known good direction
-====================
+Codex GitHub connector: verified on 2026-10-15
+============================================
+
+- Preferred route for the next Codex publication: the authorized GitHub
+  connector, authenticated as rcheol, with push permission on rcheol/elo.
+- Verify both get_user_login and get_repo permissions before publishing.
+  The previous connection was shyeon-121 and had read access but no push access.
+  After the user reconnected as rcheol and restarted Codex, the identity and
+  write permission were correct. Restarting alone does not change accounts.
+- Connector authentication is separate from local Git Credential Manager.
+  A successful connector upload does not prove terminal Git push was repaired.
+- Verified publication: 574d01964ae77ba49d640e1f2359ef9615ef7170. It contains
+  three profile photos, twelve S/A/B/C cards, mappings, tests, and workflow notes.
+  All 18 Git blobs and the complete tree matched the tested local commit.
+- Use create_blob with utf-8 for text or base64 for binary content. Read
+  committed content with git cat-file when publishing an existing commit;
+  working-tree CRLF conversion must not change the uploaded bytes.
+- Verify every returned blob SHA, then create_tree against the known parent
+  tree. Verify its SHA against the intended local tree before create_commit.
+- Publish main using update_ref with expected_sha set to the verified current
+  remote head and force=false. Stop and inspect any unexpected remote change.
+- The connector creates a new commit ID. Fetch it with the existing HTTPS
+  configuration. For an identical-tree replacement of an unpublished local
+  commit, preserve that commit in a local backup ref, check for tracked edits,
+  and compare-and-swap the local branch only after verifying identical trees.
+  Never reset --hard, force-push, or disturb unrelated staged/unstaged files.
+- Keep uploads in one related commit. Per-blob API calls are the normal Git
+  data API, not a reason to split cards into many commits or reduce to 40KB.
+- Verify the remote branch and live image responses after publication. Render
+  deployment completion is separate from GitHub publication success.
+
+Local HTTPS Git alternative
+===========================
 
 - Repo: E:\github\badminton-elo-ranking
 - Remote: https://rcheol@github.com/rcheol/elo.git
@@ -43,8 +75,8 @@ Rules
    - Keep using HTTPS and Windows Credential Manager.
    - Do not try SSH; the company/network path can block GitHub SSH.
    - Do not switch to another method just because a non-interactive Codex shell
-     cannot show the credential prompt. The old successful method is still the
-     source of truth.
+     cannot show the credential prompt. The verified connector above is an
+     explicitly approved alternative; do not keep repeating failed Git pushes.
 
 2. Do not delete or rewrite GitHub credentials casually.
    - Do not delete git:https://github.com credentials unless the user explicitly
@@ -53,11 +85,13 @@ Rules
      cmdkey /list
      "protocol=https`nhost=github.com`nusername=rcheol`n`n" | git credential fill
    - Mask any password/token output.
-   - A stale credential such as User: 43690919 for git:https://github.com can
-     cause 403 for rcheol/elo.
+   - A numeric credential username alone does not prove a stale credential:
+     43690919 is rcheol's GitHub user ID. Verify the authenticated login and
+     repository permission rather than deleting credentials based on that ID.
 
 3. If authentication is missing, restore the old successful flow.
-   - Open an interactive PowerShell in the user session.
+   - Ask the user to authenticate in their existing terminal/browser session;
+     do not launch a new visible PowerShell window without being asked.
    - Run:
      cd E:\github\badminton-elo-ranking
      .\scripts\push-github.ps1
