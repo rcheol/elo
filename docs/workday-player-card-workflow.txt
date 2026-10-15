@@ -75,6 +75,10 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
      Close the photo dialog and verify it is closed before the next search.
    - If the page exposes no downloadable image, use a supported screenshot
      capture/crop path as permitted by the current tools and inspect the result.
+   - If the verified profile has no photo, ask for a user-provided photo or an
+     alternate Workday id. Do not use a placeholder or another person's image.
+     A supplied local photo is a valid source; inspect it and record that source
+     separately from Workday. Continue other members while awaiting the photo.
    - Save the final photo as surge-deploy/assets/player-photos/<identity>.jpg.
      Preserve useful facial detail; the former upload-size cap no longer applies.
 
@@ -114,14 +118,14 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
 
 9. Commit and push
    - Do not commit tmp/.
-   - Commit only the prompt/doc update, app.js mapping, profile photo, and card
-     images.
-   - Use the saved HTTPS/Windows credential workflow:
-     .\scripts\push-github.ps1
-   - See docs/github-push-workflow.txt for the verified proxy/TLS handling.
-   - If GitHub returns 403, check Windows Credential Manager. The correct GitHub
-     account for this repo is rcheol. A stale numeric github.com credential can
-     cause 403 even when the remote URL contains rcheol.
+   - Commit only the related docs, app.js mapping, profile photos, card images,
+     and asset tests. Preserve unrelated staged and unstaged changes.
+   - Prefer the authorized Codex GitHub connector, verified as rcheol with push
+     permission on rcheol/elo. Follow docs/github-push-workflow.txt for blob and
+     tree verification, a non-forced ref update, and safe local synchronization.
+   - Connector authentication is separate from Windows Credential Manager.
+     Do not assume a numeric credential id is stale or delete credentials.
+   - Verify the live app mapping and image bytes after Render auto-deploys.
 
 Member assets generated on 2026-10-15
 ===================================
@@ -143,3 +147,24 @@ Member assets generated on 2026-10-15
 - No login ids, player ratings, or match records were changed. Workday overrides
   remain separate from login ids. Git push and deployment must be verified from
   command output and the live site; generated files alone do not prove deployment.
+
+Additional seven-member batch on 2026-10-15
+==========================================
+
+- Jimin Park: Honey Serve / Workday jimin22.park; female; jimin-park.
+- Jigwon Lee: Honey Serve easygoin; explicit Workday jig1.lee; male; jigwon-lee.
+- Mingyu Seong: Honey Serve / Workday mkmk.seong; male; mingyu-seong.
+  Workday had no photo. The user supplied a local PNG, which was inspected and
+  converted to the profile JPEG without upscaling. No substitute Workday photo.
+- Youngeun Kim: Honey Serve / Workday y0ung.kim (digit zero); female; youngeun-kim.
+- Yunseok Kang: Honey Serve / Workday yundol.kang; male; yunseok-kang.
+- Seonung Yeom: Honey Serve seonung; explicit Workday seonung.yeom;
+  male; seonung-yeom.
+- Hanna You: Honey Serve 1234hhhh; explicit Workday hanna.you; female; hanna-you.
+  Multiple name matches existed; the profile with the matching id was used.
+- Gender values came from the live roster, not photo/name inference.
+- Each member has one profile JPEG and four S/A/B/C figure-card JPEGs.
+- The same approved medium-low-plus prompt and built-in image_gen workflow
+  above were used, with the matching male/female base card for each tier.
+  Full generation provenance and originals remain local under tmp/ and are not
+  published. Existing base cards and other members' images remain unchanged.

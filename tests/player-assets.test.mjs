@@ -16,9 +16,16 @@ const context = vm.createContext({
 vm.runInContext(`${normalizeCode}\n${accountCode}\n${source.slice(assetStart, assetEnd)}`, context);
 const api = vm.runInContext("({ playerCardProfile, playerPhotoUrl, playerCardTier, playerCardArtUrl })", context);
 const members = [
-  { identity: "sanghyun-lee", account: "sh0620.lee", workday: "sh0620.lee", name: "\uc774\uc0c1\ud604" },
-  { identity: "hojin-kim", account: "hojin95", workday: "hojin59.kim", name: "\uae40\ud638\uc9c4" },
-  { identity: "minjae-na", account: "minjae", workday: "minjaena.na", name: "\ub098\ubbfc\uc7ac" },
+  { identity: "sanghyun-lee", account: "sh0620.lee", workday: "sh0620.lee", name: "\uc774\uc0c1\ud604", gender: "male" },
+  { identity: "hojin-kim", account: "hojin95", workday: "hojin59.kim", name: "\uae40\ud638\uc9c4", gender: "male" },
+  { identity: "minjae-na", account: "minjae", workday: "minjaena.na", name: "\ub098\ubbfc\uc7ac", gender: "male" },
+  { identity: "jimin-park", account: "jimin22.park", workday: "jimin22.park", name: "\ubc15\uc9c0\ubbfc", gender: "female" },
+  { identity: "jigwon-lee", account: "easygoin", workday: "jig1.lee", name: "\uc774\uc9c0\uad8c", gender: "male" },
+  { identity: "mingyu-seong", account: "mkmk.seong", workday: "mkmk.seong", name: "\uc131\ubbfc\uaddc", gender: "male" },
+  { identity: "youngeun-kim", account: "y0ung.kim", workday: "y0ung.kim", name: "\uae40\uc601\uc740", gender: "female" },
+  { identity: "yunseok-kang", account: "yundol.kang", workday: "yundol.kang", name: "\uac15\uc724\uc11d", gender: "male" },
+  { identity: "seonung-yeom", account: "seonung", workday: "seonung.yeom", name: "\uc5fc\uc120\uc6c5", gender: "male" },
+  { identity: "hanna-you", account: "1234hhhh", workday: "hanna.you", name: "\uc720\ud55c\ub098", gender: "female" },
 ];
 
 async function assertJpeg(relativePath) {
@@ -30,9 +37,10 @@ async function assertJpeg(relativePath) {
 
 for (const member of members) {
   test(`${member.identity}: login account and Workday identity stay separate`, () => {
-    const player = { name: "Renamed player", accountUsername: member.account, gender: "male" };
+    const player = { name: "Renamed player", accountUsername: member.account, gender: member.gender };
     const profile = api.playerCardProfile(player);
     assert.equal(profile.identity, member.identity);
+    assert.equal(profile.gender, member.gender);
     assert.deepEqual(Array.from(profile.accountIds), [member.account]);
     assert.deepEqual(Array.from(profile.workdaySearchIds), [member.workday]);
     assert.equal(api.playerCardProfile({ ...player, accountUsername: ` ${member.account.toUpperCase()} ` }).identity, member.identity);
@@ -40,7 +48,7 @@ for (const member of members) {
   });
 
   test(`${member.identity}: every tier resolves to its own generated JPEG`, async () => {
-    const player = { name: member.name, accountUsername: member.account, gender: "male" };
+    const player = { name: member.name, accountUsername: member.account, gender: member.gender };
     assert.equal(api.playerPhotoUrl(player), `./assets/player-photos/${member.identity}.jpg`);
     await assertJpeg(api.playerPhotoUrl(player));
     for (const [rating, tier] of [[1200, "c"], [1300, "b"], [1499, "b"], [1500, "a"], [1699, "a"], [1700, "s"], [2000, "s"]]) {
