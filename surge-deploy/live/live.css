@@ -38,6 +38,10 @@ dialog { max-width: min(440px, calc(100% - 32px)); border: 1px solid #bdccc3; bo
 dialog::backdrop { background: #14241cb0; } dialog p { line-height: 1.55; font-size: 14px; }
 .check { display: flex; align-items: center; } .check input { width: 22px; min-height: 22px; }
 .video-player, iframe#player { width: 100%; height: auto; aspect-ratio: 16/9; border: 0; background: #111; }
-.timeline { list-style: none; padding: 0; } .timeline li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #d5dfd9; padding: 10px 0; }
-.timeline button { min-width: 90px; } .timeline li.active { background: #e0efe6; }
+.timeline { list-style: none; padding: 0; } .timeline li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid #d5dfd9; padding: 10px 0; }
+.timeline-point, .timeline-times { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.timeline-times { justify-items: end; font-variant-numeric: tabular-nums; }
+.point-captured { font-size: 11px; color: #52605b; overflow-wrap: anywhere; }
+.timeline button { min-width: 100px; padding: 8px; } .timeline li.active { background: #e0efe6; }
+.saved-timeline .timeline { max-height: 360px; overflow-y: auto; }
 @media(max-width: 440px) { .team-setup { gap: 8px; } fieldset { padding: 8px; } .two-column { gap: 8px; } .live-shell { padding: 12px; } }

@@ -4229,7 +4229,7 @@ function renderHistoryItem(match) {
         ${actions ? `<div class="history-date-actions">${actions}</div>` : ""}
       </div>
       <div class="history-main">
-        ${match.liveSessionId ? `<a href="/live/replay.html?match=${encodeURIComponent(match.id)}" class="history-sub" target="_blank" rel="noopener noreferrer">중계 영상 · 득점 타임라인</a>` : ""}
+        ${match.liveSessionId ? `<a href="/live/replay.html?match=${encodeURIComponent(match.id)}" class="history-sub" target="_blank" rel="noopener noreferrer">득점 시각 · 영상 보기</a>` : ""}
         <div class="teams-line">
           <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${teamA}</span>
           <span class="score-badge">${match.scoreA}</span>

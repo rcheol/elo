@@ -13,7 +13,35 @@ function send(s, type, extra = {}) {
   applyLiveCommand(s, command, start + 100000);
   return command;
 }
-function begin(s) { send(s, "start"); s.startedAt = start; }
+function begin(s) { send(s, "start", { capturedAt: start }); }
+
+test("delayed start and point delivery keep tap timestamps through retries and restore", () => {
+  let s = fixture();
+  const command = send(s, "start", { capturedAt: start + 2000 });
+  assert.equal(s.startedAt, start + 2000);
+  assert.equal(s.startReceivedAt, start + 100000);
+  assert.equal(applyLiveCommand(s, command, start + 200000), false);
+  send(s, "point", { team: "A", capturedAt: start + 22000 });
+  const point = liveSnapshot(s).points[0];
+  assert.equal(point.elapsedMs, 20000);
+  assert.equal(point.capturedAt, start + 22000);
+  assert.equal(point.receivedAt, start + 100000);
+  s = JSON.parse(JSON.stringify(s));
+  send(s, "video", { youtubeUrl: "https://youtu.be/nf_W8XZa_mg", videoOffsetSeconds: 1800 });
+  send(s, "finish", { matchEndedConfirmed: true });
+  assert.deepEqual(publicLiveSession(s).points, [point]);
+});
+
+test("start validates tap times without breaking legacy commands", () => {
+  for (const capturedAt of [null, "", "1700000000000", NaN, Infinity, start - 6000, start + 200000]) {
+    const s = fixture();
+    assert.throws(() => send(s, "start", { capturedAt }), /시간/);
+    assert.equal(s.status, "ready");
+  }
+  const s = fixture();
+  send(s, "start", { capturedAt: undefined });
+  assert.equal(s.startedAt, start + 100000);
+});
 
 test("doubles service follows parity, only serving winners swap positions", () => {
   const s = fixture(); begin(s);
@@ -73,6 +101,9 @@ test("invalid players, timestamps, ties and arbitrary video URLs are refused", (
   assert.throws(() => createLiveSession({ teamA: ["p1", "p1"], teamB: ["p3", "p4"] }, "owner", players, randomUUID(), "secret"));
   const s = fixture(); begin(s);
   assert.throws(() => send(s, "point", { team: "A", capturedAt: start - 100000 }), /시간/);
+  for (const capturedAt of [null, "", String(start), NaN, Infinity]) {
+    assert.throws(() => send(s, "point", { team: "A", capturedAt }), /시간/);
+  }
   assert.throws(() => send(s, "finish", { streamEndedConfirmed: true }), /동점/);
   assert.equal(youtubeId("https://evil.test/watch?v=nf_W8XZa_mg"), "");
   assert.equal(youtubeId("https://www.youtube.com/live/nf_W8XZa_mg"), "nf_W8XZa_mg");

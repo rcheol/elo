@@ -51,8 +51,13 @@ with unsent scores. A future release needs a stable private signing key stored o
 7. Paste the YouTube live/VOD link in the controller. Enter the video timestamp (in seconds) at which
    `경기 시작` was tapped. It can be corrected after the match; start delays and video trimming make
    automatic wall-clock-to-VOD synchronization unreliable without YouTube metadata.
-8. Open `중계 영상 · 득점 타임라인` in the website's match history. Each point has a timestamp link.
-   `득점 장면 이어보기` plays from 8 seconds before to 3 seconds after each recorded point.
+8. Saving shows `저장된 득점 시각` in the controller. Open `득점 시각 · 영상 보기` in the website's
+   match history to see the same saved ledger, including without a YouTube link. Each point shows its
+   team, running score, button-tap date/time in KST and elapsed game time. Linking a video later does
+   not change those saved timestamps. Video time is elapsed game time plus the configured offset;
+   each game's offset must match its own start scene when one broadcast contains several games.
+   Individual video links jump to the point timestamp. `득점 장면 이어보기` plays from 8 seconds
+   before to 3 seconds after each recorded point.
    These are playback windows, not downloaded/edited video clips or automatic rally segmentation.
 
 Do a short private/unlisted test broadcast before using this for a real match. Check that PRISM
@@ -86,6 +91,9 @@ An unanswered save can be retried with the same operation ID without inserting a
 - Finish, match insertion and ELO changes share one database transaction. Failure rolls back both.
 - Point tap time and server receipt time are separate. Undo excludes an event from the final timeline
   but preserves it in the audit ledger. Server-authoritative snapshots never trust a client score total.
+- New sessions use the phone's start-button tap timestamp as their elapsed-time origin, as they do
+  for point taps. Delayed delivery/retry must not move that origin to the server's receipt time.
+  Older stored sessions are left unchanged. Phone clocks still need to be set correctly.
 - No camera video or audio is uploaded through Render. PRISM sends the stream directly to YouTube.
 - Existing match edits change ELO but do not rewrite the original scoring ledger. A deleted match's
   public replay endpoint returns 404. Registered sessions are not recreated by retrying finish.
@@ -96,7 +104,7 @@ An unanswered save can be retried with the same operation ID without inserting a
 
 ```powershell
 $env:PGLITE_TEST_MODULE = ([System.Uri](Join-Path (Get-Location) 'tmp/pg-regression/node_modules/@electric-sql/pglite/dist/index.js')).AbsoluteUri
-node --test tests/live-engine.test.mjs tests/live-api.test.mjs tests/live-overlay.test.mjs tests/live-refresh.test.mjs tests/video-bandwidth.test.mjs tests/video-polling.test.mjs tests/video-review.test.mjs
+node --test tests/live-engine.test.mjs tests/live-api.test.mjs tests/live-timeline.test.mjs tests/live-overlay.test.mjs tests/live-refresh.test.mjs tests/video-bandwidth.test.mjs tests/video-polling.test.mjs tests/video-review.test.mjs
 $env:PLAYWRIGHT_TEST_MODULE = ([System.Uri](Join-Path (Get-Location) 'tmp/review-ui/node_modules/playwright/index.mjs')).AbsoluteUri
 node tests/live-ui.mjs
 ```

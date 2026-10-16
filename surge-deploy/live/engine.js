@@ -81,8 +81,14 @@ export function applyLiveCommand(session, command, now = Date.now()) {
   const active = session.status === "live";
   if (command.type === "start") {
     if (session.status !== "ready") fail("LIVE_STARTED", "이미 시작한 경기입니다.", 409);
+    const capturedAt = command.capturedAt === undefined ? now : command.capturedAt;
+    if (!Number.isSafeInteger(capturedAt) || capturedAt < session.createdAt - 5000 || capturedAt > now + 5000) {
+      fail("LIVE_TIME", "휴대폰 시간을 확인하세요. 경기 시작 시간이 올바르지 않습니다.");
+    }
     session.status = "live";
-    session.startedAt = now;
+    // Start and points must use the same tap clock, not server receipt latency.
+    session.startedAt = capturedAt;
+    session.startReceivedAt = now;
   } else if (["point", "undo", "switchEnds"].includes(command.type)) {
     if (!active) fail("LIVE_NOT_ACTIVE", "진행 중인 경기에서만 점수를 변경할 수 있습니다.", 409);
     if (command.type === "undo") {
@@ -91,8 +97,8 @@ export function applyLiveCommand(session, command, now = Date.now()) {
       last.undone = true;
     } else {
       if (command.type === "point" && !["A", "B"].includes(command.team)) fail("LIVE_TEAM", "득점 팀을 선택하세요.");
-      const capturedAt = Number(command.capturedAt);
-      if (!Number.isFinite(capturedAt) || capturedAt < session.startedAt - 5000 || capturedAt > now + 5000) {
+      const capturedAt = command.capturedAt;
+      if (!Number.isSafeInteger(capturedAt) || capturedAt < session.startedAt - 5000 || capturedAt > now + 5000) {
         fail("LIVE_TIME", "휴대폰 시간을 확인하세요. 득점 시간이 올바르지 않습니다.");
       }
       const lastTime = session.events.at(-1)?.capturedAt || session.startedAt;

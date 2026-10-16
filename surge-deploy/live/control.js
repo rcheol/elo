@@ -1,3 +1,5 @@
+import { renderTimeline } from "./timeline.js";
+
 const $ = (selector) => document.querySelector(selector);
 let current = null;
 let user = null;
@@ -32,7 +34,7 @@ function syncFinishControls() {
 }
 function announceSavedMatch() {
   if (current?.status !== "finished" || !current.matchId) return false;
-  status(`경기 기록 저장 완료 · A ${current.scoreA} : ${current.scoreB} B`);
+  status(`경기 기록 저장 완료 · A ${current.scoreA} : ${current.scoreB} B · 득점 시각 ${current.points.length}건 저장됨`);
   localStorage.setItem("honey-live-match-saved", JSON.stringify({ matchId: current.matchId, at: Date.now() }));
   return true;
 }
@@ -66,6 +68,8 @@ function render() {
   if (current.matchId) $("#replay").href = `/live/replay.html?match=${encodeURIComponent(current.matchId)}`;
   $("#savedMatch").hidden = current.status !== "finished" || !current.matchId;
   if (current.matchId) $("#savedMatch").href = `/?match=${encodeURIComponent(current.matchId)}#historyTitle`;
+  $("#savedTimeline").hidden = current.status !== "finished" || !current.matchId;
+  if (!$("#savedTimeline").hidden) renderTimeline($("#pointTimeline"), current);
   localStorage.setItem(`honey-live-last:${user.id}`, current.id);
   syncFinishControls();
   icons();

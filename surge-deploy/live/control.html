@@ -48,8 +48,12 @@
         <label>경기 시작 장면의 영상 시간 (초, 음수 보정 가능)<input name="videoOffsetSeconds" type="number" value="0" min="-86400" max="86400" step="0.1" required></label>
         <button type="submit">영상 연결 · 시간 보정</button>
       </form>
-      <a id="replay" hidden>중계 영상 · 득점 타임라인</a>
+      <a id="replay" hidden>득점 시각 · 영상 보기</a>
       <p><a id="savedMatch" hidden>저장된 경기 기록 보기</a></p>
+      <section id="savedTimeline" class="saved-timeline" hidden>
+        <h2>저장된 득점 시각</h2>
+        <ol id="pointTimeline" class="timeline"></ol>
+      </section>
       <button id="new" type="button" hidden>새 경기</button>
     </section>
     <dialog id="endDialog">
