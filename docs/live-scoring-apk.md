@@ -9,11 +9,14 @@
 
 ## Build and install
 
-The public `rcheol/elo` repository builds a test APK with GitHub Actions:
-`Actions > Android Live APK > successful run > honeyserve-live-test-apk`.
-Download and extract the ZIP, then install `app-debug.apk` on an Android 8+ phone.
+The public `rcheol/elo` repository builds a test APK with GitHub Actions and publishes it
+to [GitHub Releases](https://github.com/rcheol/elo/releases) after both build and lint succeed.
+[Download the latest APK directly](https://github.com/rcheol/elo/releases/latest/download/honeyserve-live.apk)
+and install `honeyserve-live.apk` on an Android 8+ phone. No GitHub login or ZIP extraction is needed.
 Allow installation from the downloading app when Android asks.
-The artifact expires after seven days; run the workflow again to rebuild it.
+Each successful main-branch build publishes its own release, source commit and SHA-256 checksum.
+The download link always points to the latest published build. Release assets do not have the
+seven-day expiration of the backup Actions artifact (`honeyserve-live-test-apk`).
 
 The workflow uses a standard hosted runner, AGP 8.9.2, Gradle 8.11.1, JDK 17 and SDK 35.
 It does not require Expo, a paid build account, or a streaming API key.

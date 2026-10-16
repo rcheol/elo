@@ -37,3 +37,34 @@ jobs:
           path: android-live/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
           if-no-files-found: error
+  publish:
+    needs: apk
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: honeyserve-live-test-apk
+          path: apk
+      - name: Publish downloadable APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: android-live-build-${{ github.run_number }}-${{ github.run_attempt }}
+        run: |
+          cp apk/app-debug.apk honeyserve-live.apk
+          sha256sum honeyserve-live.apk > honeyserve-live.apk.sha256
+          notes="Android 8+ test APK. Download honeyserve-live.apk directly; no ZIP extraction needed.
+
+          This is a debug-signed test build, not a Play Store release. Updating from another test build may require uninstalling the old app. Sync all pending scores before uninstalling.
+
+          Source: https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA
+          Setup: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs/live-scoring-apk.md
+          Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh release create "$RELEASE_TAG" honeyserve-live.apk honeyserve-live.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "HoneyServe Live APK - test build $GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" \
+            --notes "$notes" --latest
+          printf '## APK download\n\n[Download honeyserve-live.apk](https://github.com/%s/releases/latest/download/honeyserve-live.apk)\n' "$GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"
