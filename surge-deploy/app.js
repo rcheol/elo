@@ -540,6 +540,7 @@ function normalizeState(input) {
           updatedByName: match.updatedByName ? String(match.updatedByName) : "",
           createdAt: safeIsoDate(match.createdAt),
           playedAt: safeIsoDate(match.playedAt ?? match.played_at ?? match.matchAt ?? match.createdAt),
+          liveSessionId: match.liveSessionId || null,
           updatedAt: match.updatedAt || null,
         }))
         .sort(compareMatchOrder)
@@ -4201,6 +4202,7 @@ function renderHistoryItem(match) {
         ${actions ? `<div class="history-date-actions">${actions}</div>` : ""}
       </div>
       <div class="history-main">
+        ${match.liveSessionId ? `<a href="/live/replay.html?match=${encodeURIComponent(match.id)}" class="history-sub" target="_blank" rel="noopener noreferrer">중계 영상 · 득점 타임라인</a>` : ""}
         <div class="teams-line">
           <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${teamA}</span>
           <span class="score-badge">${match.scoreA}</span>

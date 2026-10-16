@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="same-origin">
+  <title>허니서브 중계</title>
+  <link rel="stylesheet" href="./live.css">
+</head>
+<body>
+  <main class="live-shell">
+    <header><a href="/">허니서브</a><h1>경기 중계</h1><span id="identity"></span></header>
+    <p id="status" role="status" aria-live="polite">연결 중</p>
+    <form id="login" hidden autocomplete="on" method="post">
+      <h2>로그인</h2>
+      <label>아이디<input name="username" autocomplete="username" required></label>
+      <label>비밀번호<input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">로그인</button>
+    </form>
+    <form id="setup" hidden>
+      <div class="team-setup">
+        <fieldset><legend>A팀</legend><label>왼쪽 · 네트를 바라보는 기준<select name="aLeft" required></select></label><label>오른쪽<select name="aRight" required></select></label></fieldset>
+        <fieldset><legend>B팀</legend><label>왼쪽 · 네트를 바라보는 기준<select name="bLeft" required></select></label><label>오른쪽<select name="bRight" required></select></label></fieldset>
+      </div>
+      <div class="two-column">
+        <label>첫 서브<select name="servingTeam"><option value="A">A팀 오른쪽 선수</option><option value="B">B팀 오른쪽 선수</option></select></label>
+        <label>카메라 가까운 코트<select name="nearTeam"><option value="A">A팀</option><option value="B">B팀</option></select></label>
+      </div>
+      <button type="submit">중계 준비</button>
+    </form>
+    <section id="session" hidden>
+      <div class="scoreboard" aria-label="현재 점수"><div><span>A팀</span><strong id="scoreA">0</strong></div><div><span>B팀</span><strong id="scoreB">0</strong></div></div>
+      <div class="toolbar">
+        <button id="start" type="button">경기 시작</button>
+        <button id="undo" type="button" title="마지막 조작 되돌리기" aria-label="마지막 조작 되돌리기"><i data-lucide="undo-2">↶</i></button>
+        <button id="switch" type="button" title="코트 교대" aria-label="코트 교대"><i data-lucide="arrow-down-up">↕</i></button>
+        <button id="finish" type="button" class="danger">종료</button>
+        <button id="cancel" type="button">기록 없이 취소</button>
+      </div>
+      <div class="score-controls"><button id="pointA" type="button">A팀 +1</button><button id="pointB" type="button">B팀 +1</button></div>
+      <h2>다음 서브 기준 위치</h2>
+      <p id="serve"></p>
+      <div class="court" id="court" aria-label="코트 위치"></div>
+      <div class="overlay-link"><label>PRISM 웹 점수판<input id="overlayUrl" readonly></label><button id="copy" type="button" title="점수판 주소 복사" aria-label="점수판 주소 복사"><i data-lucide="copy">⧉</i></button></div>
+      <form id="video">
+        <h2>중계 영상</h2>
+        <label>YouTube 라이브 링크<input name="youtubeUrl" type="url" placeholder="https://www.youtube.com/live/..." required></label>
+        <label>경기 시작 장면의 영상 시간 (초, 음수 보정 가능)<input name="videoOffsetSeconds" type="number" value="0" min="-86400" max="86400" step="0.1" required></label>
+        <button type="submit">영상 연결 · 시간 보정</button>
+      </form>
+      <a id="replay" hidden>중계 영상 · 득점 타임라인</a>
+      <button id="new" type="button" hidden>새 경기</button>
+    </section>
+    <dialog id="endDialog">
+      <h2>경기 종료</h2><p id="finalScore"></p>
+      <p>먼저 PRISM에서 방송을 종료해 주세요. 이 확인 버튼은 PRISM이나 YouTube 방송을 자동으로 끄지 않습니다.</p>
+      <label class="check"><input id="streamStopped" type="checkbox">PRISM 방송 종료를 확인했습니다.</label>
+      <div class="toolbar"><button id="endCancel" type="button">돌아가기</button><button id="endConfirm" type="button">최종 기록 저장</button></div>
+    </dialog>
+  </main>
+  <script type="module" src="./control.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" async onload="window.lucide && window.lucide.createIcons()"></script>
+</body>
+</html>

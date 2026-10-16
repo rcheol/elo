@@ -4,8 +4,11 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { hasClaimableVideoJob, heartbeatVideoJob, readVideoJob, updatePostgresState } from "./lib/postgres-state.js";
+import { hasClaimableVideoJob, heartbeatVideoJob, readVideoJob, updatePostgresState, updatePostgresStateInTransaction } from "./lib/postgres-state.js";
 import { normalizeVideoReview, resolveVideoReview } from "./lib/video-review.js";
+import { LiveStore } from "./lib/live-store.js";
+import { createLiveApi } from "./lib/live-api.js";
+import { LiveError, applyLiveCommand, liveSnapshot } from "./surge-deploy/live/engine.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -327,6 +330,9 @@ function migrateUsersTable() {
 
 function migrateMatchesTable() {
   const columns = db.prepare("PRAGMA table_info(matches)").all();
+  if (!columns.some((column) => column.name === "live_session_id")) {
+    db.exec("ALTER TABLE matches ADD COLUMN live_session_id TEXT");
+  }
   const hasPlayedAt = columns.some((column) => column.name === "played_at");
 
   if (!hasPlayedAt) {
@@ -717,6 +723,7 @@ function matchFromRow(row) {
     updatedBy: row.updated_by || null,
     updatedByName: row.updated_by_name || "",
     playedAt: row.played_at || row.created_at,
+    liveSessionId: row.live_session_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at || null,
   };
@@ -1709,13 +1716,14 @@ function sendJson(req, res, status, payload, cookies = []) {
 }
 
 function sendError(req, res, error) {
-  const status = error instanceof HttpError ? error.status : 500;
-  const code = error instanceof HttpError ? error.code : "SERVER_ERROR";
-  if (!(error instanceof HttpError)) {
+  const known = error instanceof HttpError || error instanceof LiveError;
+  const status = known ? error.status : 500;
+  const code = known ? error.code : "SERVER_ERROR";
+  if (!known) {
     console.error(error);
   }
   const payload = { error: code, code };
-  if (error instanceof HttpError && error.message && error.message !== code) {
+  if (known && error.message && error.message !== code) {
     payload.message = error.message;
   }
   sendJson(req, res, status, payload);
@@ -2594,6 +2602,7 @@ function normalizeStoredMatch(match, index, seenIds) {
   const rawMarginBonus = match?.marginBonus ?? match?.margin_bonus ?? defaultSettings.marginBonus;
   return {
     id,
+    liveSessionId: typeof match?.liveSessionId === "string" ? match.liveSessionId : null,
     sequence: Number.isFinite(Number(match?.sequence)) ? Number(match.sequence) : index + 1,
     teamA: Array.isArray(match?.teamA) ? match.teamA.map(String) : [],
     teamB: Array.isArray(match?.teamB) ? match.teamB.map(String) : [],
@@ -3015,6 +3024,7 @@ function pgMatchFromStored(match) {
     updatedBy: match.updatedBy || null,
     updatedByName: match.updatedByName || "",
     playedAt: match.playedAt || match.createdAt,
+    liveSessionId: match.liveSessionId || null,
     createdAt: match.createdAt,
     updatedAt: match.updatedAt || null,
   };
@@ -4846,6 +4856,7 @@ function cacheControlFor(filePath) {
     return "no-store";
   }
   const normalizedPath = filePath.split(path.sep).join("/");
+  if (normalizedPath.includes("/surge-deploy/live/")) return "no-store";
   if (normalizedPath.includes("/assets/player-cards/") || normalizedPath.includes("/assets/player-photos/")) {
     return "no-store";
   }
@@ -4881,9 +4892,58 @@ function serveStatic(req, res, url) {
   });
 }
 
+let liveApi;
+
+async function initLiveApi() {
+  const store = new LiveStore({ db, pool: pgPool });
+  await store.init();
+  const authenticate = async (req) => {
+    if (!usePostgres) return getCurrentUser(req);
+    // Reuse the compact auth projection, without downloading the app's match history.
+    return (await readVideoJob(pgPool, postgresStateKey, parseCookies(req.headers.cookie).sid || "", "")).account;
+  };
+  const players = async () => {
+    if (!usePostgres) return getPlayers().filter((p) => p.seedRating != null).map((p) => ({ id: p.id, name: p.name }));
+    const result = await pgPool.query(`SELECT player->>'id' AS id, player->>'name' AS name
+      FROM app_state, jsonb_array_elements(value->'players') AS players(player)
+      WHERE key=$1 AND player->>'seedRating' IS NOT NULL`, [postgresStateKey]);
+    return result.rows;
+  };
+  const matchExists = async (id) => {
+    if (!usePostgres) return Boolean(db.prepare("SELECT id FROM matches WHERE id=?").get(id));
+    const result = await pgPool.query(`SELECT EXISTS(SELECT 1 FROM app_state,
+      jsonb_array_elements(value->'matches') AS matches(match) WHERE key=$1 AND match->>'id'=$2) AS found`, [postgresStateKey, id]);
+    return result.rows[0]?.found === true;
+  };
+  liveApi = createLiveApi({ store, authenticate, players, matchExists, readBody: readJsonBody, sendJson,
+    mutate: (id, command, user, req) => store.mutate(id, user.id, (session, client) => {
+      const changed = applyLiveCommand(session, command);
+      if (!changed || command.type !== "finish") return;
+      const snapshot = liveSnapshot(session);
+      const input = { teamA: session.teamA, teamB: session.teamB, scoreA: snapshot.scoreA,
+        scoreB: snapshot.scoreB, playedAt: new Date(session.startedAt).toISOString() };
+      if (client) {
+        return updatePostgresStateInTransaction(client, postgresStateKey, normalizePostgresState, createDefaultPostgresState, (state) => {
+          const currentUser = pgRequireUser(req, state);
+          const match = pgInsertMatch(state, input, currentUser);
+          match.liveSessionId = session.id;
+          session.matchId = match.id;
+        });
+      }
+      const match = insertMatch(input, requireUser(req));
+      db.prepare("UPDATE matches SET live_session_id=? WHERE id=?").run(session.id, match.id);
+      session.matchId = match.id;
+    }),
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   try {
+    if (url.pathname.startsWith("/api/live/")) {
+      await liveApi(req, res, url);
+      return;
+    }
     if (url.pathname.startsWith("/api/") || healthPaths.has(url.pathname)) {
       await (usePostgres ? handleApiPostgres(req, res, url) : handleApi(req, res, url));
       return;
@@ -4905,6 +4965,7 @@ async function start() {
     console.log(`Using SQLite database at ${dbPath}`);
   }
 
+  await initLiveApi();
   server.listen(port, () => {
     console.log(`Badminton ELO server listening on port ${port}`);
   });

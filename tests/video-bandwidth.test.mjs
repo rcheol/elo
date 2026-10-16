@@ -45,7 +45,10 @@ before(async () => {
     ` + source.slice(0, source.lastIndexOf("\nstart().catch"))
       .replace("const __filename = fileURLToPath(import.meta.url);", `const __filename = ${JSON.stringify(fileURLToPath(serverUrl))};`)
       .replace('"./lib/postgres-state.js"', JSON.stringify(new URL("../lib/postgres-state.js", import.meta.url).href))
-      .replace('"./lib/video-review.js"', JSON.stringify(new URL("../lib/video-review.js", import.meta.url).href)) + `
+      .replace('"./lib/video-review.js"', JSON.stringify(new URL("../lib/video-review.js", import.meta.url).href))
+      .replace('"./lib/live-store.js"', JSON.stringify(new URL("../lib/live-store.js", import.meta.url).href))
+      .replace('"./lib/live-api.js"', JSON.stringify(new URL("../lib/live-api.js", import.meta.url).href))
+      .replace('"./surge-deploy/live/engine.js"', JSON.stringify(new URL("../surge-deploy/live/engine.js", import.meta.url).href)) + `
       export { handleApiPostgres, normalizePostgresState, createDefaultPostgresState };
       export function setPool(pool) { pgPool = pool; }
     `;
