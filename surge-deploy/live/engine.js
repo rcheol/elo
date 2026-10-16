@@ -70,7 +70,7 @@ export function liveSnapshot(session) {
 export function applyLiveCommand(session, command, now = Date.now()) {
   if (!isUuid(command.operationId)) fail("LIVE_OPERATION_ID", "요청 식별자가 올바르지 않습니다.");
   const signature = JSON.stringify([command.type, command.team ?? null, command.capturedAt ?? null,
-    command.youtubeUrl ?? null, command.videoOffsetSeconds ?? null, command.streamEndedConfirmed ?? null]);
+    command.youtubeUrl ?? null, command.videoOffsetSeconds ?? null, command.matchEndedConfirmed ?? command.streamEndedConfirmed ?? null]);
   const previous = session.receipts.find((r) => r.id === command.operationId);
   if (previous) {
     if (previous.signature !== signature) fail("LIVE_OPERATION_REUSED", "요청 식별자가 중복되었습니다.", 409);
@@ -109,12 +109,12 @@ export function applyLiveCommand(session, command, now = Date.now()) {
     session.videoOffsetSeconds = offset;
   } else if (command.type === "finish") {
     if (!active) fail("LIVE_NOT_ACTIVE", "진행 중인 경기가 아닙니다.", 409);
-    if (command.streamEndedConfirmed !== true) fail("LIVE_STREAM_CONFIRM", "PRISM에서 방송을 종료한 후 확인하세요.");
+    if ((command.matchEndedConfirmed ?? command.streamEndedConfirmed) !== true) fail("LIVE_MATCH_CONFIRM", "이 경기의 최종 점수를 확인하세요.");
     const score = liveSnapshot(session);
     if (score.scoreA === score.scoreB) fail("LIVE_TIE", "동점 경기는 랭킹에 등록할 수 없습니다. 계속 진행하거나 기록 없이 취소하세요.");
     session.status = "finished";
     session.endedAt = now;
-    session.streamEndMode = "user-confirmed";
+    session.streamEndMode = command.matchEndedConfirmed === true ? "match-only" : "user-confirmed";
   } else if (command.type === "cancel") {
     if (!["ready", "live"].includes(session.status)) fail("LIVE_ENDED", "이미 종료된 경기입니다.", 409);
     session.status = "cancelled";

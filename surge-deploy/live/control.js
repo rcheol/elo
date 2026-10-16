@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 let current = null;
 let user = null;
+let channelToken = "";
 let busy = false;
 const icons = () => window.lucide?.createIcons();
 const status = (message, error = false) => { $("#status").textContent = message; $("#status").classList.toggle("error", error); };
@@ -24,10 +25,10 @@ function endStatus(message, error = false) {
   $("#endStatus").classList.toggle("error", error);
 }
 function syncFinishControls() {
-  $("#endConfirm").disabled = busy || !$("#streamStopped").checked || current?.status !== "live";
+  $("#endConfirm").disabled = busy || !$("#matchEnded").checked || current?.status !== "live";
   $("#endConfirm").textContent = busy ? "저장 중…" : "최종 기록 저장";
   $("#endCancel").disabled = busy;
-  $("#streamStopped").disabled = busy;
+  $("#matchEnded").disabled = busy;
 }
 function announceSavedMatch() {
   if (current?.status !== "finished" || !current.matchId) return false;
@@ -36,6 +37,8 @@ function announceSavedMatch() {
   return true;
 }
 function render() {
+  $("#overlayLink").hidden = !channelToken;
+  $("#overlayUrl").value = channelToken ? `${location.origin}/live/overlay.html#channel/${channelToken}` : "";
   $("#setup").hidden = Boolean(current);
   $("#session").hidden = !current;
   if (!current) return;
@@ -59,7 +62,6 @@ function render() {
     cell.classList.toggle("server", id === current.serverId);
     return cell;
   }));
-  $("#overlayUrl").value = `${location.origin}/live/overlay.html#${current.overlayToken}`;
   $("#replay").hidden = !current.matchId;
   if (current.matchId) $("#replay").href = `/live/replay.html?match=${encodeURIComponent(current.matchId)}`;
   $("#savedMatch").hidden = current.status !== "finished" || !current.matchId;
@@ -72,6 +74,7 @@ async function load() {
   try {
     const data = await request("/api/live/bootstrap");
     user = data.user;
+    channelToken = data.channelToken;
     $("#identity").textContent = user.displayName;
     $("#login").hidden = true;
     for (const select of $("#setup").querySelectorAll("select[name$='Left'],select[name$='Right']")) {
@@ -143,21 +146,21 @@ $("#switch").onclick = () => command("switchEnds");
 $("#cancel").onclick = () => { if (confirm("랭킹에 저장하지 않고 이 중계를 취소할까요? 방송은 PRISM에서 별도로 종료하세요.")) command("cancel"); };
 $("#finish").onclick = () => {
   $("#finalScore").textContent = `A팀 ${current.scoreA} : ${current.scoreB} B팀`;
-  $("#streamStopped").checked = false;
-  endStatus("종료 여부를 확인한 뒤 최종 기록을 저장하세요.");
+  $("#matchEnded").checked = false;
+  endStatus("최종 점수를 확인한 뒤 경기 기록을 저장하세요.");
   syncFinishControls(); $("#endDialog").showModal();
 };
-$("#streamStopped").onchange = () => { endStatus($("#streamStopped").checked ? "" : "종료 여부를 확인해 주세요."); syncFinishControls(); };
+$("#matchEnded").onchange = () => { endStatus($("#matchEnded").checked ? "" : "최종 점수를 확인해 주세요."); syncFinishControls(); };
 $("#endDialog").addEventListener("cancel", (event) => { if (busy) event.preventDefault(); });
 $("#endCancel").onclick = () => $("#endDialog").close();
 $("#endConfirm").onclick = async () => {
   if (busy) return;
-  if (!$("#streamStopped").checked) { endStatus("방송 종료 또는 방송 없는 기록인지 확인해 주세요.", true); return; }
+  if (!$("#matchEnded").checked) { endStatus("이 경기의 최종 점수를 확인해 주세요.", true); return; }
   endStatus("서버에 경기 기록을 저장하는 중입니다.");
-  await command("finish", { streamEndedConfirmed: true });
+  await command("finish", { matchEndedConfirmed: true });
   if (current.status === "finished" && current.matchId) { $("#endDialog").close(); announceSavedMatch(); }
 };
-$("#new").onclick = () => { localStorage.removeItem(`honey-live-last:${user.id}`); current = null; render(); status("새 경기"); };
+$("#new").onclick = () => { localStorage.removeItem(`honey-live-last:${user.id}`); current = null; $("#video").reset(); render(); status("새 경기"); };
 $("#copy").onclick = async () => {
   try { await navigator.clipboard.writeText($("#overlayUrl").value); status("점수판 주소 복사됨"); }
   catch { $("#overlayUrl").select(); status("점수판 주소를 선택했습니다."); }

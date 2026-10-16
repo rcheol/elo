@@ -64,10 +64,29 @@ for (const mode of ["sqlite", "postgres"]) {
       assert.equal((await request(api, "/api/live/bootstrap", { user: "nobody" })).status, 401);
       const boot = await request(api, "/api/live/bootstrap");
       assert.equal(boot.status, 200); assert.equal(boot.data.players.length, 4);
+      const channelToken = boot.data.channelToken;
+      assert.match(channelToken, /^[a-f0-9]{48}$/);
+      assert.equal((await request(api, "/api/live/bootstrap")).data.channelToken, channelToken);
+      const otherToken = (await request(api, "/api/live/bootstrap", { user: "other" })).data.channelToken;
+      assert.notEqual(otherToken, channelToken);
+      const channelPath = `/api/live/channel-overlay/${channelToken}`;
+      const readChannel = (headers = {}) => request(api, channelPath, { user: "nobody", headers });
+      const empty = await readChannel();
+      assert.deepEqual(empty.data, { session: null });
+      assert.equal((await readChannel({ "if-none-match": empty.headers.ETag })).status, 304);
+      assert.equal((await request(api, `/api/live/channel-overlay/${"f".repeat(48)}`)).status, 404);
+      assert.equal((await request(api, channelPath, { user: "nobody", method: "POST", body: {} })).status, 401);
       const id = randomUUID();
       const create = () => request(api, "/api/live/sessions", { method: "POST", body: { id, teamA: ["p1", "p2"], teamB: ["p3", "p4"], nearTeam: "A", servingTeam: "A" } });
       let result = await create(); assert.equal(result.status, 200);
       let s = result.data;
+      const firstReady = await readChannel({ "if-none-match": empty.headers.ETag });
+      assert.equal(firstReady.status, 200);
+      assert.equal(firstReady.data.session.id, id);
+      assert.equal(firstReady.data.session.scoreA, 0);
+      assert.equal(firstReady.data.session.points, undefined);
+      assert.equal(firstReady.data.session.ownerId, undefined);
+      assert.equal(firstReady.data.session.overlayToken, undefined);
       assert.equal((await create()).data.id, id);
       assert.equal((await request(api, `/api/live/sessions/${id}`, { user: "other" })).status, 403);
       const send = async (type, extra = {}) => {
@@ -78,6 +97,8 @@ for (const mode of ["sqlite", "postgres"]) {
       };
       assert.equal((await send("start")).res.status, 200);
       const point = await send("point", { team: "A" }); assert.equal(point.res.status, 200);
+      const scoring = await readChannel({ "if-none-match": firstReady.headers.ETag });
+      assert.equal(scoring.status, 200); assert.equal(scoring.data.session.scoreA, 1);
       const repeat = await request(api, `/api/live/sessions/${id}/commands`, { method: "POST", body: point.body });
       assert.equal(repeat.data.scoreA, 1);
       const conflict = await request(api, `/api/live/sessions/${id}/commands`, { method: "POST", body: { ...point.body, operationId: randomUUID() } });
@@ -93,6 +114,10 @@ for (const mode of ["sqlite", "postgres"]) {
       assert.equal((await send("finish")).res.status, 400);
       const finished = await send("finish", { streamEndedConfirmed: true });
       assert.equal(finished.res.status, 200); assert.equal(s.status, "finished"); assert.ok(s.matchId);
+      const endedChannel = await readChannel();
+      assert.equal(endedChannel.data.session.status, "finished");
+      assert.equal(endedChannel.data.session.matchId, s.matchId);
+      assert.equal((await request(api, `/api/live/channel-overlay/${otherToken}`)).data.session, null);
       const duplicatedEnd = await request(api, `/api/live/sessions/${id}/commands`, { method: "POST", body: finished.body });
       assert.equal(duplicatedEnd.data.matchId, s.matchId);
       const replay = await request(api, `/api/live/replay/${s.matchId}`, { user: "nobody" });
@@ -115,6 +140,16 @@ for (const mode of ["sqlite", "postgres"]) {
       // A failed final insert must roll back the session too, not leave it 'finished'.
       const secondId = randomUUID();
       s = (await request(api, "/api/live/sessions", { method: "POST", body: { id: secondId, teamA: ["p1", "p2"], teamB: ["p3", "p4"], nearTeam: "A", servingTeam: "A" } })).data;
+      const secondReady = await readChannel({ "if-none-match": firstReady.headers.ETag });
+      assert.equal(secondReady.status, 200, "a new game at revision zero must not reuse the old ETag");
+      assert.equal(secondReady.data.session.id, secondId);
+      assert.equal(secondReady.data.session.scoreA, 0);
+      await create(); // Retrying the previous game's creation must not switch the channel back.
+      assert.equal((await readChannel()).data.session.id, secondId);
+      assert.equal((await request(api, `/api/live/overlay/${repeat.data.overlayToken}`)).data.id, id);
+      assert.equal((await request(api, "/api/live/bootstrap")).data.channelToken, channelToken);
+      await api.initLiveApi();
+      assert.equal((await request(api, "/api/live/bootstrap")).data.channelToken, channelToken);
       const cmd = (type, extra = {}) => ({ type, operationId: randomUUID(), expectedRevision: s.revision, capturedAt: Date.now(), ...extra });
       s = (await request(api, `/api/live/sessions/${secondId}/commands`, { method: "POST", body: cmd("start") })).data;
       s = (await request(api, `/api/live/sessions/${secondId}/commands`, { method: "POST", body: cmd("point", { team: "B" }) })).data;
@@ -123,6 +158,16 @@ for (const mode of ["sqlite", "postgres"]) {
       const failed = await request(api, `/api/live/sessions/${secondId}/commands`, { method: "POST", body: cmd("finish", { streamEndedConfirmed: true }) });
       assert.equal(failed.status, 400);
       assert.equal((await request(api, `/api/live/sessions/${secondId}`)).data.status, "live");
+      assert.equal((await readChannel()).data.session.status, "live");
+      // An active game is adopted when an older installation first creates a channel.
+      if (mode === "postgres") await database.query("DELETE FROM live_channels WHERE owner_id='owner'");
+      else api.db.prepare("DELETE FROM live_channels WHERE owner_id='owner'").run();
+      const adoptedToken = (await request(api, "/api/live/bootstrap")).data.channelToken;
+      const adoptedPath = `/api/live/channel-overlay/${adoptedToken}`;
+      assert.equal((await request(api, adoptedPath)).data.session.id, secondId);
+      s = (await request(api, `/api/live/sessions/${secondId}/commands`, { method: "POST", body: cmd("cancel") })).data;
+      assert.equal((await request(api, adoptedPath)).data.session.status, "cancelled");
+      assert.equal((await request(api, `/api/live/channel-overlay/${otherToken}`)).data.session, null);
     } finally {
       if (database) await database.close(); else api.db.close();
     }

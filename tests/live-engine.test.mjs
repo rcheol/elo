@@ -42,10 +42,24 @@ test("no automatic stop at 21 or 30, explicit confirmed finish only", () => {
   const s = fixture(); begin(s);
   for (let i = 0; i < 35; i++) send(s, "point", { team: "A" });
   assert.equal(s.status, "live");
-  assert.throws(() => send(s, "finish"), /PRISM/);
+  assert.throws(() => send(s, "finish"), /최종 점수/);
   send(s, "finish", { streamEndedConfirmed: true });
   assert.equal(s.status, "finished"); assert.equal(liveSnapshot(s).scoreA, 35);
   assert.throws(() => send(s, "point", { team: "A" }), /진행 중/);
+});
+
+test("a game can finish while broadcasting continues, with legacy retry compatibility", () => {
+  const s = fixture(); begin(s);
+  send(s, "point", { team: "A" });
+  const command = send(s, "finish", { matchEndedConfirmed: true });
+  assert.equal(s.status, "finished");
+  assert.equal(s.streamEndMode, "match-only");
+  assert.equal(applyLiveCommand(s, command), false);
+  const old = fixture(); begin(old);
+  send(old, "point", { team: "B" });
+  const legacy = send(old, "finish", { streamEndedConfirmed: true });
+  assert.equal(old.streamEndMode, "user-confirmed");
+  assert.equal(applyLiveCommand(old, legacy), false);
 });
 test("retries are idempotent and stale/different commands are rejected", () => {
   const s = fixture(); begin(s);

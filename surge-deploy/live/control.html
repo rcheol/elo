@@ -17,6 +17,7 @@
       <label>비밀번호<input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">로그인</button>
     </form>
+    <div class="overlay-link" id="overlayLink" hidden><label>PRISM 고정 점수판<input id="overlayUrl" readonly></label><button id="copy" type="button" title="고정 점수판 주소 복사" aria-label="고정 점수판 주소 복사"><i data-lucide="copy">⧉</i></button></div>
     <form id="setup" hidden>
       <div class="team-setup">
         <fieldset><legend>A팀</legend><label>왼쪽 · 네트를 바라보는 기준<select name="aLeft" required></select></label><label>오른쪽<select name="aRight" required></select></label></fieldset>
@@ -41,7 +42,6 @@
       <h2>다음 서브 기준 위치</h2>
       <p id="serve"></p>
       <div class="court" id="court" aria-label="코트 위치"></div>
-      <div class="overlay-link"><label>PRISM 웹 점수판<input id="overlayUrl" readonly></label><button id="copy" type="button" title="점수판 주소 복사" aria-label="점수판 주소 복사"><i data-lucide="copy">⧉</i></button></div>
       <form id="video">
         <h2>중계 영상</h2>
         <label>YouTube 라이브 링크<input name="youtubeUrl" type="url" placeholder="https://www.youtube.com/live/..." required></label>
@@ -54,8 +54,7 @@
     </section>
     <dialog id="endDialog">
       <h2>경기 종료</h2><p id="finalScore"></p>
-      <p>방송 중이라면 먼저 PRISM에서 종료해 주세요.</p>
-      <label class="check"><input id="streamStopped" type="checkbox">방송을 종료했거나, 방송 없이 기록한 경기입니다.</label>
+      <label class="check"><input id="matchEnded" type="checkbox">이 경기의 최종 점수를 확인했습니다.</label>
       <p id="endStatus" role="status" aria-live="polite"></p>
       <div class="toolbar"><button id="endCancel" type="button">돌아가기</button><button id="endConfirm" type="button" disabled>최종 기록 저장</button></div>
     </dialog>

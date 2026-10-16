@@ -29,6 +29,11 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("https://unpkg.com/**", (route) => route.abort());
   await page.goto(`${origin}/live/control.html`);
+  await page.waitForFunction(() => document.querySelector("#overlayUrl").value.includes("#channel/"));
+  const fixedUrl = await page.locator("#overlayUrl").inputValue();
+  const overlay = await context.newPage();
+  await overlay.goto(fixedUrl);
+  await overlay.waitForFunction(() => document.querySelector("#status").textContent === "다음 경기 대기");
   await page.locator('[name="aLeft"]').selectOption("p1");
   await page.locator('[name="aRight"]').selectOption("p2");
   await page.locator('[name="bLeft"]').selectOption("p3");
@@ -40,7 +45,7 @@ try {
   await page.locator("#pointB").click();
   await page.waitForFunction(() => document.querySelector("#scoreB").textContent === "1");
   await page.locator("#finish").click();
-  await page.locator("#streamStopped").check();
+  await page.locator("#matchEnded").check();
   await page.locator("#endConfirm").click();
   await page.waitForFunction(() => document.querySelector("#endStatus").textContent.includes("동점"));
   assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM matches").get().n, 0);
@@ -52,8 +57,7 @@ try {
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.screenshot({ path: fileURLToPath(new URL(`control-${width}.png`, output)), fullPage: true });
   }
-  const overlay = await context.newPage();
-  await overlay.goto(await page.locator("#overlayUrl").inputValue());
+  assert.equal(await page.locator("#overlayUrl").inputValue(), fixedUrl);
   await overlay.waitForFunction(() => document.querySelector("#scoreA").textContent === "1");
   await overlay.screenshot({ path: fileURLToPath(new URL("overlay.png", output)), omitBackground: true });
   await page.locator('[name="youtubeUrl"]').fill("https://youtu.be/nf_W8XZa_mg");
@@ -63,7 +67,7 @@ try {
   await page.locator("#finish").click();
   assert.equal(await page.locator("#endConfirm").isDisabled(), true);
   assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM matches").get().n, 0);
-  await page.locator("#streamStopped").check();
+  await page.locator("#matchEnded").check();
   assert.equal(await page.locator("#endConfirm").isEnabled(), true);
   // The server commits, but the phone loses the response. A second tap must not duplicate a match.
   const finishIds = [];
@@ -87,6 +91,7 @@ try {
   assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM matches").get().n, 1);
   await page.locator("#endConfirm").click();
   await page.waitForFunction(() => !document.querySelector("#replay").hidden);
+  await overlay.waitForFunction(() => document.querySelector("#status").textContent.includes("경기 종료"));
   assert.equal(finishIds.length, 2); assert.equal(finishIds[0], finishIds[1]);
   assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM matches").get().n, 1);
   const savedId = api.db.prepare("SELECT id FROM matches").get().id;
@@ -97,10 +102,30 @@ try {
   assert.equal(await ranking.locator(`#historyList [data-match-id="${savedId}"]`).count(), 1);
   assert.equal(await ranking.locator('#historyList .score-badge').first().textContent(), "1");
   await ranking.close();
-  await page.locator("#replay").click();
-  await page.waitForFunction(() => document.querySelector("#timeline")?.children.length === 1);
-  assert.match(await page.locator("#timeline").textContent(), /A팀 득점/);
-  await page.screenshot({ path: fileURLToPath(new URL("replay.png", output)), fullPage: true });
+  const replay = await context.newPage();
+  await replay.goto(origin + await page.locator("#replay").getAttribute("href"));
+  await replay.waitForFunction(() => document.querySelector("#timeline")?.children.length === 1);
+  assert.match(await replay.locator("#timeline").textContent(), /A팀 득점/);
+  await replay.screenshot({ path: fileURLToPath(new URL("replay.png", output)), fullPage: true });
+  await replay.close();
+  await page.locator("#new").click();
+  assert.equal(await page.locator("#overlayUrl").inputValue(), fixedUrl);
+  await page.locator('[name="aLeft"]').selectOption("p3");
+  await page.locator('[name="aRight"]').selectOption("p4");
+  await page.locator('[name="bLeft"]').selectOption("p1");
+  await page.locator('[name="bRight"]').selectOption("p2");
+  await page.locator('#setup button[type="submit"]').click();
+  await overlay.waitForFunction(() => document.querySelector("#status").textContent === "경기 준비");
+  assert.equal(await overlay.locator("#scoreA").textContent(), "0");
+  assert.match(await overlay.locator("#namesA").textContent(), /테스트 선수 다/);
+  await page.locator("#start").click();
+  await page.locator("#pointB").click();
+  await overlay.waitForFunction(() => document.querySelector("#scoreB").textContent === "1");
+  await page.reload();
+  await page.waitForFunction(() => !document.querySelector("#pointB").disabled);
+  assert.equal(await page.locator("#overlayUrl").inputValue(), fixedUrl);
+  assert.equal(overlay.url(), fixedUrl);
+  assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM matches").get().n, 1);
   assert.deepEqual(errors, []);
-  console.log("Live UI: scoring, confirmation, lost-save response retry, homepage record and replay passed at 320/390/1365px");
+  console.log("Live UI: fixed scoreboard followed two games without reloading; saving, retry, record and replay passed at 320/390/1365px");
 } finally { await browser.close(); await new Promise((resolve) => api.server.close(resolve)); api.db.close(); }

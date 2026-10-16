@@ -3,7 +3,7 @@
 ## Confirmed scope
 
 - One Android phone runs PRISM camera broadcasting and a movable HoneyServe score remote.
-- The user stops the broadcast in PRISM, then confirms the final score in HoneyServe.
+- The user confirms each game's final score in HoneyServe. PRISM can keep broadcasting across games.
 - No automatic end at 21, deuce, or 30. A tied score cannot enter the existing ELO ranking; continue or cancel without a result.
 - This is one game per session, not a best-of-three match engine.
 
@@ -32,7 +32,8 @@ with unsent scores. A future release needs a stable private signing key stored o
 1. Log in to HoneyServe in the APK. Select two players on each team. Left/right mean each team's
    perspective facing the net, not camera-left for both teams. Select the first serving team and
    the team closest to the camera. The initial right player serves at 0:0.
-2. Choose `중계 준비`. Copy the PRISM web scoreboard URL.
+2. Copy the `PRISM 고정 점수판` URL. It belongs to the signed-in scoring account, not an individual game.
+   Choose `중계 준비` to send that game's players and 0:0 score to the fixed scoreboard.
 3. In PRISM, add a Web Browser Widget using that URL. It has a transparent background.
    Use camera broadcast mode, not full screen capture: screen capture may record the floating controls.
 4. In HoneyServe choose `점수 리모컨 띄우기` before broadcasting. Grant Android's display-over-other-apps
@@ -40,10 +41,13 @@ with unsent scores. A future release needs a stable private signing key stored o
    Tap `시작` on the floating remote without leaving PRISM. Drag the remote by its title.
 5. Tap A+1 or B+1 after each rally. The displayed server/positions refer to the next service,
    not actual player tracking during a rally. The undo arrow reverts the last point or court switch.
-6. End the broadcast in PRISM. Tap `종료` on the remote and confirm the score. Check the confirmation
-   that broadcasting has ended, or that this was a game recorded without broadcasting. This enables
+6. Tap `종료` on the remote and confirm that this game's final score is correct. PRISM can stay live.
+   This enables
    `최종 기록 저장`. Errors and pending saves stay visible in the dialog. Exactly one match is inserted
    and the normal ELO recalculation runs. `저장된 경기 기록 보기` opens that match in the ranking website.
+   For another game, choose `새 경기`, select the players and choose `중계 준비`. The same PRISM
+   widget switches to the new game automatically. Reopen the floating remote for that game.
+   End the PRISM broadcast separately when the entire session is over.
 7. Paste the YouTube live/VOD link in the controller. Enter the video timestamp (in seconds) at which
    `경기 시작` was tapped. It can be corrected after the match; start delays and video trimming make
    automatic wall-clock-to-VOD synchronization unreliable without YouTube metadata.
@@ -65,8 +69,14 @@ An unanswered save can be retried with the same operation ID without inserting a
 ## Data and recovery
 
 - `live_sessions` is separate from `app_state`. Frequent overlay reads do not download rankings,
-  profiles, or video-analysis frames. A 2-second ETag poll returns 304 if unchanged and stops on finish.
+  profiles, or video-analysis frames. The account's fixed token and current game pointer are stored
+  in `live_channels`. A 2-second ETag poll returns 304 if unchanged; between games it polls every
+  5 seconds and keeps the final score until the next game is prepared. Session IDs are part of ETags
+  so identical revision numbers in different games cannot hide the transition.
+- Existing per-game overlay URLs still work for their original game and stop on finish. Replace the
+  PRISM URL once with the new `#channel/...` URL to enable continuous games; no APK reinstall is needed.
 - The read-only, unguessable overlay URL reveals only scoreboard data. It never authorizes writes.
+  Anyone holding the fixed URL can also view future games scored by that account.
   Scoring requires the owner's unexpired login cookie. Other members and admins cannot control it.
 - UUID operation keys and revision checks reject duplicate/conflicting operations. Android persists
   pending commands before sending, retries with the same key, and shows the last server-confirmed
@@ -86,7 +96,7 @@ An unanswered save can be retried with the same operation ID without inserting a
 
 ```powershell
 $env:PGLITE_TEST_MODULE = ([System.Uri](Join-Path (Get-Location) 'tmp/pg-regression/node_modules/@electric-sql/pglite/dist/index.js')).AbsoluteUri
-node --test tests/live-engine.test.mjs tests/live-api.test.mjs tests/video-bandwidth.test.mjs tests/video-polling.test.mjs tests/video-review.test.mjs
+node --test tests/live-engine.test.mjs tests/live-api.test.mjs tests/live-overlay.test.mjs tests/live-refresh.test.mjs tests/video-bandwidth.test.mjs tests/video-polling.test.mjs tests/video-review.test.mjs
 $env:PLAYWRIGHT_TEST_MODULE = ([System.Uri](Join-Path (Get-Location) 'tmp/review-ui/node_modules/playwright/index.mjs')).AbsoluteUri
 node tests/live-ui.mjs
 ```
