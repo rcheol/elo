@@ -49,13 +49,15 @@
         <button type="submit">영상 연결 · 시간 보정</button>
       </form>
       <a id="replay" hidden>중계 영상 · 득점 타임라인</a>
+      <p><a id="savedMatch" hidden>저장된 경기 기록 보기</a></p>
       <button id="new" type="button" hidden>새 경기</button>
     </section>
     <dialog id="endDialog">
       <h2>경기 종료</h2><p id="finalScore"></p>
-      <p>먼저 PRISM에서 방송을 종료해 주세요. 이 확인 버튼은 PRISM이나 YouTube 방송을 자동으로 끄지 않습니다.</p>
-      <label class="check"><input id="streamStopped" type="checkbox">PRISM 방송 종료를 확인했습니다.</label>
-      <div class="toolbar"><button id="endCancel" type="button">돌아가기</button><button id="endConfirm" type="button">최종 기록 저장</button></div>
+      <p>방송 중이라면 먼저 PRISM에서 종료해 주세요.</p>
+      <label class="check"><input id="streamStopped" type="checkbox">방송을 종료했거나, 방송 없이 기록한 경기입니다.</label>
+      <p id="endStatus" role="status" aria-live="polite"></p>
+      <div class="toolbar"><button id="endCancel" type="button">돌아가기</button><button id="endConfirm" type="button" disabled>최종 기록 저장</button></div>
     </dialog>
   </main>
   <script type="module" src="./control.js"></script>

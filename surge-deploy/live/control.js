@@ -5,12 +5,35 @@ let busy = false;
 const icons = () => window.lucide?.createIcons();
 const status = (message, error = false) => { $("#status").textContent = message; $("#status").classList.toggle("error", error); };
 async function request(path, body) {
-  const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...(body ? {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  } : {}) });
-  const data = await response.json();
-  if (!response.ok) { const error = new Error(data.message || data.error); error.status = response.status; throw error; }
-  return data;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(path, { signal: controller.signal, credentials: "same-origin", cache: "no-store", ...(body ? {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    } : {}) });
+    const data = await response.json();
+    if (!response.ok) { const error = new Error(data.message || data.error || `서버 오류 (${response.status})`); error.status = response.status; throw error; }
+    return data;
+  } catch (error) {
+    if (!error.status) throw new Error("서버 응답을 확인하지 못했습니다. 연결 확인 후 다시 누르면 같은 요청으로 재확인합니다.");
+    throw error;
+  } finally { clearTimeout(timeout); }
+}
+function endStatus(message, error = false) {
+  $("#endStatus").textContent = message;
+  $("#endStatus").classList.toggle("error", error);
+}
+function syncFinishControls() {
+  $("#endConfirm").disabled = busy || !$("#streamStopped").checked || current?.status !== "live";
+  $("#endConfirm").textContent = busy ? "저장 중…" : "최종 기록 저장";
+  $("#endCancel").disabled = busy;
+  $("#streamStopped").disabled = busy;
+}
+function announceSavedMatch() {
+  if (current?.status !== "finished" || !current.matchId) return false;
+  status(`경기 기록 저장 완료 · A ${current.scoreA} : ${current.scoreB} B`);
+  localStorage.setItem("honey-live-match-saved", JSON.stringify({ matchId: current.matchId, at: Date.now() }));
+  return true;
 }
 function render() {
   $("#setup").hidden = Boolean(current);
@@ -27,7 +50,7 @@ function render() {
   $("#serve").textContent = `${name(current.serverId)} 서브 · ${current.serviceSide === "right" ? "오른쪽" : "왼쪽"} → ${name(current.receiverId)}`;
   const near = current.nearTeam;
   const far = near === "A" ? "B" : "A";
-  const order = [...current.positions[far].toReversed(), ...current.positions[near]];
+  const order = [...current.positions[far]].reverse().concat(current.positions[near]);
   $("#court").replaceChildren(...order.map((id, index) => {
     const cell = document.createElement("div");
     const label = document.createElement("small");
@@ -39,7 +62,10 @@ function render() {
   $("#overlayUrl").value = `${location.origin}/live/overlay.html#${current.overlayToken}`;
   $("#replay").hidden = !current.matchId;
   if (current.matchId) $("#replay").href = `/live/replay.html?match=${encodeURIComponent(current.matchId)}`;
+  $("#savedMatch").hidden = current.status !== "finished" || !current.matchId;
+  if (current.matchId) $("#savedMatch").href = `/?match=${encodeURIComponent(current.matchId)}#historyTitle`;
   localStorage.setItem(`honey-live-last:${user.id}`, current.id);
+  syncFinishControls();
   icons();
 }
 async function load() {
@@ -60,29 +86,38 @@ async function load() {
     render();
     if (current?.videoId) $("#video").youtubeUrl.value = `https://www.youtube.com/watch?v=${current.videoId}`;
     $("#video").videoOffsetSeconds.value = current?.videoOffsetSeconds || 0;
-    status(current?.status === "finished" ? "경기 기록 저장 완료" : "연결됨");
+    if (!announceSavedMatch()) status(current?.status === "live" ? "경기 진행 중 · 최종 기록 미저장" : "연결됨");
   } catch (error) {
     if (error.status === 401) $("#login").hidden = false;
     status(error.status === 401 ? "허니서브 계정으로 로그인하세요." : error.message, error.status !== 401);
   }
 }
 async function command(type, extra = {}) {
-  if (busy || !current) return;
-  const body = { operationId: crypto.randomUUID(), expectedRevision: current.revision, type,
-    capturedAt: Date.now(), ...extra };
-  busy = true; render();
+  if (busy || !current) return false;
   const key = `honey-live-pending:${user.id}:${current.id}`;
+  busy = true;
   try {
-    const pending = localStorage.getItem(key);
-    if (pending) throw new Error("미확인 조작이 있습니다. 페이지를 새로고침하여 재전송하세요.");
+    render();
+    const pending = JSON.parse(localStorage.getItem(key) || "null");
+    if (pending && (pending.type !== type || pending.team !== extra.team)) throw new Error("다른 미확인 조작이 있습니다. 페이지를 새로고침하여 먼저 복구하세요.");
+    // An uncertain response must reuse its operation ID, even when the user retries without reloading.
+    const body = pending || { operationId: crypto.randomUUID(), expectedRevision: current.revision, type,
+      capturedAt: Date.now(), ...extra };
     localStorage.setItem(key, JSON.stringify(body));
     current = await request(`/api/live/sessions/${current.id}/commands`, body);
     localStorage.removeItem(key);
-    status(type === "finish" ? "경기 기록 저장 완료" : "반영됨");
+    if (type === "finish" && !announceSavedMatch()) throw new Error("경기 저장 결과를 확인하지 못했습니다. 새로고침 후 기록을 확인하세요.");
+    if (type !== "finish") status("반영됨 · 최종 기록은 종료 후 저장됩니다.");
+    return true;
   } catch (error) {
-    if (error.status) localStorage.removeItem(key);
+    if (error.status >= 400 && error.status < 500) localStorage.removeItem(key);
     status(error.message, true);
-    if (error.status === 409) current = await request(`/api/live/sessions/${current.id}`);
+    if (type === "finish") endStatus(error.message, true);
+    if (error.status === 409) {
+      try { current = await request(`/api/live/sessions/${current.id}`); }
+      catch (refreshError) { status(refreshError.message, true); }
+    }
+    return false;
   } finally { busy = false; render(); }
 }
 $("#login").addEventListener("submit", async (event) => {
@@ -108,14 +143,19 @@ $("#switch").onclick = () => command("switchEnds");
 $("#cancel").onclick = () => { if (confirm("랭킹에 저장하지 않고 이 중계를 취소할까요? 방송은 PRISM에서 별도로 종료하세요.")) command("cancel"); };
 $("#finish").onclick = () => {
   $("#finalScore").textContent = `A팀 ${current.scoreA} : ${current.scoreB} B팀`;
-  $("#streamStopped").checked = false; $("#endDialog").showModal();
+  $("#streamStopped").checked = false;
+  endStatus("종료 여부를 확인한 뒤 최종 기록을 저장하세요.");
+  syncFinishControls(); $("#endDialog").showModal();
 };
+$("#streamStopped").onchange = () => { endStatus($("#streamStopped").checked ? "" : "종료 여부를 확인해 주세요."); syncFinishControls(); };
+$("#endDialog").addEventListener("cancel", (event) => { if (busy) event.preventDefault(); });
 $("#endCancel").onclick = () => $("#endDialog").close();
 $("#endConfirm").onclick = async () => {
-  if (!$("#streamStopped").checked) return;
+  if (busy) return;
+  if (!$("#streamStopped").checked) { endStatus("방송 종료 또는 방송 없는 기록인지 확인해 주세요.", true); return; }
+  endStatus("서버에 경기 기록을 저장하는 중입니다.");
   await command("finish", { streamEndedConfirmed: true });
-  if (current.status === "finished") $("#endDialog").close();
-  else $("#finalScore").textContent = $("#status").textContent;
+  if (current.status === "finished" && current.matchId) { $("#endDialog").close(); announceSavedMatch(); }
 };
 $("#new").onclick = () => { localStorage.removeItem(`honey-live-last:${user.id}`); current = null; render(); status("새 경기"); };
 $("#copy").onclick = async () => {
@@ -129,8 +169,8 @@ if (current && user) {
   const key = `honey-live-pending:${user.id}:${current.id}`;
   const pending = localStorage.getItem(key);
   if (pending) {
-    try { current = await request(`/api/live/sessions/${current.id}/commands`, JSON.parse(pending)); localStorage.removeItem(key); render(); status("미확인 조작 복구 완료"); }
-    catch (error) { if (error.status) localStorage.removeItem(key); status(`이전 조작 확인 필요: ${error.message}`, true); }
+    try { current = await request(`/api/live/sessions/${current.id}/commands`, JSON.parse(pending)); localStorage.removeItem(key); render(); if (!announceSavedMatch()) status("미확인 조작 복구 완료"); }
+    catch (error) { if (error.status >= 400 && error.status < 500) localStorage.removeItem(key); status(`이전 조작 확인 필요: ${error.message}`, true); }
   }
 }
 document.addEventListener("visibilitychange", async () => {

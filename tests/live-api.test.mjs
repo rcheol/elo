@@ -13,7 +13,8 @@ async function isolated(mode) {
     .replace(/from "(\.\/[^\"]+)"/g, (_, name) => `from ${JSON.stringify(new URL(name, serverUrl).href)}`)
     + `\nexport { initDb, initLiveApi, db, sendError, normalizePostgresState, createDefaultPostgresState };
        export function setPool(pool) { pgPool = pool; }
-       export function invoke(req,res,url) { return liveApi(req,res,url); }`;
+       export function invoke(req,res,url) { return url.pathname === '/api/state'
+         ? (usePostgres ? handleApiPostgres(req,res,url) : handleApi(req,res,url)) : liveApi(req,res,url); }`;
   return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 }
 async function request(api, path, { user = "owner", method = "GET", body, headers = {} } = {}) {
@@ -96,6 +97,13 @@ for (const mode of ["sqlite", "postgres"]) {
       assert.equal(duplicatedEnd.data.matchId, s.matchId);
       const replay = await request(api, `/api/live/replay/${s.matchId}`, { user: "nobody" });
       assert.equal(replay.data.points.length, 1); assert.equal(replay.data.videoOffsetSeconds, 12.5);
+      const homepage = await request(api, "/api/state");
+      assert.equal(homepage.status, 200);
+      assert.equal(homepage.data.matches.filter((match) => match.id === s.matchId).length, 1);
+      const savedMatch = homepage.data.matches.find((match) => match.id === s.matchId);
+      assert.equal(savedMatch.scoreA, 1); assert.equal(savedMatch.scoreB, 0);
+      assert.equal(savedMatch.liveSessionId, id);
+      assert.equal(savedMatch.changes.length, 4);
       if (mode === "postgres") {
         const state = (await database.query("SELECT value FROM app_state WHERE key='state'")).rows[0].value;
         assert.equal(state.matches.length, 1); assert.equal(state.matches[0].liveSessionId, id);

@@ -79,6 +79,8 @@ let videoReviewDraft = null;
 let videoAnalysisPollTimer = null;
 let videoAnalysisPollInFlight = false;
 let videoAnalysisPollCache = null;
+let externalRefreshInFlight = false;
+let lastExternalRefresh = 0;
 let paginationState = {
   myHistory: 1,
   partnerStats: 1,
@@ -755,8 +757,33 @@ function applyStickerServerState(payload, scrollSnapshot = captureAppScroll()) {
   restoreAppScroll(scrollSnapshot);
 }
 
-async function refreshState() {
-  applyServerState(await apiFetch("/api/state"));
+async function refreshState(options = {}) {
+  applyServerState(await apiFetch("/api/state"), options);
+}
+
+async function refreshAfterExternalMatch() {
+  if (!window.badmintonEloAppReady || document.hidden || externalRefreshInFlight || Date.now() - lastExternalRefresh < 3000) return;
+  if (editingMatchId || stickerDrag || document.querySelector("dialog[open]")) return;
+  externalRefreshInFlight = true;
+  lastExternalRefresh = Date.now();
+  try { await refreshState({ preserveScroll: true }); }
+  catch (error) { showApiError(error); }
+  finally { externalRefreshInFlight = false; }
+}
+
+function revealLinkedMatch() {
+  const id = new URLSearchParams(location.search).get("match");
+  if (!id) return;
+  const index = sortedMatches().reverse().findIndex((match) => match.id === id);
+  if (index < 0) { showToast("해당 경기 기록을 찾을 수 없습니다."); return; }
+  paginationState.history = Math.floor(index / paginationPageSize) + 1;
+  renderHistory();
+  window.lucide?.createIcons();
+  const item = Array.from($("#historyList").children).find((element) => element.dataset.matchId === id);
+  if (item) {
+    item.tabIndex = -1;
+    window.requestAnimationFrame(() => { item.focus({ preventScroll: true }); item.scrollIntoView({ block: "center" }); });
+  }
 }
 
 function showApiError(error) {
@@ -4196,7 +4223,7 @@ function renderHistoryItem(match) {
     : "";
 
   return `
-    <li class="history-item">
+    <li class="history-item" data-match-id="${escapeHtml(match.id)}">
       <div class="history-date-group">
         <time class="history-date" datetime="${escapeHtml(matchPlayedAt(match))}">${formatDate(matchPlayedAt(match))}</time>
         ${actions ? `<div class="history-date-actions">${actions}</div>` : ""}
@@ -4689,6 +4716,7 @@ async function init() {
   render();
   try {
     await refreshState();
+    revealLinkedMatch();
     await resumeStoredVideoAnalysisJob();
   } catch (error) {
     showApiError(error);
@@ -4698,3 +4726,8 @@ async function init() {
 }
 
 init();
+
+// Refresh once on return from the scoring app, not on a periodic full-state poll.
+window.addEventListener("pageshow", (event) => { if (event.persisted) refreshAfterExternalMatch(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAfterExternalMatch(); });
+window.addEventListener("storage", (event) => { if (event.key === "honey-live-match-saved") refreshAfterExternalMatch(); });

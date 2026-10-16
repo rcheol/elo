@@ -40,8 +40,10 @@ with unsent scores. A future release needs a stable private signing key stored o
    Tap `시작` on the floating remote without leaving PRISM. Drag the remote by its title.
 5. Tap A+1 or B+1 after each rally. The displayed server/positions refer to the next service,
    not actual player tracking during a rally. The undo arrow reverts the last point or court switch.
-6. End the broadcast in PRISM. Tap `종료` on the remote, confirm the score and the broadcast-ended
-   checkbox, then save. Exactly one match is inserted and the normal ELO recalculation runs.
+6. End the broadcast in PRISM. Tap `종료` on the remote and confirm the score. Check the confirmation
+   that broadcasting has ended, or that this was a game recorded without broadcasting. This enables
+   `최종 기록 저장`. Errors and pending saves stay visible in the dialog. Exactly one match is inserted
+   and the normal ELO recalculation runs. `저장된 경기 기록 보기` opens that match in the ranking website.
 7. Paste the YouTube live/VOD link in the controller. Enter the video timestamp (in seconds) at which
    `경기 시작` was tapped. It can be corrected after the match; start delays and video trimming make
    automatic wall-clock-to-VOD synchronization unreliable without YouTube metadata.
@@ -54,6 +56,11 @@ keeps the camera active when the overlay receives touches, that the overlay is a
 broadcast video, and that the browser widget continues refreshing on the specific phone.
 Android/vendor battery restrictions, PRISM behavior, screen rotation, and interrupted networks
 still need actual-device acceptance testing. Web automation cannot verify those properties.
+
+APK 0.1.1 adds an explicit back-arrow button. It closes an open confirmation before navigating
+back; if there is no previous page, it opens the ranking homepage. Android's system Back uses the
+same behavior. Returning to a previously loaded homepage refreshes records without resetting scroll.
+An unanswered save can be retried with the same operation ID without inserting a duplicate match.
 
 ## Data and recovery
 

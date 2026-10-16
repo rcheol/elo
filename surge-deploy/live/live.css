@@ -17,6 +17,8 @@ button i { font-style: normal; font-size: 20px; }
 button[type=submit], #start, #endConfirm { background: #166848; color: white; border-color: #166848; }
 .danger { color: #ae3242; border-color: #da9ba4; }
 #status { min-height: 22px; font-size: 13px; overflow-wrap: anywhere; } #status.error { color: #b4263b; }
+#endStatus { min-height: 22px; overflow-wrap: anywhere; } #endStatus.error { color: #b4263b; }
+#savedMatch { display: inline-block; padding-block: 12px; font-weight: 700; }
 .team-setup, .two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 fieldset { margin: 0; padding: 12px; border: 1px solid #c6d1cb; min-width: 0; } legend { font-weight: 700; }
 .scoreboard { display: grid; grid-template-columns: 1fr 1fr; background: #fff; border-block: 1px solid #d5dfd9; }
