@@ -53,7 +53,7 @@
               <span class="section-kicker">Account</span>
               <h2 id="authTitle">계정</h2>
             </div>
-            <a href="/live/control.html">경기 중계</a>
+            <nav class="section-nav" aria-label="주요 섹션"><a href="#rankingsTitle">랭킹</a><a href="#broadcastTitle">경기 중계</a><a href="#historyTitle">경기 기록</a></nav>
           </div>
 
           <div id="authSignedOut" class="auth-grid">
@@ -295,6 +295,14 @@
           </div>
         </section>
 
+        <section class="board broadcast-board" aria-labelledby="broadcastTitle">
+          <div class="section-head">
+            <h2 id="broadcastTitle">경기 중계</h2>
+            <a class="icon-text-button" href="/live/control.html" title="중계 화면 크게 열기"><i data-lucide="maximize-2"></i><span>크게 보기</span></a>
+          </div>
+          <honey-live></honey-live>
+        </section>
+
         <section class="board rankings-board" aria-labelledby="rankingsTitle">
           <div class="section-head">
             <div>
@@ -398,13 +406,8 @@
           </form>
         </section>
 
-        <section class="board video-match-board" id="videoMatchPanel" aria-labelledby="videoMatchTitle">
-          <div class="section-head">
-            <div>
-              <span class="section-kicker">Video</span>
-              <h2 id="videoMatchTitle">유튜브 경기 입력</h2>
-            </div>
-          </div>
+        <details class="board video-match-board" id="videoMatchPanel">
+          <summary id="videoMatchTitle">영상 분석 · 실험 기능</summary>
           <div class="video-score-tool">
             <label>
               <span>유튜브 링크</span>
@@ -417,7 +420,7 @@
             <p id="videoScoreResult" class="video-score-result" aria-live="polite"></p>
             <div id="videoAnalysisPanel" class="video-analysis-panel" hidden></div>
           </div>
-        </section>
+        </details>
 
         <section class="board admin-users-board" id="adminUsers" aria-labelledby="adminUsersTitle" hidden>
           <div class="section-head">
@@ -550,6 +553,7 @@
     <div class="toast" id="toast" aria-live="polite"></div>
 
     <script src="./app.js"></script>
+    <script type="module" src="./live/home.js"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" async onload="window.lucide && window.lucide.createIcons()"></script>
   </body>
 </html>

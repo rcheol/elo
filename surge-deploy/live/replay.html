@@ -1,1 +1,41 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>허니서브 득점 영상</title><link rel="stylesheet" href="./live.css"></head><body><main class="live-shell"><header><a href="/">허니서브</a><h1>득점 타임라인</h1></header><p id="status" role="status">연결 중</p><div id="player" class="video-player"></div><div class="toolbar"><button id="playAll" disabled>득점 장면 이어보기</button><button id="stop" disabled>정지</button><a id="youtube" hidden target="_blank" rel="noopener noreferrer">YouTube에서 보기</a></div><ol id="timeline" class="timeline"></ol></main><script type="module" src="./replay.js"></script></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>허니서브 경기 상세 기록</title>
+  <link rel="stylesheet" href="./live.css">
+</head>
+<body>
+  <main class="live-shell">
+    <header><a id="back" href="/#historyTitle">경기 기록</a><h1>상세 기록</h1></header>
+    <p id="status" role="status" aria-live="polite">불러오는 중</p>
+    <section id="matchSummary" hidden>
+      <p id="matchDate" class="muted"></p>
+      <div class="match-summary"><div><span>A팀</span><strong id="namesA"></strong><b id="scoreA"></b></div><div><span>B팀</span><strong id="namesB"></strong><b id="scoreB"></b></div></div>
+      <p id="ledgerWarning" class="notice" hidden>수정된 최종 결과와 중계 당시 득점 기록이 다릅니다. 아래 시각은 원본 중계 기준입니다.</p>
+    </section>
+    <section class="detail-section">
+      <h2>경기 영상</h2>
+      <p id="videoNotice" class="muted"></p>
+      <form id="videoForm" hidden>
+        <label>YouTube 영상 링크<input name="youtubeUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." required></label>
+        <div id="timingFields" class="two-column">
+          <label>영상 시간 기준<select name="timingMode"><option value="auto">방송 시작 시각 자동 조회</option><option value="manual">직접 시간 지정</option></select></label>
+          <label id="manualOffset" hidden>경기 시작 장면의 영상 시간 (초)<input name="videoOffsetSeconds" type="number" min="-86400" max="86400" step="0.1" value="0"></label>
+        </div>
+        <button id="saveVideo" type="submit">영상 저장</button>
+        <p id="saveStatus" role="status" aria-live="polite"></p>
+      </form>
+      <div id="player" class="video-player" hidden></div>
+      <div class="toolbar"><button id="playAll" hidden disabled>득점 장면 이어보기</button><button id="stop" hidden disabled>정지</button><a id="youtube" hidden target="_blank" rel="noopener noreferrer">YouTube에서 보기</a></div>
+    </section>
+    <section class="detail-section">
+      <div class="timeline-heading"><h2>득점 시각</h2><div id="teamFilter" class="segmented" role="group" aria-label="득점 팀 필터"><button data-team="" aria-pressed="true">전체</button><button data-team="A" aria-pressed="false">A팀</button><button data-team="B" aria-pressed="false">B팀</button></div></div>
+      <p id="emptyTimeline" class="muted" hidden>이 경기에는 저장된 득점 시각이 없습니다.</p>
+      <ol id="timeline" class="timeline"></ol>
+    </section>
+  </main>
+  <script type="module" src="./details.js"></script>
+</body>
+</html>

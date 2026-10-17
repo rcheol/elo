@@ -13,7 +13,7 @@ async function isolated(mode) {
     .replace(/from "(\.\/[^\"]+)"/g, (_, name) => `from ${JSON.stringify(new URL(name, serverUrl).href)}`)
     + `\nexport { initDb, initLiveApi, db, sendError, normalizePostgresState, createDefaultPostgresState };
        export function setPool(pool) { pgPool = pool; }
-       export function invoke(req,res,url) { return url.pathname === '/api/state'
+       export function invoke(req,res,url) { return !url.pathname.startsWith('/api/live/')
          ? (usePostgres ? handleApiPostgres(req,res,url) : handleApi(req,res,url)) : liveApi(req,res,url); }`;
   return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 }
@@ -147,6 +147,37 @@ for (const mode of ["sqlite", "postgres"]) {
       assert.equal(linked.status, 200);
       assert.equal(linked.data.videoOffsetSeconds, 12.5);
       assert.deepEqual(linked.data.points, savedPoints, "linking a video after finish never rewrites timestamps");
+      const detailsPath = `/api/live/matches/${s.matchId}`;
+      const details = await request(api, detailsPath, { user: "nobody" });
+      assert.equal(details.status, 200);
+      assert.equal(details.data.canEdit, false);
+      assert.equal(details.data.videoOffsetSeconds, 12.5);
+      assert.equal(details.data.timingMode, "manual");
+      assert.deepEqual(details.data.points, savedPoints);
+      assert.equal(details.data.ownerId, undefined);
+      assert.equal(details.headers["Cache-Control"], "no-store");
+      assert.equal((await request(api, detailsPath)).data.canEdit, true);
+      const videoBody = { youtubeUrl: "https://youtu.be/nf_W8XZa_mg", timingMode: "manual", videoOffsetSeconds: 60.5, operationId: randomUUID(), expectedRevision: 0 };
+      const saveVideo = (body = videoBody, user = "owner", headers = {}) => request(api, detailsPath + "/video", { method: "POST", body, user, headers });
+      assert.equal((await saveVideo(videoBody, "nobody")).status, 401);
+      assert.equal((await saveVideo(videoBody, "other")).status, 403);
+      assert.equal((await saveVideo(videoBody, "owner", { origin: "https://evil.test" })).status, 403);
+      assert.equal((await saveVideo({ ...videoBody, youtubeUrl: "https://evil.test/video" })).status, 400);
+      assert.equal((await saveVideo({ ...videoBody, videoOffsetSeconds: "60" })).status, 400);
+      const media = await saveVideo();
+      assert.equal(media.status, 200);
+      assert.equal(media.data.videoOffsetSeconds, 60.5);
+      assert.deepEqual(media.data.points, savedPoints);
+      assert.equal((await saveVideo()).data.mediaRevision, 1, "uncertain saves are idempotent");
+      assert.equal((await saveVideo({ ...videoBody, videoOffsetSeconds: 70 })).status, 409);
+      assert.equal((await saveVideo({ ...videoBody, operationId: randomUUID() })).status, 409, "stale revision cannot overwrite a video");
+      const automatic = await saveVideo({ ...videoBody, expectedRevision: 1, operationId: randomUUID(), timingMode: "auto" });
+      assert.equal(automatic.status, 200);
+      assert.equal(automatic.data.videoOffsetSeconds, null, "missing API key never silently seeks to zero");
+      assert.ok(automatic.data.timingNotice);
+      await api.initLiveApi();
+      assert.equal((await request(api, detailsPath)).data.mediaRevision, 2);
+      assert.deepEqual((await request(api, detailsPath)).data.points, savedPoints);
       const homepage = await request(api, "/api/state");
       assert.equal(homepage.status, 200);
       assert.equal(homepage.data.matches.filter((match) => match.id === s.matchId).length, 1);
@@ -193,6 +224,33 @@ for (const mode of ["sqlite", "postgres"]) {
       s = (await request(api, `/api/live/sessions/${secondId}/commands`, { method: "POST", body: cmd("cancel") })).data;
       assert.equal((await request(api, adoptedPath)).data.session.status, "cancelled");
       assert.equal((await request(api, `/api/live/channel-overlay/${otherToken}`)).data.session, null);
+      // Ordinary manually entered matches can attach a video without fabricated point timestamps.
+      if (mode === "postgres") await database.query("UPDATE app_state SET value=jsonb_set(value,'{players,0,seedRating}','1500'::jsonb) WHERE key='state'");
+      else api.db.prepare("UPDATE players SET seed_rating=1500 WHERE id='p1'").run();
+      const ordinary = await request(api, "/api/matches", { method: "POST", body: { teamA: ["p1", "p2"], teamB: ["p3", "p4"], scoreA: 21, scoreB: 13, playedAt: new Date().toISOString() } });
+      assert.equal(ordinary.status, 201);
+      const manualMatch = ordinary.data.matches.find((match) => !match.liveSessionId);
+      assert.ok(manualMatch);
+      const plainPath = `/api/live/matches/${manualMatch.id}`;
+      assert.deepEqual((await request(api, plainPath)).data.points, []);
+      const plainVideo = await request(api, plainPath + "/video", { method: "POST", body: { ...videoBody, timingMode: "auto", operationId: randomUUID() } });
+      assert.equal(plainVideo.status, 200);
+      assert.equal(plainVideo.data.videoId, "nf_W8XZa_mg");
+      assert.equal(plainVideo.data.videoOffsetSeconds, null);
+      assert.deepEqual(plainVideo.data.points, []);
+      assert.equal((await request(api, `/api/live/matches/${randomUUID()}`)).status, 404);
+      if (mode === "postgres") await database.query("UPDATE app_state SET value=jsonb_set(value,'{users,1,role}','\"admin\"'::jsonb) WHERE key='state'");
+      else api.db.prepare("UPDATE users SET role='admin' WHERE id='other'").run();
+      assert.equal((await request(api, detailsPath, { user: "other" })).data.canEdit, true);
+      assert.equal((await saveVideo({ ...videoBody, expectedRevision: 2, operationId: randomUUID() }, "other")).status, 200);
+      const edited = await request(api, `/api/matches/${savedMatch.id}`, { user: "other", method: "PUT", body: { teamA: ["p1", "p2"], teamB: ["p3", "p4"], scoreA: 21, scoreB: 15, playedAt: savedMatch.playedAt } });
+      assert.equal(edited.status, 200);
+      const revised = await request(api, detailsPath);
+      assert.equal(revised.data.scoreA, 21);
+      assert.equal(revised.data.timelineMismatch, true);
+      assert.deepEqual(revised.data.points, savedPoints, "editing final results never rewrites the live ledger");
+      assert.equal((await request(api, `/api/matches/${savedMatch.id}`, { user: "other", method: "DELETE" })).status, 200);
+      assert.equal((await request(api, detailsPath)).status, 404, "deleted matches no longer expose video metadata");
     } finally {
       if (database) await database.close(); else api.db.close();
     }

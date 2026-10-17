@@ -1,4 +1,53 @@
-# Same-phone live scoring: first version
+# HoneyServe live scoring
+
+## Website-first workflow (2026-10-17)
+
+The preferred setup is now two phones: PRISM on the camera phone, HoneyServe in a
+browser on the scoring phone. The APK is optional; no Google login is required
+on the scoring phone. Existing APKs and fixed PRISM widget addresses still work.
+
+1. Log in on the homepage and open `경기 중계`. Select the four players, their
+   starting left/right positions, first serving team and near court.
+2. Copy `PRISM LIVE 자막 · 고정 주소` into PRISM's Web Browser Widget once. The
+   address belongs to this scoring account and follows successive games.
+3. Choose `중계 준비`, then `경기 시작`. Tap A/B after each point. Use undo for a
+   mistaken tap and court switch when the teams change ends.
+4. Choose `종료`, confirm the final score, then save. Final score, ELO and the
+   point ledger are committed atomically. PRISM may keep broadcasting. Choose
+   `새 경기` for the next game without changing the widget URL.
+5. Every match in both history sections now has `상세 기록`. The creator or an
+   admin can add a YouTube link there, including to an old manually entered match.
+6. For a saved point ledger, the server looks up YouTube's actual broadcast start
+   using `YOUTUBE_API_KEY`. Video time is point capture time minus actual broadcast
+   start. A single broadcast can therefore cover several separately saved games.
+   Missing/private/non-live video metadata never silently becomes a zero offset.
+   Select manual timing when needed: enter the video's time in seconds at the
+   game-start tap (negative values are allowed if the game began before streaming).
+7. Select all/A/B points, open individual YouTube timestamp links, or use
+   `득점 장면 이어보기` (8 seconds before to 3 seconds after each scoring tap).
+   These are timed playback windows, not extracted video files or detected rallies.
+
+`live_match_media` stores per-match video metadata separately from the original
+ledger and ELO. Writes require creator/admin authentication and revision/operation
+checks; detail views are public like the rankings. Replacing a video cannot change
+the scoring timestamps. If someone edits the final teams or score, the detail
+screen warns that the original point ledger differs. Ordinary matches without a
+ledger show no invented timestamps. Deleting a match makes its detail return 404.
+
+The API key stays server-side and is limited to YouTube Data API v3. Successful
+lookups are cached for one hour; missing metadata/errors for 30 seconds. Only an
+explicit video save performs a lookup; homepage polling does not call YouTube.
+Phone clock errors, human tap delay, stream latency and trimmed VODs may still
+require manual correction. Test one real recording before relying on alignment.
+
+The experimental automatic video-analysis section is collapsed by default. The
+homepage uses the same controller in Shadow DOM, not an iframe or nested page
+scroller. Saving refreshes match history while preserving scroll position.
+
+## Legacy same-phone APK
+
+The following setup remains supported, but the website workflow above does not
+need floating Android controls. Add videos through `상세 기록` after saving.
 
 ## Confirmed scope
 
@@ -48,10 +97,9 @@ with unsent scores. A future release needs a stable private signing key stored o
    For another game, choose `새 경기`, select the players and choose `중계 준비`. The same PRISM
    widget switches to the new game automatically. Reopen the floating remote for that game.
    End the PRISM broadcast separately when the entire session is over.
-7. Paste the YouTube live/VOD link in the controller. Enter the video timestamp (in seconds) at which
-   `경기 시작` was tapped. It can be corrected after the match; start delays and video trimming make
-   automatic wall-clock-to-VOD synchronization unreliable without YouTube metadata.
-8. Saving shows `저장된 득점 시각` in the controller. Open `득점 시각 · 영상 보기` in the website's
+7. Open the saved match's `상세 기록` and paste the YouTube live/VOD link. Choose automatic
+   broadcast start lookup or enter the video time of the game-start tap manually.
+8. Saving shows `저장된 득점 시각` in the controller. Open `상세 기록` in the website's
    match history to see the same saved ledger, including without a YouTube link. Each point shows its
    team, running score, button-tap date/time in KST and elapsed game time. Linking a video later does
    not change those saved timestamps. Video time is elapsed game time plus the configured offset;
@@ -98,13 +146,14 @@ An unanswered save can be retried with the same operation ID without inserting a
 - Existing match edits change ELO but do not rewrite the original scoring ledger. A deleted match's
   public replay endpoint returns 404. Registered sessions are not recreated by retrying finish.
 - Browser controllers retain the last session per account. APK cookies and queue are app-private and
-  excluded from Android backup. No Google tokens or keys are stored or required in this version.
+  excluded from Android backup. No Google tokens or keys are stored on the scoring phone; automatic
+  video timing uses the optional server-side `YOUTUBE_API_KEY`.
 
 ## Verification
 
 ```powershell
 $env:PGLITE_TEST_MODULE = ([System.Uri](Join-Path (Get-Location) 'tmp/pg-regression/node_modules/@electric-sql/pglite/dist/index.js')).AbsoluteUri
-node --test tests/live-engine.test.mjs tests/live-api.test.mjs tests/live-timeline.test.mjs tests/live-overlay.test.mjs tests/live-refresh.test.mjs tests/video-bandwidth.test.mjs tests/video-polling.test.mjs tests/video-review.test.mjs
+node --test tests/live-engine.test.mjs tests/live-api.test.mjs tests/live-timeline.test.mjs tests/live-overlay.test.mjs tests/live-refresh.test.mjs tests/youtube-timing.test.mjs tests/video-bandwidth.test.mjs tests/video-polling.test.mjs tests/video-review.test.mjs
 $env:PLAYWRIGHT_TEST_MODULE = ([System.Uri](Join-Path (Get-Location) 'tmp/review-ui/node_modules/playwright/index.mjs')).AbsoluteUri
 node tests/live-ui.mjs
 ```
@@ -120,6 +169,7 @@ These tests use isolated databases; they never insert test games into production
 - AGP compatibility: https://developer.android.com/build/releases/agp-8-9-0-release-notes
 - Free public runners: https://docs.github.com/en/billing/concepts/product-billing/github-actions
 - YouTube playback API: https://developers.google.com/youtube/iframe_api_reference
+- YouTube actual broadcast start: https://developers.google.com/youtube/data/docs/videos#liveStreamingDetails.actualStartTime
 
 Future optional single-button YouTube completion requires OAuth and the channel owner's consent:
 https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/transition

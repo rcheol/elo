@@ -80,6 +80,7 @@ let videoAnalysisPollTimer = null;
 let videoAnalysisPollInFlight = false;
 let videoAnalysisPollCache = null;
 let externalRefreshInFlight = false;
+let externalRefreshQueued = false;
 let lastExternalRefresh = 0;
 let paginationState = {
   myHistory: 1,
@@ -761,14 +762,18 @@ async function refreshState(options = {}) {
   applyServerState(await apiFetch("/api/state"), options);
 }
 
-async function refreshAfterExternalMatch() {
-  if (!window.badmintonEloAppReady || document.hidden || externalRefreshInFlight || Date.now() - lastExternalRefresh < 3000) return;
+async function refreshAfterExternalMatch(force = false) {
+  if (force === true && externalRefreshInFlight) { externalRefreshQueued = true; return; }
+  if (!window.badmintonEloAppReady || document.hidden || externalRefreshInFlight || (force !== true && Date.now() - lastExternalRefresh < 3000)) return;
   if (editingMatchId || stickerDrag || document.querySelector("dialog[open]")) return;
   externalRefreshInFlight = true;
   lastExternalRefresh = Date.now();
   try { await refreshState({ preserveScroll: true }); }
   catch (error) { showApiError(error); }
-  finally { externalRefreshInFlight = false; }
+  finally {
+    externalRefreshInFlight = false;
+    if (externalRefreshQueued) { externalRefreshQueued = false; await refreshAfterExternalMatch(true); }
+  }
 }
 
 function revealLinkedMatch() {
@@ -1617,6 +1622,7 @@ function applyMatchStats(table, ids, won, createdAt, changeMap) {
 }
 
 function playerAccountId(player) {
+  if (!player) return "";
   if (player?.accountUsername) {
     return player.accountUsername;
   }
@@ -1625,6 +1631,7 @@ function playerAccountId(player) {
 }
 
 function playerAccountRole(player) {
+  if (!player) return "";
   if (player?.accountRole) {
     return player.accountRole;
   }
@@ -3534,6 +3541,7 @@ function render(options = {}) {
 
 function renderAuth(standings) {
   const user = getCurrentUser();
+  window.dispatchEvent(new CustomEvent("honey-auth-change", { detail: user?.id || null }));
   $("#authSignedOut").hidden = Boolean(user);
   $("#authSignedIn").hidden = !user;
   $("#adminUsers").hidden = !isAdmin();
@@ -4218,9 +4226,8 @@ function renderHistoryItem(match) {
   const deleteButton = isAdmin()
     ? `<button class="icon-button" type="button" data-delete-match="${escapeHtml(match.id)}" aria-label="경기 삭제" title="경기 삭제"><i data-lucide="trash-2"></i><span class="visually-hidden">삭제</span></button>`
     : "";
-  const actions = editButton || deleteButton
-    ? `<div class="row-actions">${editButton}${deleteButton}</div>`
-    : "";
+  const detailLink = `<a href="/live/replay.html?match=${encodeURIComponent(match.id)}" class="history-detail-link" target="_blank" rel="noopener noreferrer"><i data-lucide="list-video"></i><span>상세 기록</span></a>`;
+  const actions = `<div class="row-actions">${detailLink}${editButton}${deleteButton}</div>`;
 
   return `
     <li class="history-item" data-match-id="${escapeHtml(match.id)}">
@@ -4229,7 +4236,6 @@ function renderHistoryItem(match) {
         ${actions ? `<div class="history-date-actions">${actions}</div>` : ""}
       </div>
       <div class="history-main">
-        ${match.liveSessionId ? `<a href="/live/replay.html?match=${encodeURIComponent(match.id)}" class="history-sub" target="_blank" rel="noopener noreferrer">득점 시각 · 영상 보기</a>` : ""}
         <div class="teams-line">
           <span class="team-name ${match.winner === "A" ? "team-name--winner" : ""}">${teamA}</span>
           <span class="score-badge">${match.scoreA}</span>
@@ -4731,3 +4737,4 @@ init();
 window.addEventListener("pageshow", (event) => { if (event.persisted) refreshAfterExternalMatch(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAfterExternalMatch(); });
 window.addEventListener("storage", (event) => { if (event.key === "honey-live-match-saved") refreshAfterExternalMatch(); });
+window.addEventListener("honey-live-match-saved", () => refreshAfterExternalMatch(true));

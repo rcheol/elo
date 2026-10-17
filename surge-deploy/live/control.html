@@ -17,7 +17,7 @@
       <label>비밀번호<input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">로그인</button>
     </form>
-    <div class="overlay-link" id="overlayLink" hidden><label>PRISM 고정 점수판<input id="overlayUrl" readonly></label><button id="copy" type="button" title="고정 점수판 주소 복사" aria-label="고정 점수판 주소 복사"><i data-lucide="copy">⧉</i></button></div>
+    <div class="overlay-link" id="overlayLink" hidden><label>PRISM LIVE 자막 · 고정 주소<input id="overlayUrl" readonly></label><button id="copy" type="button" title="고정 점수판 주소 복사" aria-label="고정 점수판 주소 복사"><i data-lucide="copy">⧉</i></button></div>
     <form id="setup" hidden>
       <div class="team-setup">
         <fieldset><legend>A팀</legend><label>왼쪽 · 네트를 바라보는 기준<select name="aLeft" required></select></label><label>오른쪽<select name="aRight" required></select></label></fieldset>
@@ -30,6 +30,7 @@
       <button type="submit">중계 준비</button>
     </form>
     <section id="session" hidden>
+      <div class="scoring-panel">
       <div class="scoreboard" aria-label="현재 점수"><div><span>A팀</span><strong id="scoreA">0</strong></div><div><span>B팀</span><strong id="scoreB">0</strong></div></div>
       <div class="toolbar">
         <button id="start" type="button">경기 시작</button>
@@ -39,16 +40,18 @@
         <button id="cancel" type="button">기록 없이 취소</button>
       </div>
       <div class="score-controls"><button id="pointA" type="button">A팀 +1</button><button id="pointB" type="button">B팀 +1</button></div>
-      <h2>다음 서브 기준 위치</h2>
+      </div>
+      <details class="court-details" open><summary>다음 서브 · 코트 위치</summary>
       <p id="serve"></p>
       <div class="court" id="court" aria-label="코트 위치"></div>
-      <form id="video">
+      </details>
+      <form id="video" hidden>
         <h2>중계 영상</h2>
         <label>YouTube 라이브 링크<input name="youtubeUrl" type="url" placeholder="https://www.youtube.com/live/..." required></label>
         <label>경기 시작 장면의 영상 시간 (초, 음수 보정 가능)<input name="videoOffsetSeconds" type="number" value="0" min="-86400" max="86400" step="0.1" required></label>
         <button type="submit">영상 연결 · 시간 보정</button>
       </form>
-      <a id="replay" hidden>득점 시각 · 영상 보기</a>
+      <a id="replay" hidden>상세 기록 · YouTube 연결</a>
       <p><a id="savedMatch" hidden>저장된 경기 기록 보기</a></p>
       <section id="savedTimeline" class="saved-timeline" hidden>
         <h2>저장된 득점 시각</h2>

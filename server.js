@@ -8,6 +8,8 @@ import { hasClaimableVideoJob, heartbeatVideoJob, readVideoJob, updatePostgresSt
 import { normalizeVideoReview, resolveVideoReview } from "./lib/video-review.js";
 import { LiveStore } from "./lib/live-store.js";
 import { createLiveApi } from "./lib/live-api.js";
+import { createMatchDetails } from "./lib/match-details.js";
+import { createYouTubeTiming } from "./lib/youtube-timing.js";
 import { LiveError, applyLiveCommand, liveSnapshot } from "./surge-deploy/live/engine.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -4915,7 +4917,18 @@ async function initLiveApi() {
       jsonb_array_elements(value->'matches') AS matches(match) WHERE key=$1 AND match->>'id'=$2) AS found`, [postgresStateKey, id]);
     return result.rows[0]?.found === true;
   };
-  liveApi = createLiveApi({ store, authenticate, players, matchExists, readBody: readJsonBody, sendJson,
+  const getMatch = async (id) => {
+    if (!usePostgres) {
+      const row = db.prepare("SELECT * FROM matches WHERE id=?").get(id);
+      return row ? matchFromRow(row) : null;
+    }
+    const result = await pgPool.query(`SELECT match FROM app_state,
+      jsonb_array_elements(value->'matches') AS matches(match) WHERE key=$1 AND match->>'id'=$2`, [postgresStateKey, id]);
+    return result.rows[0]?.match || null;
+  };
+  const matchDetails = createMatchDetails({ store, getMatch, players, authenticate, readBody: readJsonBody, sendJson,
+    youtubeTiming: createYouTubeTiming({ apiKey: process.env.YOUTUBE_API_KEY || "" }) });
+  liveApi = createLiveApi({ store, authenticate, players, matchExists, readBody: readJsonBody, sendJson, matchDetails,
     mutate: (id, command, user, req) => store.mutate(id, user.id, (session, client) => {
       const changed = applyLiveCommand(session, command);
       if (!changed || command.type !== "finish") return;

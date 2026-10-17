@@ -45,3 +45,34 @@ dialog::backdrop { background: #14241cb0; } dialog p { line-height: 1.55; font-s
 .timeline button { min-width: 100px; padding: 8px; } .timeline li.active { background: #e0efe6; }
 .saved-timeline .timeline { max-height: 360px; overflow-y: auto; }
 @media(max-width: 440px) { .team-setup { gap: 8px; } fieldset { padding: 8px; } .two-column { gap: 8px; } .live-shell { padding: 12px; } }
+
+:host { display: block; font: 14px system-ui, sans-serif; color: #192720; letter-spacing: 0; }
+:host .live-shell { max-width: none; padding: 0; }
+:host #video, :host #savedMatch { display: none; }
+:host .court { max-width: 600px; }
+.court-details { margin-top: 18px; }
+.court-details summary { cursor: pointer; font-weight: 600; }
+.muted { color: #52605b; font-size: 13px; overflow-wrap: anywhere; }
+.notice { padding: 10px; background: #fff4d8; color: #76551a; font-size: 13px; }
+.detail-section { border-top: 1px solid #d5dfd9; padding-block: 12px; }
+.match-summary { display: grid; gap: 8px; margin-block: 12px; }
+.match-summary > div { display: grid; grid-template-columns: 40px minmax(0, 1fr) 56px; gap: 8px; align-items: center; }
+.match-summary strong { font-size: 15px; overflow-wrap: anywhere; }
+.match-summary b { font-size: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+.timeline-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.timeline-heading h2 { margin: 0; }
+.segmented { display: inline-flex; }
+.segmented button { border-radius: 0; font-size: 13px; min-width: 48px; }
+.segmented button + button { margin-left: -1px; }
+.segmented button:first-child { border-radius: 6px 0 0 6px; }
+.segmented button:last-child { border-radius: 0 6px 6px 0; }
+.segmented button[aria-pressed=true] { background: #e0efe6; color: #174f39; font-weight: 700; }
+#videoForm { margin-bottom: 16px; }
+#saveStatus { min-height: 20px; font-size: 13px; overflow-wrap: anywhere; }
+.two-column { align-items: end; }
+@media (min-width: 900px) {
+  :host #session { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; align-items: start; }
+  :host #session > :not(.scoring-panel):not(.court-details) { grid-column: 1 / -1; }
+  :host .court-details { margin-top: 0; }
+  :host .court { max-width: none; margin-bottom: 0; }
+}

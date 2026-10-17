@@ -253,6 +253,18 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.broadcast-board { grid-column: 1 / -1; }
+.broadcast-board > .section-head { flex-direction: row; align-items: center; }
+.broadcast-board > .section-head .icon-text-button { width: auto; flex: 0 0 auto; }
+honey-live { display: block; min-width: 0; }
+.section-nav { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; }
+.section-nav a { color: var(--green, #15654b); text-decoration: none; padding-block: 8px; }
+.history-detail-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: #15654b; padding: 6px 4px; }
+.history-detail-link svg { width: 15px; height: 15px; }
+.history-date-group { flex-wrap: wrap; }
+.video-match-board > summary { cursor: pointer; font-size: 15px; font-weight: 700; padding: 4px 0; }
+.video-match-board[open] > summary { margin-bottom: 16px; }
+
 .section-head {
   display: flex;
   align-items: center;

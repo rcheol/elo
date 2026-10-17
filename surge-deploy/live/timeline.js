@@ -11,11 +11,15 @@ const recordedTime = new Intl.DateTimeFormat("sv-SE", {
   hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
 });
 
-export function renderTimeline(list, session, onPlay) {
-  const clips = session.points.map((point) => {
-    const time = Math.max(0, point.elapsedMs / 1000 + session.videoOffsetSeconds);
-    return { ...point, videoId: session.videoId, time, start: Math.max(0, time - 8), end: time + 3 };
+export function pointClips(session) {
+  return session.points.map((point) => {
+    const time = Number.isFinite(session.videoOffsetSeconds) ? point.elapsedMs / 1000 + session.videoOffsetSeconds : null;
+    return { ...point, videoId: session.videoId, time, playable: Boolean(session.videoId && time !== null && time >= 0), start: Math.max(0, (time || 0) - 8), end: (time || 0) + 3 };
   });
+}
+
+export function renderTimeline(list, session, onPlay) {
+  const clips = pointClips(session);
   list.replaceChildren(...clips.map((point, i) => {
     const li = document.createElement("li");
     const details = document.createElement("div"); details.className = "timeline-point";
@@ -28,7 +32,7 @@ export function renderTimeline(list, session, onPlay) {
     const elapsed = document.createElement("span"); elapsed.className = "point-elapsed";
     elapsed.textContent = `경기 ${elapsedTime(point.elapsedMs / 1000)}`;
     times.append(elapsed);
-    if (session.videoId) {
+    if (point.playable) {
       if (onPlay) {
         const button = document.createElement("button"); button.disabled = true;
         button.textContent = `영상 ${elapsedTime(point.time)}`;
@@ -40,6 +44,10 @@ export function renderTimeline(list, session, onPlay) {
       link.target = "_blank"; link.rel = "noopener noreferrer";
       link.href = `https://www.youtube.com/watch?v=${session.videoId}&t=${Math.floor(point.time)}s`;
       times.append(link);
+    } else if (session.videoId) {
+      const note = document.createElement("span");
+      note.textContent = point.time === null ? "영상 시간 미연결" : "방송 시작 전";
+      times.append(note);
     }
     li.append(details, times);
     return li;

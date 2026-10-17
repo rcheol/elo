@@ -14,7 +14,7 @@ function browser() {
     refreshState: async (options) => calls.push(options),
     showApiError: (error) => errors.push(error.message),
   });
-  vm.runInContext(`let externalRefreshInFlight=false, lastExternalRefresh=0, editingMatchId=null, stickerDrag=null; ${code}`, context);
+  vm.runInContext(`let externalRefreshInFlight=false, externalRefreshQueued=false, lastExternalRefresh=0, editingMatchId=null, stickerDrag=null; ${code}`, context);
   return { context, calls, errors, run: () => vm.runInContext("refreshAfterExternalMatch()", context) };
 }
 test("returning to rankings refreshes once while preserving all scroll positions", async () => {
@@ -46,4 +46,20 @@ test("returning while a dialog is open does not overwrite edits", async () => {
   const page = browser();
   page.context.document.querySelector = () => ({});
   await page.run(); assert.equal(page.calls.length, 0);
+});
+
+test("an embedded save bypasses focus throttling and refreshes again if an older fetch is in flight", async () => {
+  const page = browser();
+  await page.run();
+  await vm.runInContext("refreshAfterExternalMatch(true)", page.context);
+  assert.equal(page.calls.length, 2);
+  let release;
+  page.context.Date.now = () => 14000;
+  page.context.refreshState = () => new Promise((resolve) => { release = resolve; });
+  const pending = page.run();
+  await vm.runInContext("refreshAfterExternalMatch(true)", page.context);
+  page.context.refreshState = async (options) => page.calls.push(options);
+  release(); await pending;
+  assert.equal(page.calls.length, 3);
+  assert.equal(page.calls[2].preserveScroll, true);
 });
