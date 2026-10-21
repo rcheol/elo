@@ -1,5 +1,5 @@
 Honey Serve Workday profile photo and player card workflow
-Last updated: 2026-10-15
+Last updated: 2026-10-21
 
 Use this exact workflow for future player-card requests. Do not rediscover the
 browser, screenshot, crop, prompt, compression, or push path from scratch.
@@ -17,6 +17,12 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
      assets. Use the player's stored gender, not a guess from name or photo.
 
 2. Connect to the requested browser (verified in-app path, 2026-10-15)
+   - Current supported entry point verified on 2026-10-21: mcp__cua_repl.js.
+     First call await cua.getState(), then bind the returned Workday tab with
+     await cua.getTab(tabId, { browser: browserId }). Read its documentation.
+     It supports the same playwright locators and downloadMedia method below.
+     Reuse this connection; no legacy runtime bootstrap is needed when this
+     tool is available. Browser/tab ids must come from the current inventory.
    - Use the user's exact existing Workday tab. Do not silently switch to Edge,
      create another login session, or move desktop windows to the foreground.
    - The successful in-app method uses mcp__node_repl.js and the installed
@@ -168,3 +174,18 @@ Additional seven-member batch on 2026-10-15
   above were used, with the matching male/female base card for each tier.
   Full generation provenance and originals remain local under tmp/ and are not
   published. Existing base cards and other members' images remain unchanged.
+
+Three-member batch on 2026-10-21
+==============================
+
+- Sungsoo Park: Honey Serve jadeontheriver; explicit Workday ss804.park;
+  male; sungsoo-park. The login account is not renamed to the Workday id.
+- Seungyeon Lee: Honey Serve / Workday sngyn.lee; female; seungyeon-lee.
+- Jisu Han: Honey Serve / Workday jisss.han; female; jisu-han.
+- Gender came from the live roster. Each Workday search returned one matching
+  name and account; the person's larger employee-photo image was downloaded.
+- Each member has a profile JPEG and four S/A/B/C figure-card JPEGs. The saved
+  approved medium-low-plus prompt was unchanged. Each card used the profile
+  photo first and its matching gender/tier base image second, through image_gen.
+- Profile JPEGs are at most 512x512 without upscaling. Card JPEGs are 520x780,
+  quality 90. Originals remain local; source metadata is not published.

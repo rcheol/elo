@@ -2109,6 +2109,36 @@ const playerAssetProfiles = [
     cardTiers: [],
     figureCardTiers: ["s", "a", "b", "c"],
   },
+  {
+    identity: "sungsoo-park",
+    gender: "male",
+    accountIds: ["jadeontheriver"],
+    workdaySearchIds: ["ss804.park"],
+    nameIncludes: ["박성수"],
+    photo: "./assets/player-photos/sungsoo-park.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "seungyeon-lee",
+    gender: "female",
+    accountIds: ["sngyn.lee"],
+    workdaySearchIds: ["sngyn.lee"],
+    nameIncludes: ["이승연"],
+    photo: "./assets/player-photos/seungyeon-lee.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "jisu-han",
+    gender: "female",
+    accountIds: ["jisss.han"],
+    workdaySearchIds: ["jisss.han"],
+    nameIncludes: ["한지수"],
+    photo: "./assets/player-photos/jisu-han.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
 ];
 
 const cardFinishByTier = {
