@@ -1,5 +1,5 @@
 Honey Serve Workday profile photo and player card workflow
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 
 Use this exact workflow for future player-card requests. Do not rediscover the
 browser, screenshot, crop, prompt, compression, or push path from scratch.
@@ -189,3 +189,21 @@ Three-member batch on 2026-10-21
   photo first and its matching gender/tier base image second, through image_gen.
 - Profile JPEGs are at most 512x512 without upscaling. Card JPEGs are 520x780,
   quality 90. Originals remain local; source metadata is not published.
+
+Two-member batch on 2026-10-22
+============================
+
+- Woojin Sung: Honey Serve / Workday woojin.sung; male; woojin-sung.
+- Hyun Kim: Honey Serve / Workday hyunnn.kim; female; hyun-kim.
+- Search ids came from the linked website accounts because no overrides were
+  supplied. Each Workday result matched both the requested name and account.
+  Only the verified person's larger employee-photo image was downloaded.
+- Gender came from the live roster, not name or photo inference. Each member
+  has one profile JPEG and four S/A/B/C figure-card JPEGs.
+- Used the unchanged approved medium-low-plus prompt from
+  docs/player-card-prompts.txt and the input-label prefix documented above.
+  Each built-in image_gen call used that person's photo first and the matching
+  male/female tier base card second. Existing base cards were not changed.
+- Final cards are 520x780 JPEGs at quality 90. Profile photos are at most
+  512x512 without upscaling. Downloaded photos and generated originals remain
+  local; source metadata is stripped from published assets.

@@ -2139,6 +2139,26 @@ const playerAssetProfiles = [
     cardTiers: [],
     figureCardTiers: ["s", "a", "b", "c"],
   },
+  {
+    identity: "woojin-sung",
+    gender: "male",
+    accountIds: ["woojin.sung"],
+    workdaySearchIds: ["woojin.sung"],
+    nameIncludes: ["성우진"],
+    photo: "./assets/player-photos/woojin-sung.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "hyun-kim",
+    gender: "female",
+    accountIds: ["hyunnn.kim"],
+    workdaySearchIds: ["hyunnn.kim"],
+    nameIncludes: ["김현"],
+    photo: "./assets/player-photos/hyun-kim.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
 ];
 
 const cardFinishByTier = {
