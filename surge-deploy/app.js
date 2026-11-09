@@ -2159,6 +2159,26 @@ const playerAssetProfiles = [
     cardTiers: [],
     figureCardTiers: ["s", "a", "b", "c"],
   },
+  {
+    identity: "sunghoon-choi",
+    gender: "male",
+    accountIds: ["sh3376.choo"],
+    workdaySearchIds: ["sh3376.choi"],
+    nameIncludes: ["최성훈"],
+    photo: "./assets/player-photos/sunghoon-choi.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "kanghyeok-ko",
+    gender: "male",
+    accountIds: ["dogworld12"],
+    workdaySearchIds: ["kanghyeok.ko"],
+    nameIncludes: ["고강혁"],
+    photo: "./assets/player-photos/kanghyeok-ko.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
 ];
 
 const cardFinishByTier = {
