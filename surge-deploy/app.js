@@ -1681,8 +1681,8 @@ const playerTextTagRules = [
   },
   {
     nameKey: "박성수",
-    label: "지역C조",
-    className: "player-text-tag--local-c",
+    label: "전국C조",
+    className: "player-text-tag--national-c",
   },
   {
     nameKey: "안유진",
@@ -1705,7 +1705,7 @@ function playerTextTags(player) {
   return playerTextTagRules.filter((rule) => playerNameKeys.has(rule.nameKey));
 }
 
-const hiddenRankingPlayerNameKeys = new Set(["조민신"]);
+const hiddenRankingPlayerNameKeys = new Set(["조민신", "드니쉬", "염선웅"]);
 
 function isHiddenFromRankings(player) {
   const playerNameKeys = new Set([
