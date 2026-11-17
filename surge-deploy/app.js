@@ -2179,6 +2179,26 @@ const playerAssetProfiles = [
     cardTiers: [],
     figureCardTiers: ["s", "a", "b", "c"],
   },
+  {
+    identity: "soohwan-lee",
+    gender: "male",
+    accountIds: ["soohwan.lee"],
+    workdaySearchIds: ["soohwan.lee"],
+    nameIncludes: ["이수환"],
+    photo: "./assets/player-photos/soohwan-lee.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
+  {
+    identity: "kwangho-kim",
+    gender: "male",
+    accountIds: ["codikh"],
+    workdaySearchIds: ["kho.kim"],
+    nameIncludes: ["김광호"],
+    photo: "./assets/player-photos/kwangho-kim.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
 ];
 
 const cardFinishByTier = {

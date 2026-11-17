@@ -1,5 +1,5 @@
 Honey Serve Workday profile photo and player card workflow
-Last updated: 2026-11-09
+Last updated: 2026-11-17
 
 Use this exact workflow for future player-card requests. Do not rediscover the
 browser, screenshot, crop, prompt, compression, or push path from scratch.
@@ -17,6 +17,11 @@ browser, screenshot, crop, prompt, compression, or push path from scratch.
      assets. Use the player's stored gender, not a guess from name or photo.
 
 2. Connect to the requested browser (verified in-app path, 2026-10-15)
+   - Verified recovery on 2026-11-17: after the user renews permission to
+     proceed in a new turn, reset the stale cua_repl session with js_reset,
+     then call cua.getState() and bind the existing in-app Workday tab.
+     This restored the connection without changing browser permissions or
+     opening Edge. Never retry in a turn stopped by the user/Escape signal.
    - Current supported entry point verified on 2026-10-21: mcp__cua_repl.js.
      First call await cua.getState(), then bind the returned Workday tab with
      await cua.getTab(tabId, { browser: browserId }). Read its documentation.
@@ -225,3 +230,21 @@ Two-member batch on 2026-11-09
   no upscaling. Originals stay local and published metadata is stripped.
 - Login ids, ratings, match records, base cards, and existing member images
   remain unchanged. Asset tests cover both distinct login/Workday mappings.
+
+Two-member batch on 2026-11-17
+============================
+
+- Soohwan Lee: Honey Serve soohwan.lee; explicit Workday soohwan.lee;
+  male; soohwan-lee.
+- Kwangho Kim: Honey Serve codikh; explicit Workday kho.kim;
+  male; kwangho-kim. Preserve codikh as the website login.
+- Both genders came from the live roster. Each Workday search returned one
+  matching name and id; only that person's larger employee photo was saved.
+- Each member has one profile JPEG and four S/A/B/C figure-card JPEGs.
+  Built-in image_gen used the unchanged approved medium-low-plus prompt in
+  docs/player-card-prompts.txt with the documented input-label prefix,
+  the original photo first, and the matching male tier base card second.
+- Final cards are 520x780 quality-90 JPEGs; portraits are at most 512x512 with
+  no upscaling. Originals stay local and published metadata is stripped.
+- Only new assets and their mappings were added. Login ids, ratings, match
+  records, base cards, and other member images remain unchanged.
