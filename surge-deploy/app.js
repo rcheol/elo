@@ -1705,7 +1705,7 @@ function playerTextTags(player) {
   return playerTextTagRules.filter((rule) => playerNameKeys.has(rule.nameKey));
 }
 
-const hiddenRankingPlayerNameKeys = new Set(["조민신", "드니쉬", "염선웅"]);
+const hiddenRankingPlayerNameKeys = new Set(["조민신", "드니쉬", "염선웅", "김준건"]);
 
 function isHiddenFromRankings(player) {
   const playerNameKeys = new Set([

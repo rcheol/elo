@@ -29,8 +29,8 @@ test("Sungsoo Park uses the national C tag and its matching style", () => {
   assert.equal(playerTextTags({ name: "\uac15\uacbd\uad6d" })[0].label, "\uc9c0\uc5edB\uc870");
 });
 
-test("ranking hides all three configured names, including account suffixes", () => {
-  for (const name of ["\uc870\ubbfc\uc2e0", "\ub4dc\ub2c8\uc26c", "\uc5fc\uc120\uc6c5"]) {
+test("ranking hides all four configured names, including account suffixes", () => {
+  for (const name of ["\uc870\ubbfc\uc2e0", "\ub4dc\ub2c8\uc26c", "\uc5fc\uc120\uc6c5", "\uae40\uc900\uac74"]) {
     assert.equal(isHiddenFromRankings({ name }), true);
     assert.equal(isHiddenFromRankings({ name: ` ${name} (account.id) ` }), true);
     assert.equal(isHiddenFromRankings({ name: `${name}2` }), false);
@@ -44,8 +44,12 @@ test("ranking filtering preserves source players, ratings, matches, and row orde
     Object.freeze({ id: "j", name: "\uc870\ubbfc\uc2e0", rating: 1987 }),
     Object.freeze({ id: "s", name: "\uc5fc\uc120\uc6c5 (seonung)", rating: 1737 }),
     Object.freeze({ id: "r", name: "\ub958\ucca0", rating: 1700 }),
+    Object.freeze({ id: "k", name: "\uae40\uc900\uac74", rating: 1500 }),
   ]);
-  const matches = Object.freeze([Object.freeze({ id: "match", teamA: ["d", "s"], teamB: ["p", "j"] })]);
+  const matches = Object.freeze([
+    Object.freeze({ id: "match", teamA: ["d", "s"], teamB: ["p", "j"] }),
+    Object.freeze({ id: "jun-geon-match", teamA: ["k", "r"], teamB: ["p", "j"] }),
+  ]);
   const state = Object.freeze({ players, matches });
   const before = JSON.stringify(state);
   const visible = visibleRankingStandings(players);
@@ -58,7 +62,7 @@ test("ranking filtering preserves source players, ratings, matches, and row orde
 test("match history still renders games involving hidden ranking players", () => {
   const matches = [
     { id: "older", teamA: ["d", "s"], teamB: ["p", "j"] },
-    { id: "newer", teamA: ["p", "r"], teamB: ["d", "s"] },
+    { id: "newer", teamA: ["p", "r"], teamB: ["d", "k"] },
   ];
   const list = { innerHTML: "", scrollTop: 0 };
   const rendered = [];
