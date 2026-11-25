@@ -35,6 +35,7 @@ const members = [
   { identity: "kanghyeok-ko", account: "dogworld12", workday: "kanghyeok.ko", name: "\uace0\uac15\ud601", gender: "male" },
   { identity: "soohwan-lee", account: "soohwan.lee", workday: "soohwan.lee", name: "\uc774\uc218\ud658", gender: "male" },
   { identity: "kwangho-kim", account: "codikh", workday: "kho.kim", name: "\uae40\uad11\ud638", gender: "male" },
+  { identity: "chaeyun-kim", account: "\uae40\ucc44\uc724", workday: "chaeyuni.kim", name: "\uae40\ucc44\uc724", gender: "female" },
 ];
 
 async function assertJpeg(relativePath) {

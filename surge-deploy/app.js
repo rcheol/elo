@@ -2199,6 +2199,16 @@ const playerAssetProfiles = [
     cardTiers: [],
     figureCardTiers: ["s", "a", "b", "c"],
   },
+  {
+    identity: "chaeyun-kim",
+    gender: "female",
+    accountIds: ["김채윤"],
+    workdaySearchIds: ["chaeyuni.kim"],
+    nameIncludes: ["김채윤"],
+    photo: "./assets/player-photos/chaeyun-kim.jpg",
+    cardTiers: [],
+    figureCardTiers: ["s", "a", "b", "c"],
+  },
 ];
 
 const cardFinishByTier = {

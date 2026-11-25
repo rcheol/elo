@@ -1,5 +1,5 @@
 Honey Serve Workday profile photo and player card workflow
-Last updated: 2026-11-17
+Last updated: 2026-11-25
 
 Use this exact workflow for future player-card requests. Do not rediscover the
 browser, screenshot, crop, prompt, compression, or push path from scratch.
@@ -248,3 +248,19 @@ Two-member batch on 2026-11-17
   no upscaling. Originals stay local and published metadata is stripped.
 - Only new assets and their mappings were added. Login ids, ratings, match
   records, base cards, and other member images remain unchanged.
+
+Member assets generated on 2026-11-25
+===================================
+
+- Chaeyun Kim: Honey Serve login is the Korean name 김채윤; explicit Workday
+  override chaeyuni.kim; female from the live roster; identity chaeyun-kim.
+  Preserve the registered login rather than replacing it with the Workday id.
+- The Workday result matched both the requested name and search id. The larger
+  employee photo was downloaded through the existing in-app browser.
+- One profile JPEG and S/A/B/C figure cards use the unchanged approved
+  medium-low-plus prompt in docs/player-card-prompts.txt. Each built-in
+  image_gen call received the original portrait first and the female tier
+  base second, with the documented input-label prefix.
+- Cards are 520x780 quality-90 JPEGs; the portrait is at most 512x512 without
+  upscaling. Originals stay local and published metadata is stripped.
+- Login ids, ratings, matches, base cards, and other member assets are unchanged.
